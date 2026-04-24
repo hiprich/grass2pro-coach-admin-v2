@@ -1,0 +1,15 @@
+name = "grass2pro-coach-api"
+main = "src/worker.js"
+compatibility_date = "2026-04-24"
+
+[vars]
+AIRTABLE_COACHES_TABLE = "Coaches"
+AIRTABLE_PLAYERS_TABLE = "Players"
+AIRTABLE_PARENTS_TABLE = "Parents"
+AIRTABLE_MEDIA_CONSENTS_TABLE = "Media Consents"
+AIRTABLE_COACH_FILTER = ""
+ALLOWED_ORIGIN = "https://coach.grass2pro.com"
+
+# Add secrets with:
+# wrangler secret put AIRTABLE_TOKEN
+# wrangler secret put AIRTABLE_BASE_ID
