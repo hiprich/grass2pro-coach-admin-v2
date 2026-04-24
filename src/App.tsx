@@ -1,12 +1,18 @@
 import {
   AlertTriangle,
+  Banknote,
+  CalendarDays,
   Camera,
   CheckCircle2,
   ClipboardCheck,
+  ClipboardList,
+  Clock,
   FileText,
   Home,
+  MapPin,
   Menu,
   Moon,
+  PoundSterling,
   Search,
   ShieldCheck,
   Sun,
@@ -18,6 +24,13 @@ import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 
 type ConsentStatus = "green" | "amber" | "red" | "grey";
+
+type AttendanceStatus = "present" | "absent" | "late" | "injured" | "excused";
+
+type PaymentStatus = "paid" | "unpaid" | "overdue" | "part-paid" | "waived";
+
+type SessionType = "training" | "match" | "trial" | "festival";
+type SessionState = "scheduled" | "completed" | "cancelled";
 
 type Coach = {
   id: string;
@@ -46,9 +59,52 @@ type Player = {
   progressScore: number;
 };
 
+type Session = {
+  id: string;
+  name: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  location: string;
+  team: string;
+  ageGroup: string;
+  coach: string;
+  type: SessionType;
+  state: SessionState;
+  notes: string;
+};
+
+type AttendanceRecord = {
+  id: string;
+  sessionId: string;
+  playerId: string;
+  playerName: string;
+  status: AttendanceStatus;
+  parentNotified: boolean;
+  arrivalTime: string;
+  coachNotes: string;
+};
+
+type Payment = {
+  id: string;
+  playerId: string;
+  playerName: string;
+  description: string;
+  amountDue: number;
+  amountPaid: number;
+  dueDate: string;
+  status: PaymentStatus;
+  paymentType: string;
+  paymentLink: string;
+  notes: string;
+};
+
 type AdminData = {
   coach: Coach;
   players: Player[];
+  sessions: Session[];
+  attendance: AttendanceRecord[];
+  payments: Payment[];
   sidebar: Array<{ id: string; label: string; count: number; icon: string }>;
   updatedAt: string;
 };
@@ -69,6 +125,312 @@ type ConsentPayload = {
   notes: string;
 };
 
+const demoPlayers: Player[] = [
+  {
+    id: "ply_01",
+    name: "Jayden Cole",
+    ageGroup: "U11",
+    team: "Grass2Pro West",
+    position: "CM",
+    status: "Active",
+    guardianName: "M. Cole",
+    consentStatus: "green",
+    photoConsent: true,
+    videoConsent: true,
+    websiteConsent: true,
+    socialConsent: false,
+    highlightsConsent: true,
+    reviewDue: "2026-05-02",
+    progressScore: 84,
+  },
+  {
+    id: "ply_02",
+    name: "Noah Patel",
+    ageGroup: "U11",
+    team: "Grass2Pro West",
+    position: "RW",
+    status: "Active",
+    guardianName: "A. Patel",
+    consentStatus: "amber",
+    photoConsent: true,
+    videoConsent: true,
+    websiteConsent: false,
+    socialConsent: false,
+    highlightsConsent: false,
+    reviewDue: "2026-05-07",
+    progressScore: 71,
+  },
+  {
+    id: "ply_03",
+    name: "Leo Brooks",
+    ageGroup: "U8",
+    team: "Grass2Pro Juniors",
+    position: "ST",
+    status: "Needs parent follow-up",
+    guardianName: "S. Brooks",
+    consentStatus: "grey",
+    photoConsent: false,
+    videoConsent: false,
+    websiteConsent: false,
+    socialConsent: false,
+    highlightsConsent: false,
+    reviewDue: "2026-05-10",
+    progressScore: 48,
+  },
+  {
+    id: "ply_04",
+    name: "Amari James",
+    ageGroup: "U11",
+    team: "Grass2Pro West",
+    position: "CB",
+    status: "Withdrawn media consent",
+    guardianName: "T. James",
+    consentStatus: "red",
+    photoConsent: false,
+    videoConsent: false,
+    websiteConsent: false,
+    socialConsent: false,
+    highlightsConsent: false,
+    reviewDue: "2026-05-12",
+    progressScore: 67,
+  },
+  {
+    id: "ply_05",
+    name: "Ethan Smith",
+    ageGroup: "U8",
+    team: "Grass2Pro Juniors",
+    position: "GK",
+    status: "Active",
+    guardianName: "R. Smith",
+    consentStatus: "green",
+    photoConsent: true,
+    videoConsent: true,
+    websiteConsent: false,
+    socialConsent: false,
+    highlightsConsent: true,
+    reviewDue: "2026-05-04",
+    progressScore: 76,
+  },
+];
+
+const demoSessions: Session[] = [
+  {
+    id: "ses_01",
+    name: "U11 West - Technical Training",
+    date: "2026-04-28",
+    startTime: "17:30",
+    endTime: "19:00",
+    location: "Pitch 3, Hackney Marshes",
+    team: "Grass2Pro West",
+    ageGroup: "U11",
+    coach: "Kobby Mensah",
+    type: "training",
+    state: "scheduled",
+    notes: "Focus on first-touch and turning under pressure. Bibs and cones already in the shed.",
+  },
+  {
+    id: "ses_02",
+    name: "U8 Juniors - Skills Session",
+    date: "2026-04-29",
+    startTime: "16:00",
+    endTime: "17:00",
+    location: "Community Astro, Hackney",
+    team: "Grass2Pro Juniors",
+    ageGroup: "U8",
+    coach: "Kobby Mensah",
+    type: "training",
+    state: "scheduled",
+    notes: "Rolling small-sided games. Parents reminded to bring water bottles.",
+  },
+  {
+    id: "ses_03",
+    name: "U11 West vs Riverside Rovers",
+    date: "2026-05-03",
+    startTime: "10:30",
+    endTime: "12:00",
+    location: "Home Pitch, Grass2Pro Ground",
+    team: "Grass2Pro West",
+    ageGroup: "U11",
+    coach: "Kobby Mensah",
+    type: "match",
+    state: "scheduled",
+    notes: "Friendly fixture. Ensure consent statuses checked before any match-day filming.",
+  },
+  {
+    id: "ses_04",
+    name: "U11 West - Tactical Review",
+    date: "2026-04-21",
+    startTime: "17:30",
+    endTime: "18:45",
+    location: "Pitch 3, Hackney Marshes",
+    team: "Grass2Pro West",
+    ageGroup: "U11",
+    coach: "Kobby Mensah",
+    type: "training",
+    state: "completed",
+    notes: "Completed session. Amari sat out due to media consent withdrawal while filming was in progress.",
+  },
+  {
+    id: "ses_05",
+    name: "U8 Juniors - Spring Festival",
+    date: "2026-04-19",
+    startTime: "09:30",
+    endTime: "12:30",
+    location: "Waltham Forest Community Pitches",
+    team: "Grass2Pro Juniors",
+    ageGroup: "U8",
+    coach: "Kobby Mensah",
+    type: "festival",
+    state: "completed",
+    notes: "Three round-robin games. Great team attitude, noted in parent follow-ups.",
+  },
+  {
+    id: "ses_06",
+    name: "U8 Juniors - Rain Off",
+    date: "2026-04-15",
+    startTime: "16:00",
+    endTime: "17:00",
+    location: "Community Astro, Hackney",
+    team: "Grass2Pro Juniors",
+    ageGroup: "U8",
+    coach: "Kobby Mensah",
+    type: "training",
+    state: "cancelled",
+    notes: "Cancelled due to weather. Rescheduled to 22 April slot.",
+  },
+];
+
+const demoAttendance: AttendanceRecord[] = [
+  {
+    id: "att_01",
+    sessionId: "ses_04",
+    playerId: "ply_01",
+    playerName: "Jayden Cole",
+    status: "present",
+    parentNotified: true,
+    arrivalTime: "17:25",
+    coachNotes: "Led the warm-up. Strong session, confident on the ball.",
+  },
+  {
+    id: "att_02",
+    sessionId: "ses_04",
+    playerId: "ply_02",
+    playerName: "Noah Patel",
+    status: "late",
+    parentNotified: true,
+    arrivalTime: "17:55",
+    coachNotes: "Arrived mid warm-up due to school run. Joined drills at 18:00.",
+  },
+  {
+    id: "att_03",
+    sessionId: "ses_04",
+    playerId: "ply_04",
+    playerName: "Amari James",
+    status: "excused",
+    parentNotified: true,
+    arrivalTime: "",
+    coachNotes: "Excused to keep the session media-free during filming. Rejoining Thursday.",
+  },
+  {
+    id: "att_04",
+    sessionId: "ses_05",
+    playerId: "ply_03",
+    playerName: "Leo Brooks",
+    status: "injured",
+    parentNotified: true,
+    arrivalTime: "09:30",
+    coachNotes: "Ankle knock from school. Did light mobility work, did not play matches.",
+  },
+  {
+    id: "att_05",
+    sessionId: "ses_05",
+    playerId: "ply_05",
+    playerName: "Ethan Smith",
+    status: "present",
+    parentNotified: true,
+    arrivalTime: "09:20",
+    coachNotes: "Kept two clean sheets across rotations. Confident distribution.",
+  },
+  {
+    id: "att_06",
+    sessionId: "ses_05",
+    playerId: "ply_03",
+    playerName: "Leo Brooks",
+    status: "absent",
+    parentNotified: false,
+    arrivalTime: "",
+    coachNotes: "No show, no message from parent. Flag for Monday follow-up call.",
+  },
+];
+
+const demoPayments: Payment[] = [
+  {
+    id: "pay_01",
+    playerId: "ply_01",
+    playerName: "Jayden Cole",
+    description: "May monthly subscription",
+    amountDue: 65,
+    amountPaid: 65,
+    dueDate: "2026-05-01",
+    status: "paid",
+    paymentType: "Standing order",
+    paymentLink: "https://example.com/tracking/pay_01",
+    notes: "Paid via bank standing order — reference only, no card data stored.",
+  },
+  {
+    id: "pay_02",
+    playerId: "ply_02",
+    playerName: "Noah Patel",
+    description: "May monthly subscription",
+    amountDue: 65,
+    amountPaid: 30,
+    dueDate: "2026-05-01",
+    status: "part-paid",
+    paymentType: "Bank transfer",
+    paymentLink: "https://example.com/tracking/pay_02",
+    notes: "Parent split payment between siblings. Balance expected end of month.",
+  },
+  {
+    id: "pay_03",
+    playerId: "ply_03",
+    playerName: "Leo Brooks",
+    description: "April monthly subscription",
+    amountDue: 55,
+    amountPaid: 0,
+    dueDate: "2026-04-01",
+    status: "overdue",
+    paymentType: "Invoice",
+    paymentLink: "https://example.com/tracking/pay_03",
+    notes: "Parent away on deployment. Agreed to catch up in May. Monitor only.",
+  },
+  {
+    id: "pay_04",
+    playerId: "ply_04",
+    playerName: "Amari James",
+    description: "May monthly subscription",
+    amountDue: 65,
+    amountPaid: 0,
+    dueDate: "2026-05-01",
+    status: "unpaid",
+    paymentType: "Invoice",
+    paymentLink: "https://example.com/tracking/pay_04",
+    notes: "Awaiting parent confirmation of bank details on file.",
+  },
+  {
+    id: "pay_05",
+    playerId: "ply_05",
+    playerName: "Ethan Smith",
+    description: "Spring Festival fee",
+    amountDue: 15,
+    amountPaid: 0,
+    dueDate: "2026-04-19",
+    status: "waived",
+    paymentType: "Hardship waiver",
+    paymentLink: "",
+    notes: "Waived under Grass2Pro hardship policy. Approved by head coach.",
+  },
+];
+
 const demoData: AdminData = {
   coach: {
     id: "rec_demo_coach",
@@ -77,97 +439,17 @@ const demoData: AdminData = {
     credential: "FA Level 1 | DBS checked",
     email: "coach@grass2pro.com",
   },
-  players: [
-    {
-      id: "ply_01",
-      name: "Jayden Cole",
-      ageGroup: "U11",
-      team: "Grass2Pro West",
-      position: "CM",
-      status: "Active",
-      guardianName: "M. Cole",
-      consentStatus: "green",
-      photoConsent: true,
-      videoConsent: true,
-      websiteConsent: true,
-      socialConsent: false,
-      highlightsConsent: true,
-      reviewDue: "2026-05-02",
-      progressScore: 84,
-    },
-    {
-      id: "ply_02",
-      name: "Noah Patel",
-      ageGroup: "U11",
-      team: "Grass2Pro West",
-      position: "RW",
-      status: "Active",
-      guardianName: "A. Patel",
-      consentStatus: "amber",
-      photoConsent: true,
-      videoConsent: true,
-      websiteConsent: false,
-      socialConsent: false,
-      highlightsConsent: false,
-      reviewDue: "2026-05-07",
-      progressScore: 71,
-    },
-    {
-      id: "ply_03",
-      name: "Leo Brooks",
-      ageGroup: "U8",
-      team: "Grass2Pro Juniors",
-      position: "ST",
-      status: "Needs parent follow-up",
-      guardianName: "S. Brooks",
-      consentStatus: "grey",
-      photoConsent: false,
-      videoConsent: false,
-      websiteConsent: false,
-      socialConsent: false,
-      highlightsConsent: false,
-      reviewDue: "2026-05-10",
-      progressScore: 48,
-    },
-    {
-      id: "ply_04",
-      name: "Amari James",
-      ageGroup: "U11",
-      team: "Grass2Pro West",
-      position: "CB",
-      status: "Withdrawn media consent",
-      guardianName: "T. James",
-      consentStatus: "red",
-      photoConsent: false,
-      videoConsent: false,
-      websiteConsent: false,
-      socialConsent: false,
-      highlightsConsent: false,
-      reviewDue: "2026-05-12",
-      progressScore: 67,
-    },
-    {
-      id: "ply_05",
-      name: "Ethan Smith",
-      ageGroup: "U8",
-      team: "Grass2Pro Juniors",
-      position: "GK",
-      status: "Active",
-      guardianName: "R. Smith",
-      consentStatus: "green",
-      photoConsent: true,
-      videoConsent: true,
-      websiteConsent: false,
-      socialConsent: false,
-      highlightsConsent: true,
-      reviewDue: "2026-05-04",
-      progressScore: 76,
-    },
-  ],
+  players: demoPlayers,
+  sessions: demoSessions,
+  attendance: demoAttendance,
+  payments: demoPayments,
   sidebar: [
-    { id: "overview", label: "Overview", count: 5, icon: "home" },
-    { id: "players", label: "Players", count: 5, icon: "users" },
-    { id: "safeguarding", label: "Safeguarding", count: 2, icon: "shield" },
+    { id: "overview", label: "Overview", count: demoPlayers.length, icon: "home" },
+    { id: "players", label: "Players", count: demoPlayers.length, icon: "users" },
+    { id: "sessions", label: "Sessions", count: demoSessions.length, icon: "calendar" },
+    { id: "attendance", label: "Attendance", count: demoAttendance.length, icon: "clipboard" },
+    { id: "safeguarding", label: "Safeguarding", count: demoPlayers.filter((p) => p.consentStatus === "grey" || p.consentStatus === "red").length, icon: "shield" },
+    { id: "payments", label: "Payments", count: demoPayments.length, icon: "pound" },
     { id: "consent", label: "Consent Form", count: 0, icon: "file" },
   ],
   updatedAt: new Date().toISOString(),
@@ -211,6 +493,9 @@ const iconMap = {
   users: Users,
   shield: ShieldCheck,
   file: FileText,
+  calendar: CalendarDays,
+  clipboard: ClipboardList,
+  pound: PoundSterling,
 };
 
 function initials(name: string) {
@@ -220,6 +505,24 @@ function initials(name: string) {
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase())
     .join("");
+}
+
+function formatDate(iso: string) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function formatShortDate(iso: string) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
+}
+
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" }).format(value);
 }
 
 const apiBase = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
@@ -235,7 +538,17 @@ async function loadAdminData(): Promise<AdminData> {
   try {
     const response = await fetch(apiPath("/admin-data"));
     if (!response.ok) throw new Error("Admin data unavailable");
-    return await response.json();
+    const payload = (await response.json()) as Partial<AdminData>;
+    return {
+      ...demoData,
+      ...payload,
+      sessions: payload.sessions ?? demoData.sessions,
+      attendance: payload.attendance ?? demoData.attendance,
+      payments: payload.payments ?? demoData.payments,
+      sidebar: payload.sidebar ?? demoData.sidebar,
+      players: payload.players ?? demoData.players,
+      coach: payload.coach ?? demoData.coach,
+    } as AdminData;
   } catch {
     return demoData;
   }
@@ -294,6 +607,59 @@ function ConsentBadge({ status }: { status: ConsentStatus }) {
       {status === "red" && <X size={14} aria-hidden="true" />}
       {status === "grey" && <ClipboardCheck size={14} aria-hidden="true" />}
       {label}
+    </span>
+  );
+}
+
+const attendanceLabel: Record<AttendanceStatus, string> = {
+  present: "Present",
+  absent: "Absent",
+  late: "Late",
+  injured: "Injured",
+  excused: "Excused",
+};
+
+function AttendanceBadge({ status }: { status: AttendanceStatus }) {
+  return (
+    <span className={`status-pill attendance-${status}`} data-testid={`badge-attendance-${status}`}>
+      {attendanceLabel[status]}
+    </span>
+  );
+}
+
+const paymentLabel: Record<PaymentStatus, string> = {
+  paid: "Paid",
+  unpaid: "Unpaid",
+  overdue: "Overdue",
+  "part-paid": "Part-paid",
+  waived: "Waived",
+};
+
+function PaymentBadge({ status }: { status: PaymentStatus }) {
+  return (
+    <span className={`status-pill payment-${status}`} data-testid={`badge-payment-${status}`}>
+      {paymentLabel[status]}
+    </span>
+  );
+}
+
+const sessionStateLabel: Record<SessionState, string> = {
+  scheduled: "Scheduled",
+  completed: "Completed",
+  cancelled: "Cancelled",
+};
+
+const sessionTypeLabel: Record<SessionType, string> = {
+  training: "Training",
+  match: "Match",
+  trial: "Trial",
+  festival: "Festival",
+};
+
+function SessionStateBadge({ state }: { state: SessionState }) {
+  return (
+    <span className={`status-pill session-${state}`} data-testid={`badge-session-${state}`}>
+      {sessionStateLabel[state]}
     </span>
   );
 }
@@ -566,6 +932,421 @@ function PlayerList({ players }: { players: Player[] }) {
         </div>
       )}
     </section>
+  );
+}
+
+function Sessions({ sessions }: { sessions: Session[] }) {
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<"all" | SessionState>("all");
+
+  const now = new Date();
+  const upcoming = sessions.filter((s) => s.state === "scheduled" && new Date(s.date) >= new Date(now.toDateString())).length;
+  const completed = sessions.filter((s) => s.state === "completed").length;
+  const cancelled = sessions.filter((s) => s.state === "cancelled").length;
+
+  const filtered = useMemo(() => {
+    return sessions
+      .filter((s) => {
+        const matchesFilter = filter === "all" || s.state === filter;
+        const matchesQuery = `${s.name} ${s.team} ${s.ageGroup} ${s.location} ${s.coach}`
+          .toLowerCase()
+          .includes(query.toLowerCase());
+        return matchesFilter && matchesQuery;
+      })
+      .slice()
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }, [filter, query, sessions]);
+
+  return (
+    <>
+      <section className="kpi-grid" aria-label="Session KPIs">
+        <KpiCard label="Upcoming" value={upcoming} foot="Scheduled sessions to come" icon={CalendarDays} />
+        <KpiCard label="Completed" value={completed} foot="Recent sessions delivered" icon={CheckCircle2} />
+        <KpiCard label="Cancelled" value={cancelled} foot="Cancelled or rained off" icon={X} />
+        <KpiCard label="Total tracked" value={sessions.length} foot="All session records" icon={ClipboardCheck} />
+      </section>
+      <section className="panel player-table-card" aria-labelledby="sessions-title">
+        <div className="toolbar">
+          <div>
+            <div className="page-kicker">Sessions</div>
+            <h2 id="sessions-title" className="page-title">
+              Upcoming and recent sessions
+            </h2>
+          </div>
+          <label className="search-field">
+            <Search size={18} aria-hidden="true" />
+            <span className="sr-only">Search sessions</span>
+            <input
+              data-testid="input-search-sessions"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search sessions, teams or venues"
+            />
+          </label>
+        </div>
+        <div className="filter-row" aria-label="Session filters">
+          {(["all", "scheduled", "completed", "cancelled"] as const).map((status) => (
+            <button
+              key={status}
+              type="button"
+              className={`filter-button ${filter === status ? "active" : ""}`}
+              onClick={() => setFilter(status)}
+              data-testid={`button-session-filter-${status}`}
+            >
+              {status === "all" ? "All" : status}
+            </button>
+          ))}
+        </div>
+        {filtered.length === 0 ? (
+          <div className="empty-state">
+            <CalendarDays size={32} aria-hidden="true" />
+            <h3>No matching sessions</h3>
+            <p>Try a different search or status filter. Demo data includes upcoming, completed and cancelled records.</p>
+          </div>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Session</th>
+                  <th>Date &amp; time</th>
+                  <th>Location</th>
+                  <th>Team</th>
+                  <th>Coach</th>
+                  <th>Type / Status</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((session) => (
+                  <tr key={session.id} data-testid={`row-session-${session.id}`}>
+                    <td>
+                      <span className="player-name" data-testid={`text-session-name-${session.id}`}>
+                        {session.name}
+                      </span>
+                      <div className="player-sub">{session.ageGroup}</div>
+                    </td>
+                    <td>
+                      <div className="inline-meta">
+                        <CalendarDays size={14} aria-hidden="true" />
+                        <span>{formatDate(session.date)}</span>
+                      </div>
+                      <div className="inline-meta muted">
+                        <Clock size={14} aria-hidden="true" />
+                        <span>
+                          {session.startTime}–{session.endTime}
+                        </span>
+                      </div>
+                    </td>
+                    <td>
+                      <div className="inline-meta">
+                        <MapPin size={14} aria-hidden="true" />
+                        <span>{session.location}</span>
+                      </div>
+                    </td>
+                    <td>
+                      <strong>{session.team}</strong>
+                      <div className="player-sub">{session.ageGroup}</div>
+                    </td>
+                    <td>{session.coach}</td>
+                    <td>
+                      <SessionStateBadge state={session.state} />
+                      <div className="player-sub">{sessionTypeLabel[session.type]}</div>
+                    </td>
+                    <td>
+                      <span className="notes-cell">{session.notes}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </>
+  );
+}
+
+function Attendance({ attendance, sessions }: { attendance: AttendanceRecord[]; sessions: Session[] }) {
+  const [filter, setFilter] = useState<"all" | AttendanceStatus>("all");
+  const [sessionId, setSessionId] = useState<string>("all");
+
+  const sessionLookup = useMemo(() => Object.fromEntries(sessions.map((s) => [s.id, s])), [sessions]);
+
+  const filtered = useMemo(() => {
+    return attendance.filter((record) => {
+      const matchesStatus = filter === "all" || record.status === filter;
+      const matchesSession = sessionId === "all" || record.sessionId === sessionId;
+      return matchesStatus && matchesSession;
+    });
+  }, [attendance, filter, sessionId]);
+
+  const counts = useMemo(() => {
+    const base: Record<AttendanceStatus, number> = {
+      present: 0,
+      absent: 0,
+      late: 0,
+      injured: 0,
+      excused: 0,
+    };
+    for (const record of attendance) base[record.status] += 1;
+    return base;
+  }, [attendance]);
+
+  const attendanceRate = attendance.length
+    ? Math.round(((counts.present + counts.late) / attendance.length) * 100)
+    : 0;
+
+  return (
+    <>
+      <section className="kpi-grid" aria-label="Attendance KPIs">
+        <KpiCard label="Attendance rate" value={`${attendanceRate}%`} foot="Present or late, across tracked sessions" icon={CheckCircle2} />
+        <KpiCard label="Present" value={counts.present} foot="On time or early" icon={CheckCircle2} />
+        <KpiCard label="Late" value={counts.late} foot="Arrived after session start" icon={Clock} />
+        <KpiCard label="Absent" value={counts.absent} foot="No show, follow up with parent" icon={AlertTriangle} />
+      </section>
+      <section className="panel player-table-card" aria-labelledby="attendance-title">
+        <div className="toolbar">
+          <div>
+            <div className="page-kicker">Attendance</div>
+            <h2 id="attendance-title" className="page-title">
+              Session attendance log
+            </h2>
+          </div>
+          <label className="search-field select-field">
+            <span className="sr-only">Filter by session</span>
+            <select
+              data-testid="select-attendance-session"
+              value={sessionId}
+              onChange={(event) => setSessionId(event.target.value)}
+            >
+              <option value="all">All sessions</option>
+              {sessions.map((session) => (
+                <option key={session.id} value={session.id}>
+                  {formatShortDate(session.date)} · {session.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="filter-row" aria-label="Attendance status filters">
+          {(["all", "present", "late", "absent", "injured", "excused"] as const).map((status) => (
+            <button
+              key={status}
+              type="button"
+              className={`filter-button ${filter === status ? "active" : ""}`}
+              onClick={() => setFilter(status)}
+              data-testid={`button-attendance-filter-${status}`}
+            >
+              {status === "all" ? "All" : status}
+            </button>
+          ))}
+        </div>
+        {filtered.length === 0 ? (
+          <div className="empty-state">
+            <ClipboardList size={32} aria-hidden="true" />
+            <h3>No matching attendance records</h3>
+            <p>Try a different session or status filter. Demo data includes a mix of present, late, absent, injured and excused.</p>
+          </div>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Player</th>
+                  <th>Session</th>
+                  <th>Status</th>
+                  <th>Arrival</th>
+                  <th>Parent notified</th>
+                  <th>Coach notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((record) => {
+                  const session = sessionLookup[record.sessionId];
+                  return (
+                    <tr key={record.id} data-testid={`row-attendance-${record.id}`}>
+                      <td>
+                        <div className="player-cell">
+                          <span className="player-avatar">{initials(record.playerName)}</span>
+                          <span>
+                            <span className="player-name">{record.playerName}</span>
+                            <span className="player-sub">{session?.ageGroup ?? ""} {session?.team ? `· ${session.team}` : ""}</span>
+                          </span>
+                        </div>
+                      </td>
+                      <td>
+                        <strong>{session?.name ?? "Unknown session"}</strong>
+                        <div className="player-sub">
+                          {session ? `${formatShortDate(session.date)} · ${session.startTime}` : ""}
+                        </div>
+                      </td>
+                      <td>
+                        <AttendanceBadge status={record.status} />
+                      </td>
+                      <td>{record.arrivalTime || "—"}</td>
+                      <td>
+                        <span className={`status-pill ${record.parentNotified ? "notify-yes" : "notify-no"}`}>
+                          {record.parentNotified ? "Notified" : "Pending"}
+                        </span>
+                      </td>
+                      <td>
+                        <span className="notes-cell">{record.coachNotes || "—"}</span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </>
+  );
+}
+
+function Payments({ payments }: { payments: Payment[] }) {
+  const [filter, setFilter] = useState<"all" | PaymentStatus>("all");
+  const [query, setQuery] = useState("");
+
+  const totals = useMemo(() => {
+    const totalDue = payments.reduce((sum, p) => sum + p.amountDue, 0);
+    const totalPaid = payments.reduce((sum, p) => sum + p.amountPaid, 0);
+    const overdue = payments.filter((p) => p.status === "overdue").length;
+    const unpaid = payments.filter((p) => p.status === "unpaid" || p.status === "part-paid").length;
+    return { totalDue, totalPaid, balance: totalDue - totalPaid, overdue, unpaid };
+  }, [payments]);
+
+  const filtered = useMemo(() => {
+    return payments.filter((payment) => {
+      const matchesFilter = filter === "all" || payment.status === filter;
+      const matchesQuery = `${payment.playerName} ${payment.description} ${payment.paymentType}`
+        .toLowerCase()
+        .includes(query.toLowerCase());
+      return matchesFilter && matchesQuery;
+    });
+  }, [filter, payments, query]);
+
+  return (
+    <>
+      <section className="payments-callout" role="note" aria-label="Payments safety note">
+        <ShieldCheck size={20} aria-hidden="true" />
+        <div>
+          <strong>Tracking-only demo — no card or bank details should be stored in Airtable.</strong>
+          <p>
+            Grass2Pro does not process payments in this dashboard. Record amounts due, amounts paid, and a reference link to your external payment provider. Never save card numbers, CVVs, full bank details or any raw PCI data in Airtable.
+          </p>
+        </div>
+      </section>
+      <section className="kpi-grid" aria-label="Payments KPIs">
+        <KpiCard label="Total due" value={formatCurrency(totals.totalDue)} foot="Sum of amounts due in demo data" icon={PoundSterling} />
+        <KpiCard label="Total paid" value={formatCurrency(totals.totalPaid)} foot="Amounts marked as received" icon={Banknote} />
+        <KpiCard label="Balance" value={formatCurrency(totals.balance)} foot="Outstanding across players" icon={ClipboardCheck} />
+        <KpiCard label="Overdue" value={totals.overdue} foot={`${totals.unpaid} unpaid / part-paid`} icon={AlertTriangle} />
+      </section>
+      <section className="panel player-table-card" aria-labelledby="payments-title">
+        <div className="toolbar">
+          <div>
+            <div className="page-kicker">Payments</div>
+            <h2 id="payments-title" className="page-title">
+              Subscription &amp; fee tracking
+            </h2>
+          </div>
+          <label className="search-field">
+            <Search size={18} aria-hidden="true" />
+            <span className="sr-only">Search payments</span>
+            <input
+              data-testid="input-search-payments"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search player, fee or type"
+            />
+          </label>
+        </div>
+        <div className="filter-row" aria-label="Payment status filters">
+          {(["all", "paid", "unpaid", "overdue", "part-paid", "waived"] as const).map((status) => (
+            <button
+              key={status}
+              type="button"
+              className={`filter-button ${filter === status ? "active" : ""}`}
+              onClick={() => setFilter(status)}
+              data-testid={`button-payment-filter-${status}`}
+            >
+              {status === "all" ? "All" : paymentLabel[status]}
+            </button>
+          ))}
+        </div>
+        {filtered.length === 0 ? (
+          <div className="empty-state">
+            <PoundSterling size={32} aria-hidden="true" />
+            <h3>No matching payment records</h3>
+            <p>Try a different status or search. Payment tracking is demo data only.</p>
+          </div>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Player</th>
+                  <th>Fee</th>
+                  <th>Due</th>
+                  <th>Paid</th>
+                  <th>Balance</th>
+                  <th>Due date</th>
+                  <th>Status</th>
+                  <th>Type / Link</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((payment) => {
+                  const balance = payment.amountDue - payment.amountPaid;
+                  return (
+                    <tr key={payment.id} data-testid={`row-payment-${payment.id}`}>
+                      <td>
+                        <div className="player-cell">
+                          <span className="player-avatar">{initials(payment.playerName)}</span>
+                          <span className="player-name">{payment.playerName}</span>
+                        </div>
+                      </td>
+                      <td>{payment.description}</td>
+                      <td>{formatCurrency(payment.amountDue)}</td>
+                      <td>{formatCurrency(payment.amountPaid)}</td>
+                      <td>
+                        <strong>{formatCurrency(balance)}</strong>
+                      </td>
+                      <td>{formatShortDate(payment.dueDate)}</td>
+                      <td>
+                        <PaymentBadge status={payment.status} />
+                      </td>
+                      <td>
+                        <div className="player-sub">{payment.paymentType}</div>
+                        {payment.paymentLink ? (
+                          <a
+                            className="payment-link"
+                            href={payment.paymentLink}
+                            target="_blank"
+                            rel="noreferrer"
+                            data-testid={`link-payment-${payment.id}`}
+                          >
+                            Tracking link
+                          </a>
+                        ) : (
+                          <span className="player-sub">No link</span>
+                        )}
+                      </td>
+                      <td>
+                        <span className="notes-cell">{payment.notes}</span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </>
   );
 }
 
@@ -874,7 +1655,10 @@ function App() {
   const title = {
     overview: "Overview",
     players: "Players",
+    sessions: "Sessions",
+    attendance: "Attendance",
     safeguarding: "Safeguarding",
+    payments: "Payments",
     consent: "Consent Form",
   }[activeView] ?? "Overview";
 
@@ -916,7 +1700,10 @@ function App() {
         <div className="content">
           {activeView === "overview" && <Overview data={data} />}
           {activeView === "players" && <PlayerList players={data.players} />}
+          {activeView === "sessions" && <Sessions sessions={data.sessions} />}
+          {activeView === "attendance" && <Attendance attendance={data.attendance} sessions={data.sessions} />}
           {activeView === "safeguarding" && <Safeguarding players={data.players} />}
+          {activeView === "payments" && <Payments payments={data.payments} />}
           {activeView === "consent" && <ConsentForm />}
         </div>
       </main>
