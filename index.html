@@ -3,17 +3,51 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="alternate icon" type="image/png" href="/icons/icon-192.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta
       name="description"
       content="Grass2Pro coach admin prototype with Airtable-powered players, coach profile, safeguarding consent tracking and parent media consent forms."
     />
+
+    <!-- PWA / installability -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#245c2f" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#10140f" media="(prefers-color-scheme: dark)" />
+    <meta name="application-name" content="Grass2Pro Coach" />
+
+    <!-- iOS / Safari home-screen support -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="G2P Coach" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
+    <link rel="mask-icon" href="/favicon.svg" color="#245c2f" />
+
+    <!-- Open Graph -->
     <meta property="og:title" content="Grass2Pro Coach Admin" />
     <meta
       property="og:description"
       content="Coach dashboard for grassroots football player media consent, KPIs, and Airtable-backed player records."
     />
     <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Grass2Pro Coach" />
+    <meta property="og:url" content="https://coach.grass2pro.com/" />
+    <meta property="og:image" content="https://coach.grass2pro.com/icons/icon-512.png" />
+    <meta property="og:image:width" content="512" />
+    <meta property="og:image:height" content="512" />
+    <meta property="og:locale" content="en_GB" />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Grass2Pro Coach Admin" />
+    <meta
+      name="twitter:description"
+      content="Coach dashboard for grassroots football player media consent, KPIs, and Airtable-backed player records."
+    />
+    <meta name="twitter:image" content="https://coach.grass2pro.com/icons/icon-512.png" />
+
     <link rel="preconnect" href="https://api.fontshare.com" />
     <link
       href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,600,700&f[]=general-sans@500,600,700&display=swap"
@@ -25,5 +59,12 @@
     <a class="skip-link" href="#main-content">Skip to coach admin content</a>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').catch(() => {})
+        })
+      }
+    </script>
   </body>
 </html>
