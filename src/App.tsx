@@ -582,12 +582,39 @@ async function submitConsent(payload: ConsentPayload) {
 }
 
 function Grass2ProLogo() {
+  // Mirrors public/favicon.svg so the dashboard mark and the home-screen icon
+  // share one visual identity. Letterforms stay cream against a deep-green
+  // tile in both themes (a fixed brand backdrop, not theme-driven), keeping
+  // contrast high alongside the Grass2Pro wordmark.
   return (
-    <svg className="brand-mark" viewBox="0 0 48 48" aria-label="Grass2Pro logo" role="img">
-      <rect x="5" y="5" width="38" height="38" rx="10" fill="currentColor" opacity="0.12" />
-      <path d="M13 16h20c4 0 7 3 7 7s-3 7-7 7h-8" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
-      <path d="M28 18 17 30h16" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx="15" cy="16" r="3" fill="currentColor" />
+    <svg className="brand-mark" viewBox="0 0 48 48" aria-label="Grass2Pro G2P mark" role="img">
+      <rect width="48" height="48" rx="11" fill="#245c2f" />
+      <rect x="9" y="36" width="30" height="1.5" rx="0.75" fill="#b7d958" opacity="0.45" />
+      <path
+        d="M16.5 16.5 a8 8 0 1 0 0 14 h2 v-5 h-3"
+        fill="none"
+        stroke="#f5f2e8"
+        strokeWidth="3.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M22.5 18.5 q3.5 -2.5 5.5 0 q2 2.5 -1.5 5 l-4 4 h6"
+        fill="none"
+        stroke="#b7d958"
+        strokeWidth="3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M33 31.5 v-15 h4 a4 4 0 0 1 0 8 h-4"
+        fill="none"
+        stroke="#f5f2e8"
+        strokeWidth="3.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="10" cy="12" r="1.8" fill="#b7d958" />
     </svg>
   );
 }

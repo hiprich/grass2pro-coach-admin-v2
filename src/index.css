@@ -240,7 +240,10 @@
     width: 2.25rem;
     height: 2.25rem;
     flex: 0 0 auto;
-    color: var(--primary);
+    border-radius: 0.55rem;
+    box-shadow: 0 1px 0 color-mix(in srgb, var(--primary), white 35%) inset,
+      0 4px 10px color-mix(in srgb, var(--primary), transparent 75%);
+    overflow: hidden;
   }
 
   .brand-title {
