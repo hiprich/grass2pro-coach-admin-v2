@@ -5,7 +5,7 @@
 //    Pages deploy is picked up immediately and offline still works.
 //  - Bumping CACHE_VERSION invalidates everything from prior deploys.
 
-const CACHE_VERSION = 'v1'
+const CACHE_VERSION = 'v2'
 const CACHE_NAME = `g2p-coach-${CACHE_VERSION}`
 
 // Pre-cache only the lightest shell. Vite-hashed JS/CSS get cached lazily
