@@ -574,19 +574,94 @@ function mediaConsentTimestamp(record) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+// Read the "Consent Type" multipleSelects field as a normalised list of lower-
+// case chip values. Older or partially-filled consent rows in Airtable may
+// only have these chips populated (e.g. "Media/photo/video", "Match reports",
+// "Website/social media") with the matching Photo/Video/Website checkboxes
+// left blank, so we rely on the chips as a parallel signal.
+function consentTypeChips(record) {
+  const raw = record?.fields?.["Consent Type"];
+  if (!Array.isArray(raw)) return [];
+  return raw.map((value) => String(value || "").toLowerCase().trim()).filter(Boolean);
+}
+
+function chipImpliesPhoto(chips) {
+  return chips.some((chip) => chip.includes("photo") || chip.includes("media") || chip.includes("image"));
+}
+
+function chipImpliesVideo(chips) {
+  return chips.some(
+    (chip) =>
+      chip.includes("video") ||
+      chip.includes("media") ||
+      chip.includes("coaching review") ||
+      chip.includes("match report"),
+  );
+}
+
+function chipImpliesWebsite(chips) {
+  return chips.some((chip) => chip.includes("website"));
+}
+
+function chipImpliesSocial(chips) {
+  return chips.some((chip) => chip.includes("social"));
+}
+
+function chipImpliesHighlights(chips) {
+  return chips.some((chip) => chip.includes("highlight") || chip.includes("reel"));
+}
+
+// Derive the five Overview booleans from a Media Consents row, preferring
+// the explicit Airtable checkboxes but falling back to the Consent Type chips
+// when a checkbox is blank. The chips are how partial submissions surface in
+// the Airtable grid, so treating them as authoritative keeps the dashboard
+// honest about what was granted.
+function permissionsFromMediaConsent(record) {
+  const fields = record?.fields || {};
+  const chips = consentTypeChips(record);
+  return {
+    photoConsent: boolValue(fields["Photo Permission"]) || chipImpliesPhoto(chips),
+    videoConsent: boolValue(fields["Video Permission"]) || chipImpliesVideo(chips),
+    websiteConsent: boolValue(fields["Website Use"]) || chipImpliesWebsite(chips),
+    socialConsent: boolValue(fields["Social Media Use"]) || chipImpliesSocial(chips),
+    highlightsConsent: boolValue(fields["Highlights/Reels Use"]) || chipImpliesHighlights(chips),
+    internalReportsConsent:
+      boolValue(fields["Internal Coaching Use"]) ||
+      chips.some((chip) => chip.includes("match report") || chip.includes("internal")),
+    pressConsent: boolValue(fields["Press/Partner Use"]) || chips.some((chip) => chip.includes("press")),
+  };
+}
+
 function consentStatusFromMediaConsent(record) {
   const fields = record?.fields || {};
   if (boolValue(fields["Withdrawal Requested"])) return "red";
+  const withdrawalDate = stringValue(fields["Withdrawal Date"]);
+  if (withdrawalDate) return "red";
+
   const explicit = stringValue(fields["Consent Status"]).toLowerCase();
   if (explicit.includes("withdraw")) return "red";
   if (explicit === "active") return "green";
   if (explicit === "limited") return "amber";
+
+  const perms = permissionsFromMediaConsent(record);
+  const granted = [
+    perms.photoConsent,
+    perms.videoConsent,
+    perms.websiteConsent,
+    perms.socialConsent,
+    perms.highlightsConsent,
+    perms.internalReportsConsent,
+    perms.pressConsent,
+  ].filter(Boolean).length;
+
+  // A current Media Consent record exists for this player. Even when the
+  // explicit status reads "Needs Review" or is blank, a row with at least one
+  // granted permission is a Limited consent — not a missing record. Only fall
+  // through to "grey" when nothing at all has been granted and the explicit
+  // status is missing or signals "needs review".
+  if (granted >= 5) return "green";
+  if (granted > 0) return "amber";
   if (explicit.includes("needs review") || explicit.includes("not")) return "grey";
-  // Fall back to the permission booleans on the consent row itself.
-  const photo = boolValue(fields["Photo Permission"]);
-  const video = boolValue(fields["Video Permission"]);
-  if (photo && video) return "green";
-  if (photo || video) return "amber";
   return "grey";
 }
 
@@ -638,21 +713,16 @@ export function mergeMediaConsentsIntoPlayers(players, consentRecords) {
       byPlayerId.get(player.id) ||
       byChildName.get(String(player.name || "").trim().toLowerCase());
     if (!entry) return player;
-    const fields = entry.record?.fields || {};
-    const photoConsent = boolValue(fields["Photo Permission"]);
-    const videoConsent = boolValue(fields["Video Permission"]);
-    const websiteConsent = boolValue(fields["Website Use"]);
-    const socialConsent = boolValue(fields["Social Media Use"]);
-    const highlightsConsent = boolValue(fields["Highlights/Reels Use"]);
+    const perms = permissionsFromMediaConsent(entry.record);
     const consentStatus = consentStatusFromMediaConsent(entry.record);
     return {
       ...player,
       consentStatus,
-      photoConsent,
-      videoConsent,
-      websiteConsent,
-      socialConsent,
-      highlightsConsent,
+      photoConsent: perms.photoConsent,
+      videoConsent: perms.videoConsent,
+      websiteConsent: perms.websiteConsent,
+      socialConsent: perms.socialConsent,
+      highlightsConsent: perms.highlightsConsent,
     };
   });
 }
