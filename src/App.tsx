@@ -714,11 +714,23 @@ async function submitQrCheckin(payload: {
   if (response.ok) {
     return { ok: true, ...(json as object) } as QrCheckinResult;
   }
+  // Prefer the structured `message` (set on duplicate/out-of-order 409s);
+  // otherwise fall back to `error` and append the backend `detail` so the modal
+  // surfaces "Airtable rejected … (Field 'X' cannot accept the provided value.)"
+  // instead of a generic "Unable to record scan."
+  const baseMessage =
+    typeof json.message === "string"
+      ? json.message
+      : typeof json.error === "string"
+        ? (json.error as string)
+        : undefined;
+  const detail = typeof json.detail === "string" ? (json.detail as string) : undefined;
+  const message = baseMessage && detail ? `${baseMessage} (${detail})` : (baseMessage ?? detail);
   return {
     ok: false,
     status: response.status,
     warning: typeof json.warning === "string" ? json.warning : undefined,
-    message: typeof json.message === "string" ? json.message : typeof json.error === "string" ? (json.error as string) : undefined,
+    message,
     existing: (json.existing as AttendanceRecord | null) ?? null,
   };
 }

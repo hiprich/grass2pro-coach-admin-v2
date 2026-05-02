@@ -160,6 +160,16 @@ export async function airtableList(table, params = {}) {
   return payload.records || [];
 }
 
+export class AirtableHttpError extends Error {
+  constructor(message, { status, body, table } = {}) {
+    super(message);
+    this.name = "AirtableHttpError";
+    this.status = status;
+    this.body = body;
+    this.table = table;
+  }
+}
+
 export async function airtableCreate(table, fields) {
   if (!hasAirtableConfig()) {
     return { id: `demo_${Date.now()}`, fields, demo: true };
@@ -176,7 +186,11 @@ export async function airtableCreate(table, fields) {
 
   if (!response.ok) {
     const body = await response.text();
-    throw new Error(`Airtable create failed for ${table}: ${body}`);
+    throw new AirtableHttpError(`Airtable create failed for ${table}: ${body}`, {
+      status: response.status,
+      body,
+      table,
+    });
   }
 
   return response.json();
@@ -436,24 +450,25 @@ export function normaliseAttendance(record) {
   };
 }
 
-// Find existing Attendance record for (session, player). Uses an Airtable
-// filterByFormula that searches the linked Session/Player record IDs so we do
-// not have to scan every Attendance row — important once the table grows past
-// a single page (100 rows). The formula relies on ARRAYJOIN({Session}) /
-// ARRAYJOIN({Player}) returning the linked record IDs in the proxy/automation
-// view used by the Airtable REST API.
+// Find existing Attendance record for (session, player). ARRAYJOIN against a
+// linked-record field returns the *primary field* values of the linked rows,
+// not their record IDs, so a SEARCH for `recXXXX...` against ARRAYJOIN({Player})
+// silently returns no matches even when the row exists. Instead we list
+// attendance for the session (via the REST API, which returns linked-record
+// fields as arrays of IDs) and match the player ID in code.
 export async function findAttendance(sessionId, playerId) {
   const table = tableName("AIRTABLE_ATTENDANCE_TABLE", "Attendance");
   if (!hasAirtableConfig()) return null;
-  const safeSession = escapeFormulaString(sessionId);
-  const safePlayer = escapeFormulaString(playerId);
-  const params = {
-    pageSize: "1",
-    maxRecords: "1",
-    filterByFormula: `AND(SEARCH('${safeSession}', ARRAYJOIN({Session})), SEARCH('${safePlayer}', ARRAYJOIN({Player})))`,
-  };
-  const records = await airtableList(table, params);
-  return records.length > 0 ? records[0] : null;
+
+  const records = await airtableList(table, { pageSize: "100" });
+  return (
+    records.find((record) => {
+      const fields = record?.fields || {};
+      const sessionLinks = Array.isArray(fields.Session) ? fields.Session : fields.Session ? [fields.Session] : [];
+      const playerLinks = Array.isArray(fields.Player) ? fields.Player : fields.Player ? [fields.Player] : [];
+      return sessionLinks.includes(sessionId) && playerLinks.includes(playerId);
+    }) || null
+  );
 }
 
 export async function listSessions({ scope = "upcoming" } = {}) {
