@@ -1011,43 +1011,18 @@ function Overview({ data }: { data: AdminData }) {
   const players = data.players;
   const fullConsent = players.filter((player) => player.consentStatus === "green").length;
   const limited = players.filter((player) => player.consentStatus === "amber").length;
-  const needsAction = players.filter((player) => player.consentStatus === "grey" || player.consentStatus === "red").length;
-  const averageProgress = Math.round(players.reduce((sum, player) => sum + player.progressScore, 0) / Math.max(players.length, 1));
+  const notRecorded = players.filter((player) => player.consentStatus === "grey").length;
+  const withdrawn = players.filter((player) => player.consentStatus === "red").length;
+  const needsAction = notRecorded + withdrawn;
 
   return (
     <>
-      <section className="hero-panel" aria-labelledby="overview-title">
-        <article className="panel hero-copy">
-          <div className="page-kicker">Airtable-backed prototype</div>
-          <h1 id="overview-title" className="page-title">
-            Coach control room for player media, consent and progress.
-          </h1>
-          <p>
-            The dashboard reads coach and player records from secure serverless endpoints, keeps Airtable credentials off the browser, and makes consent state visible before media is filmed or published.
-          </p>
-          <div className="status-row">
-            <span className="status-chip">Updated {new Date(data.updatedAt).toLocaleDateString("en-GB")}</span>
-            <span className="status-chip">Secure API-ready frontend</span>
-            <span className="status-chip">Airtable schema ready</span>
-          </div>
-        </article>
-        <article className="panel hero-copy">
-          <div className="page-kicker">Safeguarding workflow</div>
-          <h2>Consent gates publishing, not participation.</h2>
-          <p>Red or grey consent states block media usage actions while keeping players visible in the squad list for coaching and match-day planning.</p>
-          <div className="status-row">
-            <ConsentBadge status="green" />
-            <ConsentBadge status="amber" />
-            <ConsentBadge status="red" />
-            <ConsentBadge status="grey" />
-          </div>
-        </article>
-      </section>
       <section className="kpi-grid" aria-label="Player KPIs">
-        <KpiCard label="Players" value={players.length} foot="Loaded from Players table" icon={Users} />
+        <KpiCard label="Players" value={players.length} foot="Squad total" icon={Users} />
         <KpiCard label="Full consent" value={fullConsent} foot="Photo, video and review ready" icon={CheckCircle2} />
         <KpiCard label="Limited consent" value={limited} foot="Internal-only or channel limits" icon={AlertTriangle} />
-        <KpiCard label="Avg progress" value={`${averageProgress}%`} foot="Coach review score" icon={ClipboardCheck} />
+        <KpiCard label="Not recorded" value={notRecorded} foot="Awaiting parent form" icon={ClipboardCheck} />
+        <KpiCard label="Withdrawn" value={withdrawn} foot="Media usage blocked" icon={X} />
       </section>
       <section className="cards-grid">
         <article className="card mini-card">
