@@ -157,6 +157,23 @@ function stringValue(value, fallback = "") {
   return String(value);
 }
 
+// Skip raw Airtable record IDs (e.g. "rec0faJqj2SUI6tiH") so a linked-record
+// field doesn't leak through where we want a human-readable lookup value.
+function looksLikeRecordId(value) {
+  return typeof value === "string" && /^rec[a-zA-Z0-9]{14,}$/.test(value);
+}
+
+function readableValue(value, fallback = "") {
+  if (Array.isArray(value)) {
+    const cleaned = value.filter((entry) => entry && !looksLikeRecordId(String(entry)));
+    if (cleaned.length === 0) return fallback;
+    return cleaned.join(", ");
+  }
+  if (value === undefined || value === null || value === "") return fallback;
+  if (looksLikeRecordId(String(value))) return fallback;
+  return String(value);
+}
+
 function boolValue(value) {
   if (typeof value === "boolean") return value;
   if (typeof value === "string") return ["yes", "true", "approved", "allowed"].includes(value.toLowerCase());
@@ -332,11 +349,18 @@ function normaliseAttendance(record = {}) {
   const fields = record.fields || {};
   const sessionLink = Array.isArray(fields.Session) ? fields.Session[0] : fields.Session;
   const playerLink = Array.isArray(fields.Player) ? fields.Player[0] : fields.Player;
+  // Prefer the lookup column "Player Name (from Player)"; the bare "Player"
+  // field is the linked rec... ID array and is not human-readable.
+  const playerName =
+    readableValue(fields["Player Name (from Player)"]) ||
+    readableValue(fields["Player Name"]) ||
+    readableValue(fields["Player Full Name"]) ||
+    stringValue(playerLink, "");
   return {
     id: record.id || crypto.randomUUID(),
     sessionId: stringValue(sessionLink, ""),
     playerId: stringValue(playerLink, ""),
-    playerName: stringValue(fields["Player Name"] || fields.Player, ""),
+    playerName,
     status: inferAttendanceStatus(fields["Attendance Status"], fields),
     arrivalTime: stringValue(fields["Arrival Time"], ""),
     departureTime: stringValue(fields["Departure Time"], ""),

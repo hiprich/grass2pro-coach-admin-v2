@@ -193,6 +193,26 @@ function stringValue(value, fallback = "") {
   return String(value);
 }
 
+// Airtable linked-record fields return arrays of record IDs (e.g.
+// "rec0faJqj2SUI6tiH"). Lookup fields backed by linked records return arrays
+// of the looked-up display value(s). When we want a human-readable name we
+// must skip values that look like raw record IDs, otherwise the UI shows the
+// rec... ID instead of the player/session name.
+function looksLikeRecordId(value) {
+  return typeof value === "string" && /^rec[a-zA-Z0-9]{14,}$/.test(value);
+}
+
+function readableValue(value, fallback = "") {
+  if (Array.isArray(value)) {
+    const cleaned = value.filter((entry) => entry && !looksLikeRecordId(String(entry)));
+    if (cleaned.length === 0) return fallback;
+    return cleaned.join(", ");
+  }
+  if (value === undefined || value === null || value === "") return fallback;
+  if (looksLikeRecordId(String(value))) return fallback;
+  return String(value);
+}
+
 function boolValue(value) {
   if (typeof value === "boolean") return value;
   if (typeof value === "string") return ["yes", "true", "approved", "allowed"].includes(value.toLowerCase());
@@ -381,11 +401,19 @@ export function normaliseAttendance(record) {
   const fields = record?.fields || {};
   const sessionLink = Array.isArray(fields.Session) ? fields.Session[0] : fields.Session;
   const playerLink = Array.isArray(fields.Player) ? fields.Player[0] : fields.Player;
+  // Prefer the lookup column "Player Name (from Player)" — Airtable returns
+  // the looked-up display name there. The bare "Player" field is the linked
+  // record array of rec... IDs, which is not human-readable.
+  const playerName =
+    readableValue(fields["Player Name (from Player)"]) ||
+    readableValue(fields["Player Name"]) ||
+    readableValue(fields["Player Full Name"]) ||
+    stringValue(playerLink, "");
   return {
     id: record?.id || crypto.randomUUID(),
     sessionId: stringValue(sessionLink, ""),
     playerId: stringValue(playerLink, ""),
-    playerName: stringValue(fields["Player Name"] || fields["Player"], ""),
+    playerName,
     status: inferAttendanceStatus(fields["Attendance Status"], fields),
     arrivalTime: stringValue(fields["Arrival Time"], ""),
     departureTime: stringValue(fields["Departure Time"], ""),
