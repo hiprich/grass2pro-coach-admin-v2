@@ -615,7 +615,7 @@ async function parents(env) {
       { id: "parent_demo_1", name: "M. Cole", email: "parent@example.com", parentalResponsibility: true },
     ];
   }
-  const records = await airtableList(env, env.AIRTABLE_PARENTS_TABLE || "Parents", { pageSize: "100" });
+  const records = await airtableList(env, env.AIRTABLE_PARENTS_TABLE || "Parents/Guardians", { pageSize: "100" });
   return records.map((record) => ({
     id: record.id,
     name: record.fields["Full Name"] || record.fields.Name || record.fields["Parent/Guardian Name"] || "",
