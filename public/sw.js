@@ -5,8 +5,21 @@
 //    Pages deploy is picked up immediately and offline still works.
 //  - Bumping CACHE_VERSION invalidates everything from prior deploys.
 
-const CACHE_VERSION = 'v2'
+const CACHE_VERSION = 'v3'
 const CACHE_NAME = `g2p-coach-${CACHE_VERSION}`
+
+// Paths the SW must NEVER cache and must always send straight to the network.
+// API responses (Netlify Functions or the Cloudflare Worker proxy) change as
+// coaches update Airtable, so a cache-first hit would freeze the dashboard on
+// the first response a browser saw — which is exactly the staleness bug that
+// made the staging deploy show old/demo data after a real Airtable record was
+// created.
+function isApiRequest(url) {
+  return (
+    url.pathname.startsWith('/.netlify/functions/') ||
+    url.pathname.startsWith('/api/')
+  )
+}
 
 // Pre-cache only the lightest shell. Vite-hashed JS/CSS get cached lazily
 // on first hit, which keeps the install step fast and avoids referencing
@@ -62,6 +75,11 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url)
   // Only handle same-origin; let the network handle Fontshare, analytics, etc.
   if (url.origin !== self.location.origin) return
+
+  // Bypass the SW entirely for API calls so coaches always see fresh Airtable
+  // data. Returning without calling respondWith lets the browser do its own
+  // network fetch.
+  if (isApiRequest(url)) return
 
   if (isHtmlRequest(request)) {
     event.respondWith(
