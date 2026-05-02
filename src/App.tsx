@@ -1768,34 +1768,52 @@ function Payments({ payments }: { payments: Payment[] }) {
 }
 
 function Safeguarding({ players }: { players: Player[] }) {
+  const limited = players.filter((player) => player.consentStatus === "amber");
   const redGrey = players.filter((player) => player.consentStatus === "red" || player.consentStatus === "grey");
   return (
     <section className="form-layout">
       <article className="panel hero-copy">
         <div className="page-kicker">Safeguarding tab</div>
-        <h1 className="page-title">Media safety rules</h1>
+        <h1 className="page-title">Limited consent &amp; restricted media use</h1>
         <p>
-          The workflow blocks public use when consent is not recorded or has been withdrawn. It also reminds coaches that filming must never happen in toilets, changing areas, medical treatment spaces or any private context.
+          Players below have parent consent on file but with channel limits. Use the allowed list when planning training photos, coach analysis clips or any public posting.
         </p>
-        <div className="cards-grid">
-          <article className="card mini-card">
+        {limited.length === 0 ? (
+          <article className="card mini-card" data-testid="empty-limited-consent">
             <ShieldCheck size={20} aria-hidden="true" />
-            <h3>Authorised capture</h3>
-            <p>Only organisation-approved devices and authorised coaches should capture or store player media.</p>
+            <h3>No limited consent players</h3>
+            <p>Every player with consent on file is either fully cleared or has not yet been recorded. Check the follow-up queue for records still awaiting a parent form.</p>
           </article>
-          <article className="card mini-card">
-            <X size={20} aria-hidden="true" />
-            <h3>No private spaces</h3>
-            <p>Changing rooms, toilets and first-aid treatment areas are always blocked media zones.</p>
-          </article>
-          <article className="card mini-card">
-            <Users size={20} aria-hidden="true" />
-            <h3>No exclusion</h3>
-            <p>Players without consent are included in football activity; only media usage is restricted.</p>
-          </article>
-        </div>
+        ) : (
+          <div className="cards-grid" data-testid="list-limited-consent">
+            {limited.map((player) => {
+              const allowed: string[] = [];
+              const restricted: string[] = [];
+              (player.photoConsent ? allowed : restricted).push("Training and match photos");
+              (player.videoConsent ? allowed : restricted).push("Coaching video review");
+              (player.highlightsConsent ? allowed : restricted).push("Highlight clips");
+              (player.websiteConsent ? allowed : restricted).push("Club website");
+              (player.socialConsent ? allowed : restricted).push("Social media");
+              return (
+                <article className="card mini-card" key={player.id} data-testid={`card-limited-${player.id}`}>
+                  <AlertTriangle size={20} aria-hidden="true" />
+                  <h3>{player.name}</h3>
+                  <ConsentBadge status={player.consentStatus} />
+                  <p>
+                    <strong>Allowed:</strong> {allowed.length === 0 ? "None — internal records only." : `${allowed.join(", ")}.`}
+                  </p>
+                  <p>
+                    <strong>Restricted:</strong> {restricted.length === 0 ? "None." : `${restricted.join(", ")}.`}
+                  </p>
+                </article>
+              );
+            })}
+          </div>
+        )}
       </article>
       <aside className="summary-box">
+        <h2>Media safety rules</h2>
+        <p>Only authorised coaches and organisation-approved devices should capture or store player media. Changing rooms, toilets and first-aid areas are always blocked. Players without consent are still included in football activity; only media usage is restricted.</p>
         <h2>Follow-up queue</h2>
         {redGrey.length === 0 ? (
           <p>No consent records need immediate follow-up.</p>
