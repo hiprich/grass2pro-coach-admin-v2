@@ -130,6 +130,16 @@ async function airtableList(env, table, params = {}) {
   return payload.records || [];
 }
 
+class AirtableHttpError extends Error {
+  constructor(message, { status, body, table } = {}) {
+    super(message);
+    this.name = "AirtableHttpError";
+    this.status = status;
+    this.body = body;
+    this.table = table;
+  }
+}
+
 async function airtableCreate(env, table, fields) {
   if (!env.AIRTABLE_TOKEN || !env.AIRTABLE_BASE_ID) {
     return { id: `demo_${Date.now()}`, fields, demo: true };
@@ -144,8 +154,30 @@ async function airtableCreate(env, table, fields) {
     body: JSON.stringify({ fields }),
   });
 
-  if (!response.ok) throw new Error(await response.text());
+  if (!response.ok) {
+    const body = await response.text();
+    throw new AirtableHttpError(`Airtable create failed for ${table}: ${body}`, {
+      status: response.status,
+      body,
+      table,
+    });
+  }
   return response.json();
+}
+
+function extractAirtableErrorDetail(body) {
+  if (!body) return undefined;
+  try {
+    const parsed = JSON.parse(body);
+    const err = parsed?.error;
+    if (typeof err === "string") return err;
+    if (err && typeof err === "object") {
+      return err.message || err.type || undefined;
+    }
+  } catch {
+    // Non-JSON body — drop it rather than leak internals.
+  }
+  return undefined;
 }
 
 function firstAttachmentUrl(value) {
@@ -382,17 +414,21 @@ function normaliseAttendance(record = {}) {
   };
 }
 
+// ARRAYJOIN against a linked-record field returns the *primary field* values
+// of the linked rows, not their record IDs, so a SEARCH for `recXXXX...`
+// silently returns no matches even when the row exists. List the attendance
+// rows and match the linked Session/Player IDs in code instead.
 async function findAttendance(env, sessionId, playerId) {
   if (!env.AIRTABLE_TOKEN || !env.AIRTABLE_BASE_ID) return null;
-  const safeSession = String(sessionId).replace(/'/g, "\\'");
-  const safePlayer = String(playerId).replace(/'/g, "\\'");
-  const params = {
-    pageSize: "1",
-    maxRecords: "1",
-    filterByFormula: `AND(SEARCH('${safeSession}', ARRAYJOIN({Session})), SEARCH('${safePlayer}', ARRAYJOIN({Player})))`,
-  };
-  const records = await airtableList(env, env.AIRTABLE_ATTENDANCE_TABLE || "Attendance", params);
-  return records.length > 0 ? records[0] : null;
+  const records = await airtableList(env, env.AIRTABLE_ATTENDANCE_TABLE || "Attendance", { pageSize: "100" });
+  return (
+    records.find((record) => {
+      const fields = record?.fields || {};
+      const sessionLinks = Array.isArray(fields.Session) ? fields.Session : fields.Session ? [fields.Session] : [];
+      const playerLinks = Array.isArray(fields.Player) ? fields.Player : fields.Player ? [fields.Player] : [];
+      return sessionLinks.includes(sessionId) && playerLinks.includes(playerId);
+    }) || null
+  );
 }
 
 function demoSessionsList(scope) {
@@ -481,7 +517,6 @@ async function createQrCheckin(request, env) {
     method,
     notes,
     paymentResult,
-    scanTime,
     forceConfirm = false,
   } = payload || {};
 
@@ -526,36 +561,52 @@ async function createQrCheckin(request, env) {
     return json({ warning: "departure_without_arrival", message: "No attendance record yet.", existing: null }, 409, env);
   }
 
-  const attendanceRecordIdText = existing?.id || `pending:${sessionId}:${playerId}`;
+  // "Scan Time" (createdTime) and "Attendance Record ID Text" (formula) are
+  // computed columns on the QR Check-ins table; sending values for them yields
+  // an Airtable 422 INVALID_VALUE_FOR_COLUMN. The downstream automation derives
+  // the Attendance row from the linked Attendance Record / (Session, Player).
   const fields = {
     Session: [sessionId],
     Player: [playerId],
     "Scan Type": scanType,
-    "Scan Time": scanTime || new Date().toISOString(),
     Method: method || "QR",
     "Confirmation Result": "Confirmed",
-    "Attendance Record ID Text": attendanceRecordIdText,
   };
   if (parentId) fields["Parent/Guardian"] = [parentId];
   if (existing?.id) fields["Attendance Record"] = [existing.id];
   if (paymentResult) fields["Payment Result"] = paymentResult;
   if (notes) fields.Notes = notes;
 
-  const record = await airtableCreate(env, env.AIRTABLE_QR_CHECKINS_TABLE || "QR Check-ins", fields);
-  return json(
-    {
-      ok: true,
-      id: record.id,
-      scanType,
-      sessionId,
-      playerId,
-      attendanceRecordIdText,
-      existingAttendanceId: existing?.id || null,
-      forceConfirm: Boolean(forceConfirm),
-    },
-    200,
-    env,
-  );
+  try {
+    const record = await airtableCreate(env, env.AIRTABLE_QR_CHECKINS_TABLE || "QR Check-ins", fields);
+    return json(
+      {
+        ok: true,
+        id: record.id,
+        scanType,
+        sessionId,
+        playerId,
+        existingAttendanceId: existing?.id || null,
+        forceConfirm: Boolean(forceConfirm),
+      },
+      200,
+      env,
+    );
+  } catch (error) {
+    if (error instanceof AirtableHttpError) {
+      const detail = extractAirtableErrorDetail(error.body);
+      return json(
+        {
+          error: "Airtable rejected the QR check-in record.",
+          detail,
+          status: error.status,
+        },
+        error.status === 422 ? 422 : 502,
+        env,
+      );
+    }
+    return json({ error: "Unable to create QR check-in record." }, 500, env);
+  }
 }
 
 async function parents(env) {

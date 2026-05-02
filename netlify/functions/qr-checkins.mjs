@@ -1,4 +1,5 @@
 import {
+  AirtableHttpError,
   airtableCreate,
   findAttendance,
   hasAirtableConfig,
@@ -44,7 +45,6 @@ export const handler = async (event) => {
     method,
     notes,
     paymentResult,
-    scanTime,
     forceConfirm = false,
   } = payload || {};
 
@@ -121,20 +121,21 @@ export const handler = async (event) => {
     });
   }
 
-  // Attendance Record ID Text — used by existing Airtable automations to
-  // resolve which Attendance row to update. When no row exists yet (first-ever
-  // arrival), automations should create one keyed off (Session, Player); we
-  // pass the link IDs and a placeholder text so the automation can fall back.
-  const attendanceRecordIdText = existing?.id || `pending:${sessionId}:${playerId}`;
-
+  // The QR Check-ins table has two computed fields that we MUST NOT send:
+  //   - "Scan Time" is Airtable's createdTime, populated automatically.
+  //   - "Attendance Record ID Text" is a formula, derived from the linked
+  //     Attendance Record.
+  // Sending them returns Airtable 422 INVALID_VALUE_FOR_COLUMN, which used to
+  // surface as a generic "Unable to create QR check-in record" in the modal.
+  // The downstream Airtable automation resolves the Attendance row from the
+  // linked record (Attendance Record) or from (Session, Player) when no link
+  // exists yet, so we only need to pass the link itself when known.
   const fields = {
     Session: [sessionId],
     Player: [playerId],
     "Scan Type": scanType,
-    "Scan Time": scanTime || new Date().toISOString(),
     Method: method || "QR",
     "Confirmation Result": "Confirmed",
-    "Attendance Record ID Text": attendanceRecordIdText,
   };
   if (parentId) fields["Parent/Guardian"] = [parentId];
   if (existing?.id) fields["Attendance Record"] = [existing.id];
@@ -149,12 +150,37 @@ export const handler = async (event) => {
       scanType,
       sessionId,
       playerId,
-      attendanceRecordIdText,
       existingAttendanceId: existing?.id || null,
       forceConfirm: Boolean(forceConfirm),
     });
   } catch (error) {
     console.error("QR check-in create failed:", error);
+    if (error instanceof AirtableHttpError) {
+      const detail = extractAirtableErrorDetail(error.body);
+      return json(error.status === 422 ? 422 : 502, {
+        error: "Airtable rejected the QR check-in record.",
+        detail,
+        status: error.status,
+      });
+    }
     return json(500, { error: "Unable to create QR check-in record." });
   }
 };
+
+// Airtable error responses are JSON like
+//   {"error":{"type":"INVALID_VALUE_FOR_COLUMN","message":"Field 'Scan Time' cannot accept the provided value."}}
+// We only want to surface the human-readable message, never the raw body.
+function extractAirtableErrorDetail(body) {
+  if (!body) return undefined;
+  try {
+    const parsed = JSON.parse(body);
+    const err = parsed?.error;
+    if (typeof err === "string") return err;
+    if (err && typeof err === "object") {
+      return err.message || err.type || undefined;
+    }
+  } catch {
+    // Non-JSON body — drop it rather than leak internals.
+  }
+  return undefined;
+}
