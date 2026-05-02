@@ -118,10 +118,11 @@ Read by `GET /sessions?scope=upcoming|past|all`.
 - Age Group
 - Coach
 - Players (linked records)
-- Session Type (Training / Match / Trial / Festival)
+- Today's Session Type (Training / Match / Trial / Festival) — falls back to `Session Type` or `Type` when absent
 - Status (Scheduled / Completed / Cancelled)
 - Check-in Enabled
 - QR Fallback Code
+- Payment Required, Charge Type, Session Fee — read by automations only; the API does not require them
 
 ### Attendance
 

@@ -319,7 +319,7 @@ function normaliseSession(record = {}) {
     team: stringValue(fields.Team || fields.Squad, ""),
     ageGroup: stringValue(fields["Age Group"] || fields.AgeGroup, ""),
     coach: stringValue(fields.Coach || fields["Lead Coach"], ""),
-    type: inferSessionType(fields["Session Type"] || fields.Type),
+    type: inferSessionType(fields["Today's Session Type"] || fields["Session Type"] || fields.Type),
     state: inferSessionState(fields.Status || fields.State, date),
     notes: stringValue(fields.Notes || fields["Coach Notes"], ""),
     checkInEnabled: boolValue(fields["Check-in Enabled"]),
