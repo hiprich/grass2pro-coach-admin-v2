@@ -8,7 +8,7 @@ export const handler = async () => {
       ]);
     }
 
-    const records = await airtableList(tableName("AIRTABLE_PARENTS_TABLE", "Parents"), { pageSize: "100" });
+    const records = await airtableList(tableName("AIRTABLE_PARENTS_TABLE", "Parents/Guardians"), { pageSize: "100" });
     return json(
       200,
       records.map((record) => ({

@@ -165,13 +165,19 @@ export const handler = async (event) => {
     fields["Submitted Device"] = submittedUserAgent;
   }
 
-  // Best-effort linked-record resolution. We resolve the player by child name
-  // and the parent by email (then name) so the visible "Parent/Guardian" and
-  // "Player" columns in Airtable reflect the submission. When no Parents row
+  // Linked-record resolution. We resolve the player by child name and the
+  // parent by email (then name) so the visible "Parent/Guardian" and "Player"
+  // columns in Airtable reflect the submission. When no Parents/Guardians row
   // matches we create one from the submitted details — without it the
   // Parent's Email lookup column would stay blank even though the parent
-  // typed their email into the form. Failures are swallowed: the consent row
-  // is the source of truth and must still be saved.
+  // typed their email into the form.
+  //
+  // Player lookup failures are tolerated (the consent row remains useful as
+  // a standalone audit record and the child name is captured in the evidence
+  // text). Parent resolve/create failures are NOT swallowed: an unlinked
+  // consent record was the original bug — we'd rather refuse the submission
+  // and surface the Airtable error to the parent than silently save a row
+  // with no Parent/Guardian and no Parent's Email lookup.
   let playerId = null;
   if (hasAirtableConfig()) {
     try {
@@ -182,9 +188,27 @@ export const handler = async (event) => {
     }
     try {
       const parentId = await resolveOrCreateParent(payload, playerId);
-      if (parentId) fields["Parent/Guardian"] = [parentId];
+      if (parentId) {
+        fields["Parent/Guardian"] = [parentId];
+      } else {
+        return json(500, {
+          error: "Unable to resolve or create the Parent/Guardian record for this consent.",
+        });
+      }
     } catch (error) {
       console.error("Parent/Guardian resolve-or-create failed:", error);
+      if (error instanceof AirtableHttpError) {
+        const detail = extractAirtableErrorDetail(error.body);
+        return json(error.status === 422 ? 422 : 502, {
+          error: "Airtable rejected the Parent/Guardian record.",
+          detail,
+          status: error.status,
+        });
+      }
+      return json(502, {
+        error: "Unable to resolve or create the Parent/Guardian record.",
+        detail: error instanceof Error ? error.message : undefined,
+      });
     }
   }
 
@@ -231,7 +255,7 @@ async function findParentId(email, name) {
   const trimmedEmail = String(email || "").trim().toLowerCase();
   const trimmedName = String(name || "").trim().toLowerCase();
   if (!trimmedEmail && !trimmedName) return null;
-  const records = await airtableList(tableName("AIRTABLE_PARENTS_TABLE", "Parents"), { pageSize: "100" });
+  const records = await airtableList(tableName("AIRTABLE_PARENTS_TABLE", "Parents/Guardians"), { pageSize: "100" });
   const byEmail = trimmedEmail
     ? records.find((record) => {
         const candidate = String(record?.fields?.Email || "").trim().toLowerCase();
@@ -277,7 +301,7 @@ async function resolveOrCreateParent(payload, playerId) {
   if (playerId) parentFields.Players = [playerId];
 
   const created = await airtableCreate(
-    tableName("AIRTABLE_PARENTS_TABLE", "Parents"),
+    tableName("AIRTABLE_PARENTS_TABLE", "Parents/Guardians"),
     parentFields,
   );
   return created?.id || null;
