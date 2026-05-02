@@ -1808,24 +1808,26 @@ function Safeguarding({ players }: { players: Player[] }) {
   );
 }
 
+const createInitialConsentForm = (): ConsentPayload => ({
+  childName: "",
+  ageGroup: "U11",
+  parentName: "",
+  parentEmail: "",
+  parentPhone: "",
+  relationship: "Parent",
+  permissions: Object.fromEntries(permissionOptions.map((option) => [option.id, false])),
+  usageDetails:
+    "Grass2Pro may use approved photos or videos for private coaching review, parent progress reports, controlled website pages, or agreed highlight clips depending on the permissions selected below.",
+  storageDuration:
+    "Media and consent records are reviewed at least yearly and normally retained for the current season plus one additional season unless safeguarding, legal or account requirements require a different period.",
+  withdrawalProcessAcknowledged: false,
+  childConsulted: false,
+  parentalResponsibility: false,
+  notes: "",
+});
+
 function ConsentForm() {
-  const [form, setForm] = useState<ConsentPayload>({
-    childName: "",
-    ageGroup: "U11",
-    parentName: "",
-    parentEmail: "",
-    parentPhone: "",
-    relationship: "Parent",
-    permissions: Object.fromEntries(permissionOptions.map((option) => [option.id, false])),
-    usageDetails:
-      "Grass2Pro may use approved photos or videos for private coaching review, parent progress reports, controlled website pages, or agreed highlight clips depending on the permissions selected below.",
-    storageDuration:
-      "Media and consent records are reviewed at least yearly and normally retained for the current season plus one additional season unless safeguarding, legal or account requirements require a different period.",
-    withdrawalProcessAcknowledged: false,
-    childConsulted: false,
-    parentalResponsibility: false,
-    notes: "",
-  });
+  const [form, setForm] = useState<ConsentPayload>(createInitialConsentForm);
   const [status, setStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
   const [message, setMessage] = useState("");
 
@@ -1850,6 +1852,7 @@ function ConsentForm() {
       await submitConsent(form);
       setStatus("success");
       setMessage("Consent record submitted. Airtable will store the audit trail when environment variables are configured.");
+      setForm(createInitialConsentForm());
     } catch (error) {
       setStatus("error");
       setMessage(error instanceof Error ? error.message : "Consent submission failed.");
