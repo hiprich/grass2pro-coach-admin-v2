@@ -51,6 +51,16 @@ const PERMISSION_TYPE_MAP = {
   social: "Website/social media",
 };
 
+// Information-sharing permissions submitted by the UI mapped to their exact
+// Airtable "Consent Type" multipleSelects choice labels. These are recorded on
+// the Media Consents row alongside media-derived consent types but do NOT feed
+// into the Active/Limited/Needs Review media Consent Status — they are an
+// independent, parallel grant that exists in the same audit record.
+const INFO_SHARING_TYPE_MAP = {
+  emergencyContact: "Emergency contact sharing",
+  medicalInformation: "Medical information sharing",
+};
+
 // "Relationship to Player" in the Parents/Guardians table is a singleSelect
 // with a fixed choice list. Whatever the parent typed in the form must be
 // mapped to one of these choices or omitted, otherwise Airtable rejects the
@@ -92,6 +102,11 @@ export const handler = async (event) => {
   const permissions = payload.permissions || {};
   const selectedKeys = UI_PERMISSION_KEYS.filter((key) => Boolean(permissions[key]));
 
+  const infoSharing = payload.infoSharing || {};
+  const selectedInfoSharingKeys = Object.keys(INFO_SHARING_TYPE_MAP).filter(
+    (key) => Boolean(infoSharing[key]),
+  );
+
   // Consent Status is a singleSelect with a fixed choice list. "Active" means
   // every permission the UI exposed was granted; "Limited" means a partial
   // grant; "Needs Review" maps the no-consent case to a valid choice rather
@@ -105,9 +120,10 @@ export const handler = async (event) => {
 
   const consentTypes = Array.from(
     new Set(
-      selectedKeys
-        .map((key) => PERMISSION_TYPE_MAP[key])
-        .filter(Boolean),
+      [
+        ...selectedKeys.map((key) => PERMISSION_TYPE_MAP[key]),
+        ...selectedInfoSharingKeys.map((key) => INFO_SHARING_TYPE_MAP[key]),
+      ].filter(Boolean),
     ),
   );
 
@@ -139,6 +155,11 @@ export const handler = async (event) => {
     payload.parentPhone ? `Phone: ${payload.parentPhone}` : null,
     payload.relationship ? `Relationship: ${payload.relationship}` : null,
     `Selected permissions: ${selectedKeys.length > 0 ? selectedKeys.join(", ") : "none"}`,
+    `Information sharing: ${
+      selectedInfoSharingKeys.length > 0
+        ? selectedInfoSharingKeys.map((key) => INFO_SHARING_TYPE_MAP[key]).join(", ")
+        : "none"
+    }`,
     payload.usageDetails ? `Usage details: ${payload.usageDetails}` : null,
     payload.storageDuration ? `Storage duration: ${payload.storageDuration}` : null,
   ].filter(Boolean);
@@ -225,6 +246,7 @@ export const handler = async (event) => {
       consentStatus,
       consentTypes,
       selectedPermissions: selectedKeys,
+      selectedInfoSharing: selectedInfoSharingKeys,
       linkedPlayer: Boolean(fields.Player),
       linkedParent: Boolean(fields["Parent/Guardian"]),
     });
