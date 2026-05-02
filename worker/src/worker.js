@@ -351,16 +351,15 @@ function normaliseAttendance(record = {}) {
 
 async function findAttendance(env, sessionId, playerId) {
   if (!env.AIRTABLE_TOKEN || !env.AIRTABLE_BASE_ID) return null;
-  const records = await airtableList(env, env.AIRTABLE_ATTENDANCE_TABLE || "Attendance", { pageSize: "100" });
-  for (const record of records) {
-    const fields = record.fields || {};
-    const sessionLinks = Array.isArray(fields.Session) ? fields.Session : fields.Session ? [fields.Session] : [];
-    const playerLinks = Array.isArray(fields.Player) ? fields.Player : fields.Player ? [fields.Player] : [];
-    if (sessionLinks.includes(sessionId) && playerLinks.includes(playerId)) {
-      return record;
-    }
-  }
-  return null;
+  const safeSession = String(sessionId).replace(/'/g, "\\'");
+  const safePlayer = String(playerId).replace(/'/g, "\\'");
+  const params = {
+    pageSize: "1",
+    maxRecords: "1",
+    filterByFormula: `AND(SEARCH('${safeSession}', ARRAYJOIN({Session})), SEARCH('${safePlayer}', ARRAYJOIN({Player})))`,
+  };
+  const records = await airtableList(env, env.AIRTABLE_ATTENDANCE_TABLE || "Attendance", params);
+  return records.length > 0 ? records[0] : null;
 }
 
 function demoSessionsList(scope) {
@@ -505,7 +504,7 @@ async function createQrCheckin(request, env) {
     "Attendance Record ID Text": attendanceRecordIdText,
   };
   if (parentId) fields["Parent/Guardian"] = [parentId];
-  if (existing?.id) fields.Attendance = [existing.id];
+  if (existing?.id) fields["Attendance Record"] = [existing.id];
   if (paymentResult) fields["Payment Result"] = paymentResult;
   if (notes) fields.Notes = notes;
 

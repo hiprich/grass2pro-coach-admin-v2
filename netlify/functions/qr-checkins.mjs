@@ -137,7 +137,7 @@ export const handler = async (event) => {
     "Attendance Record ID Text": attendanceRecordIdText,
   };
   if (parentId) fields["Parent/Guardian"] = [parentId];
-  if (existing?.id) fields.Attendance = [existing.id];
+  if (existing?.id) fields["Attendance Record"] = [existing.id];
   if (paymentResult) fields["Payment Result"] = paymentResult;
   if (notes) fields.Notes = notes;
 

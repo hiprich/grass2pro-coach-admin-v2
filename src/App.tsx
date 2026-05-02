@@ -72,6 +72,9 @@ type Session = {
   type: SessionType;
   state: SessionState;
   notes: string;
+  checkInEnabled?: boolean;
+  qrFallbackCode?: string;
+  playerIds?: string[];
 };
 
 type AttendanceRecord = {
@@ -83,6 +86,11 @@ type AttendanceRecord = {
   parentNotified: boolean;
   arrivalTime: string;
   coachNotes: string;
+  departureTime?: string;
+  checkInMethod?: string;
+  confirmationStatus?: string;
+  paymentStatus?: string;
+  attendanceRecordIdText?: string;
 };
 
 type Payment = {
@@ -560,8 +568,11 @@ async function loadAdminData(): Promise<AdminData> {
 
     if (sessionsRes && sessionsRes.ok) {
       try {
-        const body = (await sessionsRes.json()) as { sessions?: Session[] };
-        if (Array.isArray(body.sessions) && body.sessions.length > 0) {
+        const body = (await sessionsRes.json()) as { sessions?: Session[]; warning?: string };
+        // Only keep demo data when the API explicitly signals it is unavailable
+        // (warning present). A legitimate empty array from a configured backend
+        // means "no sessions yet" and should be respected.
+        if (Array.isArray(body.sessions) && !body.warning) {
           base.sessions = body.sessions;
         }
       } catch {
@@ -570,8 +581,8 @@ async function loadAdminData(): Promise<AdminData> {
     }
     if (attendanceRes && attendanceRes.ok) {
       try {
-        const body = (await attendanceRes.json()) as { attendance?: AttendanceRecord[] };
-        if (Array.isArray(body.attendance) && body.attendance.length > 0) {
+        const body = (await attendanceRes.json()) as { attendance?: AttendanceRecord[]; warning?: string };
+        if (Array.isArray(body.attendance) && !body.warning) {
           base.attendance = body.attendance;
         }
       } catch {
@@ -1051,6 +1062,20 @@ function QrCheckinDialog({
   const [resultMessage, setResultMessage] = useState("");
   const [resultOk, setResultOk] = useState(false);
 
+  // Reset the forceConfirm override (and any stale duplicate-scan warning) when
+  // the coach changes the player or scan type — otherwise a 409 against player
+  // A could silently auto-arm "Confirm anyway" for player B.
+  function changePlayer(nextId: string) {
+    setPlayerId(nextId);
+    setForceConfirm(false);
+    setWarning(null);
+  }
+  function changeScanType(next: QrCheckinScanType) {
+    setScanType(next);
+    setForceConfirm(false);
+    setWarning(null);
+  }
+
   const player = players.find((p) => p.id === playerId);
 
   async function send(force: boolean) {
@@ -1104,7 +1129,7 @@ function QrCheckinDialog({
           <div className="form-section">
             <label className="form-field full">
               <span>Player</span>
-              <select value={playerId} onChange={(e) => setPlayerId(e.target.value)} data-testid="select-qr-player">
+              <select value={playerId} onChange={(e) => changePlayer(e.target.value)} data-testid="select-qr-player">
                 {players.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name} · {p.team}
@@ -1118,7 +1143,7 @@ function QrCheckinDialog({
                   key={type}
                   type="button"
                   className={`filter-button ${scanType === type ? "active" : ""}`}
-                  onClick={() => setScanType(type)}
+                  onClick={() => changeScanType(type)}
                   data-testid={`button-qr-scantype-${type.toLowerCase()}`}
                 >
                   {type}

@@ -398,23 +398,24 @@ export function normaliseAttendance(record) {
   };
 }
 
-// Find existing Attendance record for (session, player) without relying on
-// formula links to record IDs. We list the Attendance table and filter in
-// memory, which is fine for grassroots-scale data and avoids brittle
-// `RECORD_ID()` formulae across linked tables.
+// Find existing Attendance record for (session, player). Uses an Airtable
+// filterByFormula that searches the linked Session/Player record IDs so we do
+// not have to scan every Attendance row — important once the table grows past
+// a single page (100 rows). The formula relies on ARRAYJOIN({Session}) /
+// ARRAYJOIN({Player}) returning the linked record IDs in the proxy/automation
+// view used by the Airtable REST API.
 export async function findAttendance(sessionId, playerId) {
   const table = tableName("AIRTABLE_ATTENDANCE_TABLE", "Attendance");
   if (!hasAirtableConfig()) return null;
-  const records = await airtableList(table, { pageSize: "100" });
-  for (const record of records) {
-    const fields = record.fields || {};
-    const sessionLinks = Array.isArray(fields.Session) ? fields.Session : fields.Session ? [fields.Session] : [];
-    const playerLinks = Array.isArray(fields.Player) ? fields.Player : fields.Player ? [fields.Player] : [];
-    if (sessionLinks.includes(sessionId) && playerLinks.includes(playerId)) {
-      return record;
-    }
-  }
-  return null;
+  const safeSession = escapeFormulaString(sessionId);
+  const safePlayer = escapeFormulaString(playerId);
+  const params = {
+    pageSize: "1",
+    maxRecords: "1",
+    filterByFormula: `AND(SEARCH('${safeSession}', ARRAYJOIN({Session})), SEARCH('${safePlayer}', ARRAYJOIN({Player})))`,
+  };
+  const records = await airtableList(table, params);
+  return records.length > 0 ? records[0] : null;
 }
 
 export async function listSessions({ scope = "upcoming" } = {}) {

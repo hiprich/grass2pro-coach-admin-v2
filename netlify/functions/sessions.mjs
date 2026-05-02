@@ -1,4 +1,4 @@
-import { listSessions, json } from "./_airtable.mjs";
+import { listSessions, json, hasAirtableConfig } from "./_airtable.mjs";
 
 export const handler = async (event) => {
   if (event.httpMethod !== "GET") {
@@ -13,11 +13,14 @@ export const handler = async (event) => {
     return json(200, { sessions, scope, updatedAt: new Date().toISOString() });
   } catch (error) {
     console.error("Sessions endpoint error:", error);
-    return json(200, {
-      sessions: [],
-      scope,
-      warning: "Airtable unavailable; returned empty list.",
-      updatedAt: new Date().toISOString(),
-    });
+    if (!hasAirtableConfig()) {
+      return json(200, {
+        sessions: [],
+        scope,
+        warning: "Airtable not configured; returned empty list.",
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    return json(502, { error: "Sessions lookup failed." });
   }
 };
