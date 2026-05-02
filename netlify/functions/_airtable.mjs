@@ -260,6 +260,25 @@ function looksLikeRecordId(value) {
   return typeof value === "string" && /^rec[a-zA-Z0-9]{14,}$/.test(value);
 }
 
+// Extract the set of Airtable record IDs from a linked-record-style value.
+// Linked-record fields normally come back as arrays of "rec..." IDs, but the
+// admin-data payload has historically stringified them via stringValue, so
+// downstream consumers may also pass us a comma-separated string. Handle both
+// shapes, drop anything that isn't an Airtable record id, and de-duplicate.
+function recordIdArray(value) {
+  const out = [];
+  const push = (entry) => {
+    const id = String(entry || "").trim();
+    if (looksLikeRecordId(id) && !out.includes(id)) out.push(id);
+  };
+  if (Array.isArray(value)) {
+    for (const entry of value) push(entry);
+  } else if (typeof value === "string") {
+    for (const entry of value.split(",")) push(entry);
+  }
+  return out;
+}
+
 function readableValue(value, fallback = "") {
   if (Array.isArray(value)) {
     const cleaned = value.filter((entry) => entry && !looksLikeRecordId(String(entry)));
@@ -319,6 +338,7 @@ export function normalisePlayer(record) {
     position: stringValue(fields.Position, "N/A"),
     status: stringValue(fields.Status, consentStatus === "red" ? "Withdrawn media consent" : "Active"),
     guardianName: stringValue(fields["Guardian Name"] || fields["Parent/Guardian"] || fields.Parent, "Parent/Guardian"),
+    guardianIds: recordIdArray(fields["Parent/Guardian"] || fields.Parent || fields["Guardian Name"]),
     consentStatus,
     photoConsent: boolValue(fields["Photo Consent"] || fields["Photo Permission"]),
     videoConsent: boolValue(fields["Video Consent"] || fields["Video Permission"]),
@@ -681,11 +701,14 @@ function consentRecordChildName(record) {
 }
 
 // Pick the most recent Media Consents record per player. We index by linked
-// Player record id when the consent row has one, and by lowercased child
-// name as a fallback so consent submissions whose player lookup failed at
-// submit time still flow through to the dashboard.
+// Player record id when the consent row has one, by Parent/Guardian record id
+// for rows that omit the Player link (the consent form sometimes submits with
+// only the guardian populated), and by lowercased child name as a final
+// fallback so consent submissions whose player lookup failed at submit time
+// still flow through to the dashboard.
 export function indexLatestMediaConsents(records) {
   const byPlayerId = new Map();
+  const byGuardianId = new Map();
   const byChildName = new Map();
   const upsert = (map, key, record, ts) => {
     if (!key) return;
@@ -694,24 +717,65 @@ export function indexLatestMediaConsents(records) {
   };
   for (const record of records || []) {
     const fields = record?.fields || {};
-    const playerLinks = Array.isArray(fields.Player) ? fields.Player : fields.Player ? [fields.Player] : [];
+    const playerLinks = recordIdArray(fields.Player);
+    const guardianLinks = recordIdArray(fields["Parent/Guardian"] || fields.Parent || fields.Guardian);
     const ts = mediaConsentTimestamp(record);
     for (const playerId of playerLinks) upsert(byPlayerId, playerId, record, ts);
+    if (playerLinks.length === 0) {
+      // Only index guardian fallbacks for rows that lack an explicit Player
+      // link, so a consent that names a sibling does not bleed onto another
+      // child of the same parent.
+      for (const guardianId of guardianLinks) upsert(byGuardianId, guardianId, record, ts);
+    }
     upsert(byChildName, consentRecordChildName(record), record, ts);
   }
-  return { byPlayerId, byChildName };
+  return { byPlayerId, byGuardianId, byChildName };
+}
+
+// Resolve the latest Media Consents row for a player by collecting candidates
+// from each index — explicit Player link, Parent/Guardian overlap (only when
+// the guardian uniquely identifies one player in this payload), and the child
+// name fallback — then picking the most recent match. We do not short-circuit
+// on Player link alone: when the parent has since submitted a fresher consent
+// without populating the Player field, the newer row should still win.
+function resolveMediaConsentEntry(player, players, indexes) {
+  const candidates = [];
+  const direct = indexes.byPlayerId.get(player.id);
+  if (direct) candidates.push(direct);
+
+  const guardianIds = Array.isArray(player.guardianIds)
+    ? player.guardianIds
+    : recordIdArray(player.guardianIds || player.guardianName);
+  for (const guardianId of guardianIds) {
+    // Skip guardians that are shared by multiple players in this payload — a
+    // guardian-only match cannot tell siblings apart, so we drop those rather
+    // than attach the same row to two players.
+    const playersForGuardian = players.filter((other) =>
+      Array.isArray(other.guardianIds) && other.guardianIds.includes(guardianId),
+    );
+    if (playersForGuardian.length !== 1) continue;
+    const entry = indexes.byGuardianId.get(guardianId);
+    if (entry) candidates.push(entry);
+  }
+
+  const nameMatch = indexes.byChildName.get(String(player.name || "").trim().toLowerCase());
+  if (nameMatch) candidates.push(nameMatch);
+
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => b.ts - a.ts);
+  return candidates[0];
 }
 
 // Overlay live Media Consents data onto the player objects produced by
 // normalisePlayer. The Media Consents row wins when present because the form
 // is the source of truth for what permissions the parent granted.
 export function mergeMediaConsentsIntoPlayers(players, consentRecords) {
-  const { byPlayerId, byChildName } = indexLatestMediaConsents(consentRecords);
-  if (byPlayerId.size === 0 && byChildName.size === 0) return players;
+  const indexes = indexLatestMediaConsents(consentRecords);
+  if (indexes.byPlayerId.size === 0 && indexes.byGuardianId.size === 0 && indexes.byChildName.size === 0) {
+    return players;
+  }
   return players.map((player) => {
-    const entry =
-      byPlayerId.get(player.id) ||
-      byChildName.get(String(player.name || "").trim().toLowerCase());
+    const entry = resolveMediaConsentEntry(player, players, indexes);
     if (!entry) return player;
     const perms = permissionsFromMediaConsent(entry.record);
     const consentStatus = consentStatusFromMediaConsent(entry.record);
