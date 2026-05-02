@@ -283,3 +283,251 @@ export async function getCoachAndPlayers() {
     updatedAt: new Date().toISOString(),
   };
 }
+
+// ---------- Sessions / Attendance / QR Check-ins ----------
+
+export async function airtableGet(table, recordId) {
+  if (!hasAirtableConfig()) {
+    throw new Error("Airtable environment variables are not configured.");
+  }
+  const url = `${AIRTABLE_API}/${process.env.AIRTABLE_BASE_ID}/${encodeTable(table)}/${encodeURIComponent(recordId)}`;
+  const response = await fetch(url, { headers: { Authorization: `Bearer ${token()}` } });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Airtable get failed for ${table}/${recordId}: ${body}`);
+  }
+  return response.json();
+}
+
+export async function airtableUpdate(table, recordId, fields) {
+  if (!hasAirtableConfig()) {
+    return { id: recordId || `demo_${Date.now()}`, fields, demo: true };
+  }
+  const url = `${AIRTABLE_API}/${process.env.AIRTABLE_BASE_ID}/${encodeTable(table)}/${encodeURIComponent(recordId)}`;
+  const response = await fetch(url, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${token()}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ fields }),
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Airtable update failed for ${table}/${recordId}: ${body}`);
+  }
+  return response.json();
+}
+
+function escapeFormulaString(value) {
+  return String(value).replace(/'/g, "\\'");
+}
+
+function inferSessionState(rawStatus, dateIso) {
+  const status = String(rawStatus || "").toLowerCase();
+  if (status.includes("cancel")) return "cancelled";
+  if (status.includes("complete") || status.includes("done")) return "completed";
+  if (status.includes("schedule") || status.includes("upcoming") || status.includes("planned")) return "scheduled";
+  if (!status && dateIso) {
+    const date = new Date(dateIso);
+    if (!Number.isNaN(date.getTime()) && date.getTime() < Date.now() - 6 * 60 * 60 * 1000) return "completed";
+  }
+  return "scheduled";
+}
+
+function inferSessionType(rawType) {
+  const type = String(rawType || "").toLowerCase();
+  if (type.includes("match")) return "match";
+  if (type.includes("trial")) return "trial";
+  if (type.includes("festival") || type.includes("tournament")) return "festival";
+  return "training";
+}
+
+function inferAttendanceStatus(raw, fields) {
+  const status = String(raw || "").toLowerCase();
+  if (status.includes("present")) return "present";
+  if (status.includes("late")) return "late";
+  if (status.includes("absent")) return "absent";
+  if (status.includes("injur")) return "injured";
+  if (status.includes("excus")) return "excused";
+  // Fall back from times.
+  if (fields && (fields["Arrival Time"] || fields["Departure Time"])) return "present";
+  return "absent";
+}
+
+export function normaliseSession(record) {
+  const fields = record?.fields || {};
+  const date = stringValue(fields.Date || fields["Session Date"]);
+  return {
+    id: record?.id || crypto.randomUUID(),
+    name: stringValue(fields["Session Name"] || fields.Name, "Untitled session"),
+    date,
+    startTime: stringValue(fields["Start Time"] || fields.Start, ""),
+    endTime: stringValue(fields["End Time"] || fields.End, ""),
+    location: stringValue(fields.Location || fields.Venue, ""),
+    team: stringValue(fields.Team || fields.Squad, ""),
+    ageGroup: stringValue(fields["Age Group"] || fields.AgeGroup, ""),
+    coach: stringValue(fields.Coach || fields["Lead Coach"], ""),
+    type: inferSessionType(fields["Session Type"] || fields.Type),
+    state: inferSessionState(fields.Status || fields.State, date),
+    notes: stringValue(fields.Notes || fields["Coach Notes"], ""),
+    checkInEnabled: boolValue(fields["Check-in Enabled"]),
+    qrFallbackCode: stringValue(fields["QR Fallback Code"]),
+    playerIds: Array.isArray(fields.Players) ? fields.Players : [],
+  };
+}
+
+export function normaliseAttendance(record) {
+  const fields = record?.fields || {};
+  const sessionLink = Array.isArray(fields.Session) ? fields.Session[0] : fields.Session;
+  const playerLink = Array.isArray(fields.Player) ? fields.Player[0] : fields.Player;
+  return {
+    id: record?.id || crypto.randomUUID(),
+    sessionId: stringValue(sessionLink, ""),
+    playerId: stringValue(playerLink, ""),
+    playerName: stringValue(fields["Player Name"] || fields["Player"], ""),
+    status: inferAttendanceStatus(fields["Attendance Status"], fields),
+    arrivalTime: stringValue(fields["Arrival Time"], ""),
+    departureTime: stringValue(fields["Departure Time"], ""),
+    parentNotified: boolValue(fields["Parent Notified"] || fields["Confirmation Status"]),
+    coachNotes: stringValue(fields["Coach Notes"] || fields.Notes, ""),
+    checkInMethod: stringValue(fields["Check-in Method"], ""),
+    confirmationStatus: stringValue(fields["Confirmation Status"], ""),
+    paymentStatus: stringValue(fields["Payment Status at Check-in"], ""),
+    attendanceRecordIdText: stringValue(fields["Attendance Record ID"], ""),
+  };
+}
+
+// Find existing Attendance record for (session, player) without relying on
+// formula links to record IDs. We list the Attendance table and filter in
+// memory, which is fine for grassroots-scale data and avoids brittle
+// `RECORD_ID()` formulae across linked tables.
+export async function findAttendance(sessionId, playerId) {
+  const table = tableName("AIRTABLE_ATTENDANCE_TABLE", "Attendance");
+  if (!hasAirtableConfig()) return null;
+  const records = await airtableList(table, { pageSize: "100" });
+  for (const record of records) {
+    const fields = record.fields || {};
+    const sessionLinks = Array.isArray(fields.Session) ? fields.Session : fields.Session ? [fields.Session] : [];
+    const playerLinks = Array.isArray(fields.Player) ? fields.Player : fields.Player ? [fields.Player] : [];
+    if (sessionLinks.includes(sessionId) && playerLinks.includes(playerId)) {
+      return record;
+    }
+  }
+  return null;
+}
+
+export async function listSessions({ scope = "upcoming" } = {}) {
+  const table = tableName("AIRTABLE_SESSIONS_TABLE", "Sessions");
+  if (!hasAirtableConfig()) return demoSessions(scope);
+  const params = { pageSize: "100" };
+  // Sort upcoming first by date.
+  params["sort[0][field]"] = "Date";
+  params["sort[0][direction]"] = scope === "past" ? "desc" : "asc";
+  const records = await airtableList(table, params);
+  const all = records.map(normaliseSession);
+  if (scope === "all") return all;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (scope === "past") {
+    return all.filter((s) => s.date && new Date(s.date) < today);
+  }
+  return all.filter((s) => !s.date || new Date(s.date) >= today);
+}
+
+export async function listAttendance({ sessionId } = {}) {
+  const table = tableName("AIRTABLE_ATTENDANCE_TABLE", "Attendance");
+  if (!hasAirtableConfig()) return demoAttendance();
+  const params = { pageSize: "100" };
+  if (sessionId) {
+    params.filterByFormula = `SEARCH('${escapeFormulaString(sessionId)}', ARRAYJOIN({Session}))`;
+  }
+  const records = await airtableList(table, params);
+  return records.map(normaliseAttendance);
+}
+
+// Demo data used when AIRTABLE_* env vars are missing so the API still works.
+function demoSessions(scope = "upcoming") {
+  const today = new Date();
+  const iso = (offsetDays) => {
+    const d = new Date(today);
+    d.setDate(d.getDate() + offsetDays);
+    return d.toISOString().slice(0, 10);
+  };
+  const all = [
+    {
+      id: "ses_demo_01",
+      name: "U11 West - Technical Training",
+      date: iso(2),
+      startTime: "17:30",
+      endTime: "19:00",
+      location: "Pitch 3, Hackney Marshes",
+      team: "Grass2Pro West",
+      ageGroup: "U11",
+      coach: "Kobby Mensah",
+      type: "training",
+      state: "scheduled",
+      notes: "Demo session — Airtable env vars not set.",
+      checkInEnabled: true,
+      qrFallbackCode: "DEMO-U11-WEST",
+      playerIds: [],
+    },
+    {
+      id: "ses_demo_02",
+      name: "U8 Juniors - Skills Session",
+      date: iso(3),
+      startTime: "16:00",
+      endTime: "17:00",
+      location: "Community Astro, Hackney",
+      team: "Grass2Pro Juniors",
+      ageGroup: "U8",
+      coach: "Kobby Mensah",
+      type: "training",
+      state: "scheduled",
+      notes: "Demo session — Airtable env vars not set.",
+      checkInEnabled: true,
+      qrFallbackCode: "DEMO-U8-JR",
+      playerIds: [],
+    },
+    {
+      id: "ses_demo_03",
+      name: "U11 West - Tactical Review",
+      date: iso(-7),
+      startTime: "17:30",
+      endTime: "18:45",
+      location: "Pitch 3, Hackney Marshes",
+      team: "Grass2Pro West",
+      ageGroup: "U11",
+      coach: "Kobby Mensah",
+      type: "training",
+      state: "completed",
+      notes: "Demo session — Airtable env vars not set.",
+      checkInEnabled: false,
+      qrFallbackCode: "",
+      playerIds: [],
+    },
+  ];
+  if (scope === "all") return all;
+  if (scope === "past") return all.filter((s) => s.state === "completed");
+  return all.filter((s) => s.state === "scheduled");
+}
+
+function demoAttendance() {
+  return [
+    {
+      id: "att_demo_01",
+      sessionId: "ses_demo_03",
+      playerId: "ply_demo_01",
+      playerName: "Jayden Cole",
+      status: "present",
+      arrivalTime: "17:25",
+      departureTime: "18:45",
+      parentNotified: true,
+      coachNotes: "Demo attendance — Airtable env vars not set.",
+      checkInMethod: "QR",
+      confirmationStatus: "Confirmed",
+      paymentStatus: "Paid",
+      attendanceRecordIdText: "att_demo_01",
+    },
+  ];
+}
