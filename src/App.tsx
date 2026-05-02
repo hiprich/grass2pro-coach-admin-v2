@@ -540,15 +540,15 @@ function apiPath(path: string) {
   return `/.netlify/functions${path}`;
 }
 
-// When VITE_API_BASE_URL is unset we still try the same-origin Netlify
-// Functions path. On a Netlify deploy this resolves to live Airtable data; on
-// a fully static host the fetch fails and we transparently fall back to
-// demoData. The previous `if (!apiBase) return demoData` short-circuit meant
-// the staging Netlify build never reached the live endpoints.
-const hasFunctionsHost =
-  typeof window !== "undefined" &&
-  /netlify\.app$|netlify\.live$/i.test(window.location.hostname);
-const apiAvailable = Boolean(apiBase) || hasFunctionsHost;
+// Always attempt the same-origin Netlify Functions path when running in a
+// browser. The Netlify deploy serves the production site under a custom
+// domain (coach.grass2pro.com) and on netlify.app/live preview URLs alike —
+// restricting the attempt to a hostname allowlist meant the custom domain
+// silently fell back to demoData. If the same-origin fetch fails (e.g. on a
+// fully static host with no functions runtime) the catch branches below
+// transparently fall back to demoData. SSR/non-browser contexts still skip
+// the network call entirely.
+const apiAvailable = Boolean(apiBase) || typeof window !== "undefined";
 
 // Canonical navigation order. The frontend always renders these tabs so that
 // missing or trimmed-down `sidebar` payloads from the backend never remove
@@ -576,6 +576,14 @@ function buildStableSidebar(data: {
   const needsAction = data.players.filter(
     (p) => p.consentStatus === "grey" || p.consentStatus === "red",
   ).length;
+  // For tabs whose counts are derived from arrays the frontend hydrates from
+  // dedicated endpoints (sessions, attendance, payments), prefer the live
+  // array length so the sidebar stays in sync with the rendered tab content.
+  // The server's admin-data sidebar can legitimately report 0 for these tabs
+  // before its sub-fetches resolve, and `?? computedCounts[…]` would happily
+  // accept that zero — masking live data that the dedicated endpoints have
+  // since loaded.
+  const liveDerivedIds = new Set(["overview", "players", "sessions", "attendance", "safeguarding", "payments"]);
   const computedCounts: Record<string, number> = {
     overview: data.players.length,
     players: data.players.length,
@@ -587,11 +595,15 @@ function buildStableSidebar(data: {
   };
   return navOrder.map((item) => {
     const fromServer = serverById.get(item.id);
+    const computed = computedCounts[item.id] ?? 0;
+    const count = liveDerivedIds.has(item.id)
+      ? Math.max(computed, fromServer?.count ?? 0)
+      : (fromServer?.count ?? computed);
     return {
       id: item.id,
       label: fromServer?.label ?? item.label,
       icon: fromServer?.icon ?? item.icon,
-      count: fromServer?.count ?? computedCounts[item.id] ?? 0,
+      count,
     };
   });
 }
@@ -602,21 +614,28 @@ async function loadAdminData(): Promise<AdminData> {
   try {
     const response = await fetch(apiPath("/admin-data"));
     if (!response.ok) throw new Error("Admin data unavailable");
-    const payload = (await response.json()) as Partial<AdminData>;
+    const payload = (await response.json()) as Partial<AdminData> & { warning?: string };
+    // The admin-data endpoint reports its own demo-fallback by attaching a
+    // `warning`. Treat that as the only signal that we should mix in demo
+    // sessions/attendance/payments — otherwise a live deploy that simply
+    // omits a field should resolve to an empty array, not stale demo data.
+    const isLive = !payload.warning;
     const base = {
       ...demoData,
       ...payload,
-      sessions: payload.sessions ?? demoData.sessions,
-      attendance: payload.attendance ?? demoData.attendance,
-      payments: payload.payments ?? demoData.payments,
+      sessions: payload.sessions ?? (isLive ? [] : demoData.sessions),
+      attendance: payload.attendance ?? (isLive ? [] : demoData.attendance),
+      payments: payload.payments ?? (isLive ? [] : demoData.payments),
       sidebar: payload.sidebar ?? demoData.sidebar,
       players: payload.players ?? demoData.players,
       coach: payload.coach ?? demoData.coach,
     } as AdminData;
 
-    // Pull live Sessions and Attendance from their dedicated endpoints when
-    // available. Fail soft: keep demo/admin-data values if either endpoint is
-    // missing or returns an empty list.
+    // Pull live Sessions and Attendance from their dedicated endpoints in
+    // parallel and merge them in. These are still authoritative even when
+    // admin-data itself returns sessions/attendance, since the dedicated
+    // endpoints are kept in lockstep with Airtable. Each lookup fails soft:
+    // a network error or non-OK response leaves whatever admin-data provided.
     const [sessionsRes, attendanceRes] = await Promise.all([
       fetch(apiPath("/sessions?scope=all")).catch(() => null),
       fetch(apiPath("/attendance")).catch(() => null),
@@ -625,14 +644,14 @@ async function loadAdminData(): Promise<AdminData> {
     if (sessionsRes && sessionsRes.ok) {
       try {
         const body = (await sessionsRes.json()) as { sessions?: Session[]; warning?: string };
-        // Only keep demo data when the API explicitly signals it is unavailable
-        // (warning present). A legitimate empty array from a configured backend
-        // means "no sessions yet" and should be respected.
+        // A legitimate empty array from a configured backend means "no
+        // sessions yet" and should be respected. Only ignore the response
+        // when the API explicitly flags itself as unavailable via `warning`.
         if (Array.isArray(body.sessions) && !body.warning) {
           base.sessions = body.sessions;
         }
       } catch {
-        // ignore — keep demo sessions
+        // ignore — keep whatever admin-data already supplied
       }
     }
     if (attendanceRes && attendanceRes.ok) {
@@ -642,7 +661,7 @@ async function loadAdminData(): Promise<AdminData> {
           base.attendance = body.attendance;
         }
       } catch {
-        // ignore — keep demo attendance
+        // ignore — keep whatever admin-data already supplied
       }
     }
 
