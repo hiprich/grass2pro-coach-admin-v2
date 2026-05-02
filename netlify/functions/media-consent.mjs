@@ -23,17 +23,24 @@ import {
 
 const required = ["childName", "parentName", "parentEmail"];
 
+// Permission keys submitted by the UI mapped to their Airtable checkbox field
+// names. The order/membership of this map is what defines "all permissions"
+// for the Consent Status computation — see UI_PERMISSION_KEYS below.
 const PERMISSION_FIELD_MAP = {
   photoTraining: "Photo Permission",
   videoTraining: "Video Permission",
   internalReports: "Internal Coaching Use",
   website: "Website Use",
   social: "Social Media Use",
-  highlights: "Highlights/Reels Use",
   press: "Press/Partner Use",
 };
 
-const ALL_PERMISSION_FIELDS = Object.values(PERMISSION_FIELD_MAP);
+// The set of permission keys exposed in the frontend consent form. Consent
+// Status is "Active" only when every one of these is ticked. The Airtable
+// schema also has a "Highlights/Reels Use" checkbox, but there is no
+// corresponding UI control today — including it here would make "Active"
+// unreachable from the form.
+const UI_PERMISSION_KEYS = Object.keys(PERMISSION_FIELD_MAP);
 
 const PERMISSION_TYPE_MAP = {
   photoTraining: "Media/photo/video",
@@ -41,7 +48,6 @@ const PERMISSION_TYPE_MAP = {
   internalReports: "Match reports",
   website: "Website/social media",
   social: "Website/social media",
-  highlights: "Website/social media",
 };
 
 export const handler = async (event) => {
@@ -65,17 +71,16 @@ export const handler = async (event) => {
   }
 
   const permissions = payload.permissions || {};
-  const selectedKeys = Object.entries(permissions)
-    .filter(([, value]) => Boolean(value))
-    .map(([key]) => key);
+  const selectedKeys = UI_PERMISSION_KEYS.filter((key) => Boolean(permissions[key]));
 
-  // Consent Status is a singleSelect with a fixed choice list. Map our internal
-  // "no permissions selected" case to "Needs Review" rather than inventing a
-  // new option that Airtable would reject.
+  // Consent Status is a singleSelect with a fixed choice list. "Active" means
+  // every permission the UI exposed was granted; "Limited" means a partial
+  // grant; "Needs Review" maps the no-consent case to a valid choice rather
+  // than inventing a new option that Airtable would reject.
   const consentStatus =
     selectedKeys.length === 0
       ? "Needs Review"
-      : selectedKeys.length < ALL_PERMISSION_FIELDS.length
+      : selectedKeys.length < UI_PERMISSION_KEYS.length
         ? "Limited"
         : "Active";
 
