@@ -125,6 +125,7 @@ type ConsentPayload = {
   parentPhone: string;
   relationship: string;
   permissions: Record<string, boolean>;
+  infoSharing: Record<string, boolean>;
   usageDetails: string;
   storageDuration: string;
   withdrawalProcessAcknowledged: boolean;
@@ -493,6 +494,24 @@ const permissionOptions = [
     id: "press",
     label: "Press or partner media",
     help: "Use only when separately approved for a specific feature or campaign.",
+  },
+];
+
+// Information-sharing permissions are recorded against the same Media Consents
+// table but cover non-media data flows (emergency contact details, medical
+// information). They are surfaced as a separate UI section so parents can grant
+// them independently of media permissions, and they do not influence the
+// Active/Limited/Needs Review media consent status.
+const infoSharingOptions = [
+  {
+    id: "emergencyContact",
+    label: "Emergency contact sharing",
+    help: "Allow Grass2Pro to share the child's emergency contact details with venue staff, medical responders or partner coaches when needed for the child's safety.",
+  },
+  {
+    id: "medicalInformation",
+    label: "Medical information sharing",
+    help: "Allow Grass2Pro to share relevant medical information (e.g. allergies, conditions) with first aiders, medical responders or partner coaches when needed for the child's care.",
   },
 ];
 
@@ -965,8 +984,8 @@ function Sidebar({
       </div>
       <div className="sidebar-card">
         <div className="safeguarding-note">
-          <strong>Consent controls media only</strong>
-          <p>Players without media consent stay fully included. The consent status badge only controls filming, editing and publishing workflows.</p>
+          <strong>Consent covers media and information sharing</strong>
+          <p>Media consent controls filming, editing and publishing workflows. Information-sharing permissions cover emergency contact and medical details. Players without consent are never excluded from sessions.</p>
         </div>
       </div>
     </aside>
@@ -1816,6 +1835,7 @@ const createInitialConsentForm = (): ConsentPayload => ({
   parentPhone: "",
   relationship: "",
   permissions: Object.fromEntries(permissionOptions.map((option) => [option.id, false])),
+  infoSharing: Object.fromEntries(infoSharingOptions.map((option) => [option.id, false])),
   usageDetails:
     "Grass2Pro may use approved photos or videos for private coaching review, parent progress reports, controlled website pages, or agreed highlight clips depending on the permissions selected below.",
   storageDuration:
@@ -1836,6 +1856,7 @@ function ConsentForm() {
   };
 
   const selectedCount = Object.values(form.permissions).filter(Boolean).length;
+  const infoSharingCount = Object.values(form.infoSharing).filter(Boolean).length;
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1868,7 +1889,7 @@ function ConsentForm() {
             Media consent form
           </h1>
           <p>
-            Capture granular parent permissions for photo, video and usage channels. Consent can be withdrawn later, and the record is designed to be auditable in Airtable.
+            Capture granular parent permissions for photo, video and usage channels, plus information-sharing permissions for emergency contact and medical details. Consent can be withdrawn later, and the record is designed to be auditable in Airtable.
           </p>
         </div>
 
@@ -1926,6 +1947,32 @@ function ConsentForm() {
                     })
                   }
                   data-testid={`checkbox-permission-${option.id}`}
+                />
+                <span className="checkbox-copy">
+                  <span>{option.label}</span>
+                  <span className="field-help">{option.help}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </section>
+
+        <section className="form-section">
+          <h2>Information sharing permissions</h2>
+          <p className="field-help">These permissions are independent of media. They do not affect a player&apos;s media consent status, and leaving them unchecked never excludes a player from sessions.</p>
+          <div className="checkbox-grid">
+            {infoSharingOptions.map((option) => (
+              <label className="checkbox-card" key={option.id}>
+                <input
+                  type="checkbox"
+                  checked={form.infoSharing[option.id]}
+                  onChange={(event) =>
+                    update("infoSharing", {
+                      ...form.infoSharing,
+                      [option.id]: event.target.checked,
+                    })
+                  }
+                  data-testid={`checkbox-info-sharing-${option.id}`}
                 />
                 <span className="checkbox-copy">
                   <span>{option.label}</span>
@@ -2011,16 +2058,20 @@ function ConsentForm() {
             <strong>{form.parentName || "Not entered"}</strong>
           </div>
           <div className="summary-item">
-            <span>Permissions</span>
+            <span>Media permissions</span>
             <strong>{selectedCount}</strong>
           </div>
           <div className="summary-item">
-            <span>Status</span>
+            <span>Information sharing</span>
+            <strong>{infoSharingCount}</strong>
+          </div>
+          <div className="summary-item">
+            <span>Media status</span>
             <strong>{selectedCount > 0 ? "Active consent" : "No media consent"}</strong>
           </div>
         </div>
         <p>
-          Airtable should keep the submitted timestamp, IP context if collected by Netlify, signer details, selected permissions, storage period and withdrawal state.
+          Airtable stores the submitted timestamp, IP context if collected by Netlify, signer details, selected media permissions and information-sharing choices, storage period and withdrawal state.
         </p>
       </aside>
     </section>
