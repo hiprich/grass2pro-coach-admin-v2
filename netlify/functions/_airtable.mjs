@@ -120,19 +120,60 @@ export function hasAirtableConfig() {
   return Boolean((process.env.AIRTABLE_TOKEN || process.env.AIRTABLE_API_KEY) && process.env.AIRTABLE_BASE_ID);
 }
 
-export function tableName(key, fallback) {
-  return process.env[key] || fallback;
+// Resolve the Airtable table identifier for a given env key.
+//
+// Two env vars are honoured for every table: the existing `<KEY>` (a table
+// *name* like "Parents/Guardians") and `<KEY>_ID` (an Airtable table id like
+// "tblC9YZ2eI0rK1KFc"). The ID form is preferred when set because it is
+// stable across renames and avoids the URL-encoding pitfalls of names that
+// contain "/" or other reserved characters. When neither env var is set we
+// fall back to the supplied default name (or, when provided, default ID).
+export function tableName(key, fallbackName, fallbackId) {
+  const idEnv = process.env[`${key}_ID`];
+  if (idEnv) return idEnv;
+  const nameEnv = process.env[key];
+  if (nameEnv) return nameEnv;
+  if (fallbackId) return fallbackId;
+  return fallbackName;
 }
+
+// Known Airtable table IDs for this base. These are used as the ultimate
+// fallback so a fresh deployment without any AIRTABLE_*_TABLE env vars still
+// hits the right tables, even when the human-readable name contains a "/" or
+// other reserved character that the Airtable API would otherwise reject.
+export const TABLE_IDS = {
+  COACHES: "",
+  PLAYERS: "tbl4iFx39SdFcidqu",
+  PARENTS: "tblC9YZ2eI0rK1KFc",
+  MEDIA_CONSENTS: "tblFY37amCu9zbfHO",
+  SESSIONS: "",
+  ATTENDANCE: "",
+  QR_CHECKINS: "",
+};
 
 function token() {
   return process.env.AIRTABLE_TOKEN || process.env.AIRTABLE_API_KEY;
 }
 
+// Airtable table identifiers always start with "tbl" followed by alphanumerics.
+// When the caller passes a raw table id we use it verbatim — it contains no
+// reserved characters and Airtable rejects any percent-encoding inside the id.
+function looksLikeTableId(value) {
+  return typeof value === "string" && /^tbl[a-zA-Z0-9]{10,}$/.test(value);
+}
+
+// Encode a table identifier for use as a single URL path segment.
+//
+// Table NAMES may legitimately contain "/" (e.g. "Parents/Guardians"), spaces,
+// "&", "?" etc. Splitting on "/" and joining the encoded parts back with a
+// literal "/" — as the previous implementation did — caused Airtable to
+// resolve the path as two separate segments and return NOT_FOUND. We instead
+// percent-encode the whole identifier so reserved characters survive the trip
+// to Airtable. Table IDs (tbl...) are returned untouched because they are
+// already URL-safe and Airtable expects them verbatim.
 function encodeTable(table) {
-  return table
-    .split("/")
-    .map((part) => encodeURIComponent(part))
-    .join("/");
+  if (looksLikeTableId(table)) return table;
+  return encodeURIComponent(table);
 }
 
 export async function airtableList(table, params = {}) {
@@ -313,8 +354,8 @@ export async function getCoachAndPlayers() {
   if (process.env.AIRTABLE_COACH_FILTER) coachParams.filterByFormula = process.env.AIRTABLE_COACH_FILTER;
 
   const [coachRecords, playerRecords] = await Promise.all([
-    airtableList(tableName("AIRTABLE_COACHES_TABLE", "Coaches"), coachParams),
-    airtableList(tableName("AIRTABLE_PLAYERS_TABLE", "Players"), { pageSize: "100" }),
+    airtableList(tableName("AIRTABLE_COACHES_TABLE", "Coaches", TABLE_IDS.COACHES), coachParams),
+    airtableList(tableName("AIRTABLE_PLAYERS_TABLE", "Players", TABLE_IDS.PLAYERS), { pageSize: "100" }),
   ]);
 
   const coach = normaliseCoach(coachRecords[0]);
@@ -457,7 +498,7 @@ export function normaliseAttendance(record) {
 // attendance for the session (via the REST API, which returns linked-record
 // fields as arrays of IDs) and match the player ID in code.
 export async function findAttendance(sessionId, playerId) {
-  const table = tableName("AIRTABLE_ATTENDANCE_TABLE", "Attendance");
+  const table = tableName("AIRTABLE_ATTENDANCE_TABLE", "Attendance", TABLE_IDS.ATTENDANCE);
   if (!hasAirtableConfig()) return null;
 
   const records = await airtableList(table, { pageSize: "100" });
@@ -472,7 +513,7 @@ export async function findAttendance(sessionId, playerId) {
 }
 
 export async function listSessions({ scope = "upcoming" } = {}) {
-  const table = tableName("AIRTABLE_SESSIONS_TABLE", "Sessions");
+  const table = tableName("AIRTABLE_SESSIONS_TABLE", "Sessions", TABLE_IDS.SESSIONS);
   if (!hasAirtableConfig()) return demoSessions(scope);
   const params = { pageSize: "100" };
   // Sort upcoming first by date.
@@ -490,7 +531,7 @@ export async function listSessions({ scope = "upcoming" } = {}) {
 }
 
 export async function listAttendance({ sessionId } = {}) {
-  const table = tableName("AIRTABLE_ATTENDANCE_TABLE", "Attendance");
+  const table = tableName("AIRTABLE_ATTENDANCE_TABLE", "Attendance", TABLE_IDS.ATTENDANCE);
   if (!hasAirtableConfig()) return demoAttendance();
   const params = { pageSize: "100" };
   if (sessionId) {

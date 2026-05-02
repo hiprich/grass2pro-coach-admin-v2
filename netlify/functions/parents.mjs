@@ -1,4 +1,4 @@
-import { airtableList, hasAirtableConfig, json, tableName } from "./_airtable.mjs";
+import { TABLE_IDS, airtableList, hasAirtableConfig, json, tableName } from "./_airtable.mjs";
 
 export const handler = async () => {
   try {
@@ -8,7 +8,10 @@ export const handler = async () => {
       ]);
     }
 
-    const records = await airtableList(tableName("AIRTABLE_PARENTS_TABLE", "Parents/Guardians"), { pageSize: "100" });
+    const records = await airtableList(
+      tableName("AIRTABLE_PARENTS_TABLE", "Parents/Guardians", TABLE_IDS.PARENTS),
+      { pageSize: "100" },
+    );
     return json(
       200,
       records.map((record) => ({
