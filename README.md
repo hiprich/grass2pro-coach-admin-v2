@@ -65,6 +65,8 @@ AIRTABLE_QR_CHECKINS_TABLE=QR Check-ins
 AIRTABLE_COACH_FILTER={Primary Coach}=TRUE()
 ```
 
+For every `AIRTABLE_*_TABLE` above, an `AIRTABLE_*_TABLE_ID` form is also accepted and takes precedence when set. Use the table-ID form (`tblXXXXXXXXXXXXXX`) for any table whose name contains `/` or other URL-reserved characters — for example `AIRTABLE_PARENTS_TABLE_ID=tblC9YZ2eI0rK1KFc` is the most reliable way to reference the `Parents/Guardians` table. The same fallback IDs are baked into the API as the last resort, so a fresh deployment with no `AIRTABLE_*_TABLE*` env vars set will still hit the right tables.
+
 Do not prefix Airtable secrets with `VITE_`. The browser should call only the Worker API. If you later use Netlify Functions instead, set `VITE_API_BASE_URL=/.netlify/functions`.
 
 ## Expected Airtable fields

@@ -1,5 +1,6 @@
 import {
   AirtableHttpError,
+  TABLE_IDS,
   airtableCreate,
   findAttendance,
   hasAirtableConfig,
@@ -143,7 +144,10 @@ export const handler = async (event) => {
   if (notes) fields.Notes = notes;
 
   try {
-    const record = await airtableCreate(tableName("AIRTABLE_QR_CHECKINS_TABLE", "QR Check-ins"), fields);
+    const record = await airtableCreate(
+      tableName("AIRTABLE_QR_CHECKINS_TABLE", "QR Check-ins", TABLE_IDS.QR_CHECKINS),
+      fields,
+    );
     return json(200, {
       ok: true,
       id: record.id,

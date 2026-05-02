@@ -109,11 +109,34 @@ function json(body, status = 200, env = {}) {
   });
 }
 
+// Known Airtable table IDs for this base. Used as the ultimate fallback so a
+// fresh deployment without any AIRTABLE_*_TABLE env vars still hits the right
+// tables, even when the human-readable name contains a "/" or other reserved
+// character that would otherwise need URL-encoding.
+const TABLE_IDS = {
+  PLAYERS: "tbl4iFx39SdFcidqu",
+  PARENTS: "tblC9YZ2eI0rK1KFc",
+  MEDIA_CONSENTS: "tblFY37amCu9zbfHO",
+};
+
+// Resolve a table identifier from env, preferring the `_ID` form when set
+// because IDs are stable across renames and contain no reserved characters.
+function tableRef(env, key, fallbackName, fallbackId) {
+  return env[`${key}_ID`] || env[key] || fallbackId || fallbackName;
+}
+
+function looksLikeTableId(value) {
+  return typeof value === "string" && /^tbl[a-zA-Z0-9]{10,}$/.test(value);
+}
+
+// Percent-encode the whole table identifier so reserved characters (notably
+// "/", as in "Parents/Guardians") survive the trip to Airtable. Splitting on
+// "/" and re-joining with literal "/" — as the previous implementation did —
+// caused Airtable to resolve the path as two separate segments and return
+// NOT_FOUND. Table IDs (tbl...) are returned untouched.
 function encodeTable(table) {
-  return table
-    .split("/")
-    .map((part) => encodeURIComponent(part))
-    .join("/");
+  if (looksLikeTableId(table)) return table;
+  return encodeURIComponent(table);
 }
 
 async function airtableList(env, table, params = {}) {
@@ -282,8 +305,8 @@ async function adminData(env) {
   const coachParams = { maxRecords: "1" };
   if (env.AIRTABLE_COACH_FILTER) coachParams.filterByFormula = env.AIRTABLE_COACH_FILTER;
   const [coachRecords, playerRecords] = await Promise.all([
-    airtableList(env, env.AIRTABLE_COACHES_TABLE || "Coaches", coachParams),
-    airtableList(env, env.AIRTABLE_PLAYERS_TABLE || "Players", { pageSize: "100" }),
+    airtableList(env, tableRef(env, "AIRTABLE_COACHES_TABLE", "Coaches"), coachParams),
+    airtableList(env, tableRef(env, "AIRTABLE_PLAYERS_TABLE", "Players", TABLE_IDS.PLAYERS), { pageSize: "100" }),
   ]);
   const players = playerRecords.map(normalisePlayer);
   return {
@@ -327,7 +350,11 @@ async function saveConsent(request, env) {
     Notes: payload.notes || "",
     "Submitted At": new Date().toISOString(),
   };
-  const record = await airtableCreate(env, env.AIRTABLE_MEDIA_CONSENTS_TABLE || "Media Consents", fields);
+  const record = await airtableCreate(
+    env,
+    tableRef(env, "AIRTABLE_MEDIA_CONSENTS_TABLE", "Media Consents", TABLE_IDS.MEDIA_CONSENTS),
+    fields,
+  );
   return json({ ok: true, id: record.id, demo: Boolean(record.demo), selectedPermissions }, 200, env);
 }
 
@@ -420,7 +447,7 @@ function normaliseAttendance(record = {}) {
 // rows and match the linked Session/Player IDs in code instead.
 async function findAttendance(env, sessionId, playerId) {
   if (!env.AIRTABLE_TOKEN || !env.AIRTABLE_BASE_ID) return null;
-  const records = await airtableList(env, env.AIRTABLE_ATTENDANCE_TABLE || "Attendance", { pageSize: "100" });
+  const records = await airtableList(env, tableRef(env, "AIRTABLE_ATTENDANCE_TABLE", "Attendance"), { pageSize: "100" });
   return (
     records.find((record) => {
       const fields = record?.fields || {};
@@ -486,7 +513,7 @@ async function listSessions(env, scope = "upcoming") {
     "sort[0][field]": "Date",
     "sort[0][direction]": scope === "past" ? "desc" : "asc",
   };
-  const records = await airtableList(env, env.AIRTABLE_SESSIONS_TABLE || "Sessions", params);
+  const records = await airtableList(env, tableRef(env, "AIRTABLE_SESSIONS_TABLE", "Sessions"), params);
   const all = records.map(normaliseSession);
   if (scope === "all") return all;
   const today = new Date();
@@ -502,7 +529,7 @@ async function listAttendanceRecords(env, sessionId) {
     const safe = String(sessionId).replace(/'/g, "\\'");
     params.filterByFormula = `SEARCH('${safe}', ARRAYJOIN({Session}))`;
   }
-  const records = await airtableList(env, env.AIRTABLE_ATTENDANCE_TABLE || "Attendance", params);
+  const records = await airtableList(env, tableRef(env, "AIRTABLE_ATTENDANCE_TABLE", "Attendance"), params);
   return records.map(normaliseAttendance);
 }
 
@@ -578,7 +605,7 @@ async function createQrCheckin(request, env) {
   if (notes) fields.Notes = notes;
 
   try {
-    const record = await airtableCreate(env, env.AIRTABLE_QR_CHECKINS_TABLE || "QR Check-ins", fields);
+    const record = await airtableCreate(env, tableRef(env, "AIRTABLE_QR_CHECKINS_TABLE", "QR Check-ins"), fields);
     return json(
       {
         ok: true,
@@ -615,7 +642,11 @@ async function parents(env) {
       { id: "parent_demo_1", name: "M. Cole", email: "parent@example.com", parentalResponsibility: true },
     ];
   }
-  const records = await airtableList(env, env.AIRTABLE_PARENTS_TABLE || "Parents/Guardians", { pageSize: "100" });
+  const records = await airtableList(
+    env,
+    tableRef(env, "AIRTABLE_PARENTS_TABLE", "Parents/Guardians", TABLE_IDS.PARENTS),
+    { pageSize: "100" },
+  );
   return records.map((record) => ({
     id: record.id,
     name: record.fields["Full Name"] || record.fields.Name || record.fields["Parent/Guardian Name"] || "",

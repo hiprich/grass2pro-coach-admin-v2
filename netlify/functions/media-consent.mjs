@@ -1,5 +1,6 @@
 import {
   AirtableHttpError,
+  TABLE_IDS,
   airtableCreate,
   airtableList,
   hasAirtableConfig,
@@ -213,7 +214,10 @@ export const handler = async (event) => {
   }
 
   try {
-    const record = await airtableCreate(tableName("AIRTABLE_MEDIA_CONSENTS_TABLE", "Media Consents"), fields);
+    const record = await airtableCreate(
+      tableName("AIRTABLE_MEDIA_CONSENTS_TABLE", "Media Consents", TABLE_IDS.MEDIA_CONSENTS),
+      fields,
+    );
     return json(200, {
       ok: true,
       id: record.id,
@@ -242,7 +246,10 @@ async function findPlayerId(name) {
   if (!name) return null;
   const trimmed = String(name).trim().toLowerCase();
   if (!trimmed) return null;
-  const records = await airtableList(tableName("AIRTABLE_PLAYERS_TABLE", "Players"), { pageSize: "100" });
+  const records = await airtableList(
+    tableName("AIRTABLE_PLAYERS_TABLE", "Players", TABLE_IDS.PLAYERS),
+    { pageSize: "100" },
+  );
   const match = records.find((record) => {
     const fields = record?.fields || {};
     const candidate = String(fields["Full Name"] || fields.Name || fields["Player Name"] || "").trim().toLowerCase();
@@ -255,7 +262,10 @@ async function findParentId(email, name) {
   const trimmedEmail = String(email || "").trim().toLowerCase();
   const trimmedName = String(name || "").trim().toLowerCase();
   if (!trimmedEmail && !trimmedName) return null;
-  const records = await airtableList(tableName("AIRTABLE_PARENTS_TABLE", "Parents/Guardians"), { pageSize: "100" });
+  const records = await airtableList(
+    tableName("AIRTABLE_PARENTS_TABLE", "Parents/Guardians", TABLE_IDS.PARENTS),
+    { pageSize: "100" },
+  );
   const byEmail = trimmedEmail
     ? records.find((record) => {
         const candidate = String(record?.fields?.Email || "").trim().toLowerCase();
@@ -301,7 +311,7 @@ async function resolveOrCreateParent(payload, playerId) {
   if (playerId) parentFields.Players = [playerId];
 
   const created = await airtableCreate(
-    tableName("AIRTABLE_PARENTS_TABLE", "Parents/Guardians"),
+    tableName("AIRTABLE_PARENTS_TABLE", "Parents/Guardians", TABLE_IDS.PARENTS),
     parentFields,
   );
   return created?.id || null;
