@@ -755,8 +755,26 @@ async function submitConsent(payload: ConsentPayload) {
   });
 
   if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || "Consent submission failed");
+    // Mirror the QR check-in error shape: prefer `error` and append the
+    // backend `detail` so the form surfaces e.g. "Airtable rejected the
+    // consent record. (Field 'X' cannot accept the provided value.)" instead
+    // of a generic "Unable to save consent record."
+    const json = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    const baseMessage =
+      typeof json.error === "string"
+        ? (json.error as string)
+        : typeof json.message === "string"
+          ? (json.message as string)
+          : undefined;
+    const detail = typeof json.detail === "string" ? (json.detail as string) : undefined;
+    const missing = Array.isArray(json.missing) ? (json.missing as string[]).join(", ") : undefined;
+    const composed =
+      baseMessage && detail
+        ? `${baseMessage} (${detail})`
+        : baseMessage && missing
+          ? `${baseMessage} Missing: ${missing}.`
+          : (baseMessage ?? detail ?? "Consent submission failed");
+    throw new Error(composed);
   }
 
   return response.json();
