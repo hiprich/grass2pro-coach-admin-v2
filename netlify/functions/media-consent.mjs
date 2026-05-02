@@ -50,6 +50,24 @@ const PERMISSION_TYPE_MAP = {
   social: "Website/social media",
 };
 
+// "Relationship to Player" in the Parents/Guardians table is a singleSelect
+// with a fixed choice list. Whatever the parent typed in the form must be
+// mapped to one of these choices or omitted, otherwise Airtable rejects the
+// create with INVALID_MULTIPLE_CHOICE_OPTIONS. "Parent" is the form default
+// but is not a valid choice — fall through to "Other".
+const PARENT_RELATIONSHIP_CHOICES = ["Mother", "Father", "Guardian", "Carer", "Other"];
+
+function normaliseRelationship(raw) {
+  const trimmed = String(raw || "").trim();
+  if (!trimmed) return "";
+  const lower = trimmed.toLowerCase();
+  const exact = PARENT_RELATIONSHIP_CHOICES.find((choice) => choice.toLowerCase() === lower);
+  if (exact) return exact;
+  if (lower === "mum" || lower === "mom") return "Mother";
+  if (lower === "dad") return "Father";
+  return "Other";
+}
+
 export const handler = async (event) => {
   if (event.httpMethod !== "POST") {
     return json(405, { error: "Method not allowed." });
@@ -147,21 +165,26 @@ export const handler = async (event) => {
     fields["Submitted Device"] = submittedUserAgent;
   }
 
-  // Best-effort linked-record resolution. We never invent record IDs; if we
-  // cannot find an exact match the linked field stays unset and the consent
-  // record is saved as a standalone audit row.
+  // Best-effort linked-record resolution. We resolve the player by child name
+  // and the parent by email (then name) so the visible "Parent/Guardian" and
+  // "Player" columns in Airtable reflect the submission. When no Parents row
+  // matches we create one from the submitted details — without it the
+  // Parent's Email lookup column would stay blank even though the parent
+  // typed their email into the form. Failures are swallowed: the consent row
+  // is the source of truth and must still be saved.
+  let playerId = null;
   if (hasAirtableConfig()) {
     try {
-      const playerId = await findPlayerId(payload.childName);
+      playerId = await findPlayerId(payload.childName);
       if (playerId) fields.Player = [playerId];
     } catch (error) {
       console.error("Player lookup failed:", error);
     }
     try {
-      const parentId = await findParentId(payload.parentEmail, payload.parentName);
+      const parentId = await resolveOrCreateParent(payload, playerId);
       if (parentId) fields["Parent/Guardian"] = [parentId];
     } catch (error) {
-      console.error("Parent/Guardian lookup failed:", error);
+      console.error("Parent/Guardian resolve-or-create failed:", error);
     }
   }
 
@@ -227,6 +250,37 @@ async function findParentId(email, name) {
     return candidate && candidate === trimmedName;
   });
   return byName?.id || null;
+}
+
+// Resolve an existing Parent/Guardian by email (preferred) or name, and only
+// create a new row when neither matches. Email is the natural unique key — we
+// always check it first so re-submissions for the same household don't create
+// duplicates. The created row writes ONLY the schema fields supplied by the
+// form, so Airtable computed columns are left untouched.
+async function resolveOrCreateParent(payload, playerId) {
+  const existing = await findParentId(payload.parentEmail, payload.parentName);
+  if (existing) return existing;
+
+  const trimmedName = String(payload.parentName || "").trim();
+  if (!trimmedName) return null;
+
+  const parentFields = { "Full Name": trimmedName };
+  const email = String(payload.parentEmail || "").trim();
+  if (email) parentFields.Email = email;
+  const phone = String(payload.parentPhone || "").trim();
+  if (phone) parentFields.Phone = phone;
+  const relationship = normaliseRelationship(payload.relationship);
+  if (relationship) parentFields["Relationship to Player"] = relationship;
+  if (payload.parentalResponsibility) {
+    parentFields["Parental Responsibility Confirmed"] = true;
+  }
+  if (playerId) parentFields.Players = [playerId];
+
+  const created = await airtableCreate(
+    tableName("AIRTABLE_PARENTS_TABLE", "Parents"),
+    parentFields,
+  );
+  return created?.id || null;
 }
 
 // Airtable error responses are JSON like

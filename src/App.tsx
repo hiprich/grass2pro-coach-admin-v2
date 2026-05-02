@@ -1810,11 +1810,11 @@ function Safeguarding({ players }: { players: Player[] }) {
 
 const createInitialConsentForm = (): ConsentPayload => ({
   childName: "",
-  ageGroup: "U11",
+  ageGroup: "",
   parentName: "",
   parentEmail: "",
   parentPhone: "",
-  relationship: "Parent",
+  relationship: "",
   permissions: Object.fromEntries(permissionOptions.map((option) => [option.id, false])),
   usageDetails:
     "Grass2Pro may use approved photos or videos for private coaching review, parent progress reports, controlled website pages, or agreed highlight clips depending on the permissions selected below.",
@@ -1882,6 +1882,7 @@ function ConsentForm() {
             <label className="form-field">
               <span>Age group</span>
               <select value={form.ageGroup} onChange={(event) => update("ageGroup", event.target.value)} data-testid="select-age-group">
+                <option value="">Select age group</option>
                 <option value="U8">U8</option>
                 <option value="U9">U9</option>
                 <option value="U10">U10</option>
