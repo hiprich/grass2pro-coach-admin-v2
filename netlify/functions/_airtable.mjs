@@ -107,7 +107,10 @@ export const demoData = {
   sidebar: [
     { id: "overview", label: "Overview", count: 5, icon: "home" },
     { id: "players", label: "Players", count: 5, icon: "users" },
+    { id: "sessions", label: "Sessions", count: 0, icon: "calendar" },
+    { id: "attendance", label: "Attendance", count: 0, icon: "clipboard" },
     { id: "safeguarding", label: "Safeguarding", count: 2, icon: "shield" },
+    { id: "payments", label: "Payments", count: 0, icon: "pound" },
     { id: "consent", label: "Consent Form", count: 0, icon: "file" },
   ],
   updatedAt: new Date().toISOString(),
@@ -272,12 +275,19 @@ export function normalisePlayer(record) {
   };
 }
 
-export function buildSidebar(players) {
+export function buildSidebar(players, counts = {}) {
   const needsAction = players.filter((player) => player.consentStatus === "red" || player.consentStatus === "grey").length;
+  // Always emit the full operational navigation so the dashboard can render a
+  // stable sidebar even when some counts are not yet known. Sessions,
+  // Attendance and Payments are sourced from their own endpoints; the
+  // frontend backfills/overrides these counts from the live data it loads.
   return [
     { id: "overview", label: "Overview", count: players.length, icon: "home" },
     { id: "players", label: "Players", count: players.length, icon: "users" },
+    { id: "sessions", label: "Sessions", count: counts.sessions ?? 0, icon: "calendar" },
+    { id: "attendance", label: "Attendance", count: counts.attendance ?? 0, icon: "clipboard" },
     { id: "safeguarding", label: "Safeguarding", count: needsAction, icon: "shield" },
+    { id: "payments", label: "Payments", count: counts.payments ?? 0, icon: "pound" },
     { id: "consent", label: "Consent Form", count: 0, icon: "file" },
   ];
 }

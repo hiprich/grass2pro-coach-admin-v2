@@ -550,6 +550,52 @@ const hasFunctionsHost =
   /netlify\.app$|netlify\.live$/i.test(window.location.hostname);
 const apiAvailable = Boolean(apiBase) || hasFunctionsHost;
 
+// Canonical navigation order. The frontend always renders these tabs so that
+// missing or trimmed-down `sidebar` payloads from the backend never remove
+// operational pages (Sessions, Attendance, Payments) the coach needs to use.
+const navOrder: Array<{ id: string; label: string; icon: string }> = [
+  { id: "overview", label: "Overview", icon: "home" },
+  { id: "players", label: "Players", icon: "users" },
+  { id: "sessions", label: "Sessions", icon: "calendar" },
+  { id: "attendance", label: "Attendance", icon: "clipboard" },
+  { id: "safeguarding", label: "Safeguarding", icon: "shield" },
+  { id: "payments", label: "Payments", icon: "pound" },
+  { id: "consent", label: "Consent Form", icon: "file" },
+];
+
+function buildStableSidebar(data: {
+  players: Player[];
+  sessions: Session[];
+  attendance: AttendanceRecord[];
+  payments: Payment[];
+  serverSidebar?: AdminData["sidebar"];
+}): AdminData["sidebar"] {
+  const serverById = new Map(
+    (data.serverSidebar ?? []).map((item) => [item.id, item] as const),
+  );
+  const needsAction = data.players.filter(
+    (p) => p.consentStatus === "grey" || p.consentStatus === "red",
+  ).length;
+  const computedCounts: Record<string, number> = {
+    overview: data.players.length,
+    players: data.players.length,
+    sessions: data.sessions.length,
+    attendance: data.attendance.length,
+    safeguarding: needsAction,
+    payments: data.payments.length,
+    consent: 0,
+  };
+  return navOrder.map((item) => {
+    const fromServer = serverById.get(item.id);
+    return {
+      id: item.id,
+      label: fromServer?.label ?? item.label,
+      icon: fromServer?.icon ?? item.icon,
+      count: fromServer?.count ?? computedCounts[item.id] ?? 0,
+    };
+  });
+}
+
 async function loadAdminData(): Promise<AdminData> {
   if (!apiAvailable) return demoData;
 
@@ -599,6 +645,17 @@ async function loadAdminData(): Promise<AdminData> {
         // ignore — keep demo attendance
       }
     }
+
+    // Always project the backend sidebar onto the canonical nav order so a
+    // trimmed admin-data payload (e.g. only Overview/Players/Safeguarding/
+    // Consent) cannot drop operational tabs from the UI.
+    base.sidebar = buildStableSidebar({
+      players: base.players,
+      sessions: base.sessions,
+      attendance: base.attendance,
+      payments: base.payments,
+      serverSidebar: payload.sidebar,
+    });
     return base;
   } catch {
     return demoData;
