@@ -11,9 +11,11 @@ import {
 // Media consent submission endpoint.
 //
 // Writes a record into the Airtable "Media Consents" table using ONLY the
-// actual schema fields. Computed fields (createdTime, formula, lookup) and the
-// primary "Consent Record" field are deliberately omitted so Airtable does not
-// reject the create with INVALID_VALUE_FOR_COLUMN.
+// actual schema fields. Computed fields (createdTime, formula, lookup) are
+// deliberately omitted so Airtable does not reject the create with
+// INVALID_VALUE_FOR_COLUMN. The primary "Consent Record" singleLineText field
+// is populated app-side with a human-readable label so the row has a
+// recognisable title in linked-record pickers and grid views.
 //
 // The frontend submits free-text child and parent details rather than Airtable
 // record IDs. We try to resolve those names/emails to existing rows in the
@@ -67,6 +69,43 @@ const INFO_SHARING_TYPE_MAP = {
 // create with INVALID_MULTIPLE_CHOICE_OPTIONS. "Parent" is the form default
 // but is not a valid choice — fall through to "Other".
 const PARENT_RELATIONSHIP_CHOICES = ["Mother", "Father", "Guardian", "Carer", "Other"];
+
+// Format a timestamp as "DD/MM/YYYY HH:mm" in Europe/London. Intl handles BST
+// vs GMT automatically, so the label always reflects the wall-clock time the
+// parent saw when they submitted. Falls back to a UTC ISO-style render only if
+// the runtime lacks Intl support — keeping the field non-empty is the priority.
+function formatLondonTimestamp(date) {
+  try {
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Europe/London",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(date);
+    const get = (type) => parts.find((part) => part.type === type)?.value || "";
+    const day = get("day");
+    const month = get("month");
+    const year = get("year");
+    const hour = get("hour");
+    const minute = get("minute");
+    if (day && month && year && hour && minute) {
+      return `${day}/${month}/${year} ${hour}:${minute}`;
+    }
+  } catch {
+    // Fall through to UTC fallback below.
+  }
+  const iso = date.toISOString();
+  return `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)} ${iso.slice(11, 16)} UTC`;
+}
+
+function buildConsentRecordLabel(childName, parentName, date) {
+  const child = String(childName || "").trim() || "Unknown child";
+  const parent = String(parentName || "").trim() || "Unknown parent";
+  return `${child} - ${parent} - Consent - ${formatLondonTimestamp(date)}`;
+}
 
 function normaliseRelationship(raw) {
   const trimmed = String(raw || "").trim();
@@ -146,9 +185,23 @@ export const handler = async (event) => {
     "";
   const submittedUserAgent = headers["user-agent"] || "";
 
+  // Build the primary "Consent Record" label app-side. Airtable's primary
+  // field is singleLineText (not a formula) so it stays empty unless we write
+  // it on create — which makes linked-record pickers and grid views unusable.
+  // The label uses the submitted human names even when we resolve the row to
+  // existing Player/Parent records, so the title matches what the parent
+  // actually typed on the form.
+  const submittedAt = new Date();
+  const consentRecordLabel = buildConsentRecordLabel(
+    payload.childName,
+    payload.parentName,
+    submittedAt,
+  );
+
   // Build a human-readable evidence summary so the consent row remains useful
   // even if we cannot resolve the linked Player / Parent records.
   const evidenceLines = [
+    `Consent record: ${consentRecordLabel}`,
     `Child: ${payload.childName}`,
     payload.ageGroup ? `Age group: ${payload.ageGroup}` : null,
     `Parent/Guardian: ${payload.parentName} <${payload.parentEmail}>`,
@@ -165,6 +218,7 @@ export const handler = async (event) => {
   ].filter(Boolean);
 
   const fields = {
+    "Consent Record": consentRecordLabel,
     "Consent Status": consentStatus,
     ...permissionFields,
     "Parental Responsibility Confirmed": Boolean(payload.parentalResponsibility),
