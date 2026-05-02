@@ -540,8 +540,18 @@ function apiPath(path: string) {
   return `/.netlify/functions${path}`;
 }
 
+// When VITE_API_BASE_URL is unset we still try the same-origin Netlify
+// Functions path. On a Netlify deploy this resolves to live Airtable data; on
+// a fully static host the fetch fails and we transparently fall back to
+// demoData. The previous `if (!apiBase) return demoData` short-circuit meant
+// the staging Netlify build never reached the live endpoints.
+const hasFunctionsHost =
+  typeof window !== "undefined" &&
+  /netlify\.app$|netlify\.live$/i.test(window.location.hostname);
+const apiAvailable = Boolean(apiBase) || hasFunctionsHost;
+
 async function loadAdminData(): Promise<AdminData> {
-  if (!apiBase) return demoData;
+  if (!apiAvailable) return demoData;
 
   try {
     const response = await fetch(apiPath("/admin-data"));
@@ -614,7 +624,7 @@ async function submitQrCheckin(payload: {
     method: "QR",
   });
 
-  if (!apiBase) {
+  if (!apiAvailable) {
     await new Promise((resolve) => setTimeout(resolve, 250));
     return { ok: true, demo: true, warning: "Demo mode — scan was not persisted." };
   }
@@ -638,7 +648,7 @@ async function submitQrCheckin(payload: {
 }
 
 async function submitConsent(payload: ConsentPayload) {
-  if (!apiBase) {
+  if (!apiAvailable) {
     await new Promise((resolve) => setTimeout(resolve, 450));
     return {
       ok: true,
