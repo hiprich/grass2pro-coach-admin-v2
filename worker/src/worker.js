@@ -273,6 +273,258 @@ async function saveConsent(request, env) {
   return json({ ok: true, id: record.id, demo: Boolean(record.demo), selectedPermissions }, 200, env);
 }
 
+// ---------- Sessions / Attendance / QR Check-ins ----------
+
+function inferSessionState(rawStatus, dateIso) {
+  const status = String(rawStatus || "").toLowerCase();
+  if (status.includes("cancel")) return "cancelled";
+  if (status.includes("complete") || status.includes("done")) return "completed";
+  if (status.includes("schedule") || status.includes("upcoming") || status.includes("planned")) return "scheduled";
+  if (!status && dateIso) {
+    const date = new Date(dateIso);
+    if (!Number.isNaN(date.getTime()) && date.getTime() < Date.now() - 6 * 60 * 60 * 1000) return "completed";
+  }
+  return "scheduled";
+}
+
+function inferSessionType(rawType) {
+  const type = String(rawType || "").toLowerCase();
+  if (type.includes("match")) return "match";
+  if (type.includes("trial")) return "trial";
+  if (type.includes("festival") || type.includes("tournament")) return "festival";
+  return "training";
+}
+
+function inferAttendanceStatus(raw, fields) {
+  const status = String(raw || "").toLowerCase();
+  if (status.includes("present")) return "present";
+  if (status.includes("late")) return "late";
+  if (status.includes("absent")) return "absent";
+  if (status.includes("injur")) return "injured";
+  if (status.includes("excus")) return "excused";
+  if (fields && (fields["Arrival Time"] || fields["Departure Time"])) return "present";
+  return "absent";
+}
+
+function normaliseSession(record = {}) {
+  const fields = record.fields || {};
+  const date = stringValue(fields.Date || fields["Session Date"]);
+  return {
+    id: record.id || crypto.randomUUID(),
+    name: stringValue(fields["Session Name"] || fields.Name, "Untitled session"),
+    date,
+    startTime: stringValue(fields["Start Time"] || fields.Start, ""),
+    endTime: stringValue(fields["End Time"] || fields.End, ""),
+    location: stringValue(fields.Location || fields.Venue, ""),
+    team: stringValue(fields.Team || fields.Squad, ""),
+    ageGroup: stringValue(fields["Age Group"] || fields.AgeGroup, ""),
+    coach: stringValue(fields.Coach || fields["Lead Coach"], ""),
+    type: inferSessionType(fields["Session Type"] || fields.Type),
+    state: inferSessionState(fields.Status || fields.State, date),
+    notes: stringValue(fields.Notes || fields["Coach Notes"], ""),
+    checkInEnabled: boolValue(fields["Check-in Enabled"]),
+    qrFallbackCode: stringValue(fields["QR Fallback Code"]),
+    playerIds: Array.isArray(fields.Players) ? fields.Players : [],
+  };
+}
+
+function normaliseAttendance(record = {}) {
+  const fields = record.fields || {};
+  const sessionLink = Array.isArray(fields.Session) ? fields.Session[0] : fields.Session;
+  const playerLink = Array.isArray(fields.Player) ? fields.Player[0] : fields.Player;
+  return {
+    id: record.id || crypto.randomUUID(),
+    sessionId: stringValue(sessionLink, ""),
+    playerId: stringValue(playerLink, ""),
+    playerName: stringValue(fields["Player Name"] || fields.Player, ""),
+    status: inferAttendanceStatus(fields["Attendance Status"], fields),
+    arrivalTime: stringValue(fields["Arrival Time"], ""),
+    departureTime: stringValue(fields["Departure Time"], ""),
+    parentNotified: boolValue(fields["Parent Notified"] || fields["Confirmation Status"]),
+    coachNotes: stringValue(fields["Coach Notes"] || fields.Notes, ""),
+    checkInMethod: stringValue(fields["Check-in Method"], ""),
+    confirmationStatus: stringValue(fields["Confirmation Status"], ""),
+    paymentStatus: stringValue(fields["Payment Status at Check-in"], ""),
+    attendanceRecordIdText: stringValue(fields["Attendance Record ID"], ""),
+  };
+}
+
+async function findAttendance(env, sessionId, playerId) {
+  if (!env.AIRTABLE_TOKEN || !env.AIRTABLE_BASE_ID) return null;
+  const safeSession = String(sessionId).replace(/'/g, "\\'");
+  const safePlayer = String(playerId).replace(/'/g, "\\'");
+  const params = {
+    pageSize: "1",
+    maxRecords: "1",
+    filterByFormula: `AND(SEARCH('${safeSession}', ARRAYJOIN({Session})), SEARCH('${safePlayer}', ARRAYJOIN({Player})))`,
+  };
+  const records = await airtableList(env, env.AIRTABLE_ATTENDANCE_TABLE || "Attendance", params);
+  return records.length > 0 ? records[0] : null;
+}
+
+function demoSessionsList(scope) {
+  const today = new Date();
+  const iso = (offsetDays) => {
+    const d = new Date(today);
+    d.setDate(d.getDate() + offsetDays);
+    return d.toISOString().slice(0, 10);
+  };
+  const all = [
+    {
+      id: "ses_demo_01",
+      name: "U11 West - Technical Training",
+      date: iso(2),
+      startTime: "17:30",
+      endTime: "19:00",
+      location: "Pitch 3, Hackney Marshes",
+      team: "Grass2Pro West",
+      ageGroup: "U11",
+      coach: "Kobby Mensah",
+      type: "training",
+      state: "scheduled",
+      notes: "Demo session — Airtable env vars not set.",
+      checkInEnabled: true,
+      qrFallbackCode: "DEMO-U11-WEST",
+      playerIds: [],
+    },
+    {
+      id: "ses_demo_02",
+      name: "U8 Juniors - Skills Session",
+      date: iso(3),
+      startTime: "16:00",
+      endTime: "17:00",
+      location: "Community Astro, Hackney",
+      team: "Grass2Pro Juniors",
+      ageGroup: "U8",
+      coach: "Kobby Mensah",
+      type: "training",
+      state: "scheduled",
+      notes: "Demo session — Airtable env vars not set.",
+      checkInEnabled: true,
+      qrFallbackCode: "DEMO-U8-JR",
+      playerIds: [],
+    },
+  ];
+  if (scope === "all") return all;
+  if (scope === "past") return [];
+  return all;
+}
+
+async function listSessions(env, scope = "upcoming") {
+  if (!env.AIRTABLE_TOKEN || !env.AIRTABLE_BASE_ID) return demoSessionsList(scope);
+  const params = {
+    pageSize: "100",
+    "sort[0][field]": "Date",
+    "sort[0][direction]": scope === "past" ? "desc" : "asc",
+  };
+  const records = await airtableList(env, env.AIRTABLE_SESSIONS_TABLE || "Sessions", params);
+  const all = records.map(normaliseSession);
+  if (scope === "all") return all;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (scope === "past") return all.filter((s) => s.date && new Date(s.date) < today);
+  return all.filter((s) => !s.date || new Date(s.date) >= today);
+}
+
+async function listAttendanceRecords(env, sessionId) {
+  if (!env.AIRTABLE_TOKEN || !env.AIRTABLE_BASE_ID) return [];
+  const params = { pageSize: "100" };
+  if (sessionId) {
+    const safe = String(sessionId).replace(/'/g, "\\'");
+    params.filterByFormula = `SEARCH('${safe}', ARRAYJOIN({Session}))`;
+  }
+  const records = await airtableList(env, env.AIRTABLE_ATTENDANCE_TABLE || "Attendance", params);
+  return records.map(normaliseAttendance);
+}
+
+async function createQrCheckin(request, env) {
+  const payload = await request.json().catch(() => ({}));
+  const {
+    sessionId,
+    playerId,
+    parentId,
+    scanType,
+    confirmationResult,
+    method,
+    notes,
+    paymentResult,
+    scanTime,
+    forceConfirm = false,
+  } = payload || {};
+
+  if (!sessionId || !playerId) {
+    return json({ error: "sessionId and playerId are required." }, 400, env);
+  }
+  if (scanType !== "Arrival" && scanType !== "Departure") {
+    return json({ error: "scanType must be 'Arrival' or 'Departure'.", received: scanType }, 400, env);
+  }
+  if (confirmationResult !== "Confirmed") {
+    return json({ error: "confirmationResult must be 'Confirmed'.", received: confirmationResult }, 400, env);
+  }
+
+  if (!env.AIRTABLE_TOKEN || !env.AIRTABLE_BASE_ID) {
+    return json(
+      { ok: true, demo: true, warning: "Airtable env vars not set; QR scan was not persisted.", scanType, sessionId, playerId },
+      200,
+      env,
+    );
+  }
+
+  let existingRecord = null;
+  try {
+    existingRecord = await findAttendance(env, sessionId, playerId);
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : "Attendance lookup failed." }, 500, env);
+  }
+  const existing = existingRecord ? normaliseAttendance(existingRecord) : null;
+
+  if (!forceConfirm && existing) {
+    if (scanType === "Arrival" && existing.arrivalTime) {
+      return json({ warning: "duplicate_arrival", message: "Arrival already recorded.", existing }, 409, env);
+    }
+    if (scanType === "Departure" && existing.departureTime) {
+      return json({ warning: "duplicate_departure", message: "Departure already recorded.", existing }, 409, env);
+    }
+    if (scanType === "Departure" && !existing.arrivalTime) {
+      return json({ warning: "departure_without_arrival", message: "No arrival recorded yet.", existing }, 409, env);
+    }
+  }
+  if (!forceConfirm && !existing && scanType === "Departure") {
+    return json({ warning: "departure_without_arrival", message: "No attendance record yet.", existing: null }, 409, env);
+  }
+
+  const attendanceRecordIdText = existing?.id || `pending:${sessionId}:${playerId}`;
+  const fields = {
+    Session: [sessionId],
+    Player: [playerId],
+    "Scan Type": scanType,
+    "Scan Time": scanTime || new Date().toISOString(),
+    Method: method || "QR",
+    "Confirmation Result": "Confirmed",
+    "Attendance Record ID Text": attendanceRecordIdText,
+  };
+  if (parentId) fields["Parent/Guardian"] = [parentId];
+  if (existing?.id) fields["Attendance Record"] = [existing.id];
+  if (paymentResult) fields["Payment Result"] = paymentResult;
+  if (notes) fields.Notes = notes;
+
+  const record = await airtableCreate(env, env.AIRTABLE_QR_CHECKINS_TABLE || "QR Check-ins", fields);
+  return json(
+    {
+      ok: true,
+      id: record.id,
+      scanType,
+      sessionId,
+      playerId,
+      attendanceRecordIdText,
+      existingAttendanceId: existing?.id || null,
+      forceConfirm: Boolean(forceConfirm),
+    },
+    200,
+    env,
+  );
+}
+
 async function parents(env) {
   if (!env.AIRTABLE_TOKEN || !env.AIRTABLE_BASE_ID) {
     return [
@@ -300,6 +552,20 @@ export default {
       if (request.method === "GET" && url.pathname === "/players") return json((await adminData(env)).players, 200, env);
       if (request.method === "GET" && url.pathname === "/parents") return json(await parents(env), 200, env);
       if (request.method === "POST" && url.pathname === "/media-consent") return saveConsent(request, env);
+      if (request.method === "GET" && url.pathname === "/sessions") {
+        const scope = url.searchParams.get("scope") || "upcoming";
+        if (!["upcoming", "past", "all"].includes(scope)) return json({ error: "Invalid scope." }, 400, env);
+        return json({ sessions: await listSessions(env, scope), scope, updatedAt: new Date().toISOString() }, 200, env);
+      }
+      if (request.method === "GET" && url.pathname === "/attendance") {
+        const sessionId = url.searchParams.get("sessionId") || undefined;
+        return json(
+          { attendance: await listAttendanceRecords(env, sessionId), sessionId: sessionId || null, updatedAt: new Date().toISOString() },
+          200,
+          env,
+        );
+      }
+      if (request.method === "POST" && url.pathname === "/qr-checkins") return createQrCheckin(request, env);
       return json({ error: "Not found" }, 404, env);
     } catch (error) {
       return json({ error: error instanceof Error ? error.message : "Unexpected API error" }, 500, env);

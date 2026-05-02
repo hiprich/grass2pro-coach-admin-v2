@@ -72,6 +72,9 @@ type Session = {
   type: SessionType;
   state: SessionState;
   notes: string;
+  checkInEnabled?: boolean;
+  qrFallbackCode?: string;
+  playerIds?: string[];
 };
 
 type AttendanceRecord = {
@@ -83,6 +86,11 @@ type AttendanceRecord = {
   parentNotified: boolean;
   arrivalTime: string;
   coachNotes: string;
+  departureTime?: string;
+  checkInMethod?: string;
+  confirmationStatus?: string;
+  paymentStatus?: string;
+  attendanceRecordIdText?: string;
 };
 
 type Payment = {
@@ -539,7 +547,7 @@ async function loadAdminData(): Promise<AdminData> {
     const response = await fetch(apiPath("/admin-data"));
     if (!response.ok) throw new Error("Admin data unavailable");
     const payload = (await response.json()) as Partial<AdminData>;
-    return {
+    const base = {
       ...demoData,
       ...payload,
       sessions: payload.sessions ?? demoData.sessions,
@@ -549,9 +557,84 @@ async function loadAdminData(): Promise<AdminData> {
       players: payload.players ?? demoData.players,
       coach: payload.coach ?? demoData.coach,
     } as AdminData;
+
+    // Pull live Sessions and Attendance from their dedicated endpoints when
+    // available. Fail soft: keep demo/admin-data values if either endpoint is
+    // missing or returns an empty list.
+    const [sessionsRes, attendanceRes] = await Promise.all([
+      fetch(apiPath("/sessions?scope=all")).catch(() => null),
+      fetch(apiPath("/attendance")).catch(() => null),
+    ]);
+
+    if (sessionsRes && sessionsRes.ok) {
+      try {
+        const body = (await sessionsRes.json()) as { sessions?: Session[]; warning?: string };
+        // Only keep demo data when the API explicitly signals it is unavailable
+        // (warning present). A legitimate empty array from a configured backend
+        // means "no sessions yet" and should be respected.
+        if (Array.isArray(body.sessions) && !body.warning) {
+          base.sessions = body.sessions;
+        }
+      } catch {
+        // ignore — keep demo sessions
+      }
+    }
+    if (attendanceRes && attendanceRes.ok) {
+      try {
+        const body = (await attendanceRes.json()) as { attendance?: AttendanceRecord[]; warning?: string };
+        if (Array.isArray(body.attendance) && !body.warning) {
+          base.attendance = body.attendance;
+        }
+      } catch {
+        // ignore — keep demo attendance
+      }
+    }
+    return base;
   } catch {
     return demoData;
   }
+}
+
+type QrCheckinScanType = "Arrival" | "Departure";
+
+type QrCheckinResult =
+  | { ok: true; id?: string; demo?: boolean; warning?: string; existingAttendanceId?: string | null }
+  | { ok: false; status: number; warning?: string; message?: string; existing?: AttendanceRecord | null };
+
+async function submitQrCheckin(payload: {
+  sessionId: string;
+  playerId: string;
+  scanType: QrCheckinScanType;
+  forceConfirm?: boolean;
+  notes?: string;
+}): Promise<QrCheckinResult> {
+  const body = JSON.stringify({
+    ...payload,
+    confirmationResult: "Confirmed",
+    method: "QR",
+  });
+
+  if (!apiBase) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    return { ok: true, demo: true, warning: "Demo mode — scan was not persisted." };
+  }
+
+  const response = await fetch(apiPath("/qr-checkins"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body,
+  });
+  const json = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  if (response.ok) {
+    return { ok: true, ...(json as object) } as QrCheckinResult;
+  }
+  return {
+    ok: false,
+    status: response.status,
+    warning: typeof json.warning === "string" ? json.warning : undefined,
+    message: typeof json.message === "string" ? json.message : typeof json.error === "string" ? (json.error as string) : undefined,
+    existing: (json.existing as AttendanceRecord | null) ?? null,
+  };
 }
 
 async function submitConsent(payload: ConsentPayload) {
@@ -962,9 +1045,172 @@ function PlayerList({ players }: { players: Player[] }) {
   );
 }
 
-function Sessions({ sessions }: { sessions: Session[] }) {
+function QrCheckinDialog({
+  session,
+  players,
+  onClose,
+}: {
+  session: Session;
+  players: Player[];
+  onClose: () => void;
+}) {
+  const [playerId, setPlayerId] = useState<string>(players[0]?.id ?? "");
+  const [scanType, setScanType] = useState<QrCheckinScanType>("Arrival");
+  const [stage, setStage] = useState<"choose" | "confirm" | "submitting" | "result">("choose");
+  const [forceConfirm, setForceConfirm] = useState(false);
+  const [warning, setWarning] = useState<string | null>(null);
+  const [resultMessage, setResultMessage] = useState("");
+  const [resultOk, setResultOk] = useState(false);
+
+  // Reset the forceConfirm override (and any stale duplicate-scan warning) when
+  // the coach changes the player or scan type — otherwise a 409 against player
+  // A could silently auto-arm "Confirm anyway" for player B.
+  function changePlayer(nextId: string) {
+    setPlayerId(nextId);
+    setForceConfirm(false);
+    setWarning(null);
+  }
+  function changeScanType(next: QrCheckinScanType) {
+    setScanType(next);
+    setForceConfirm(false);
+    setWarning(null);
+  }
+
+  const player = players.find((p) => p.id === playerId);
+
+  async function send(force: boolean) {
+    if (!playerId || !player) return;
+    setStage("submitting");
+    setWarning(null);
+    const result = await submitQrCheckin({
+      sessionId: session.id,
+      playerId,
+      scanType,
+      forceConfirm: force,
+    });
+    if (result.ok) {
+      setResultOk(true);
+      setResultMessage(
+        result.warning
+          ? `Recorded with note: ${result.warning}`
+          : `${scanType} scan recorded for ${player.name}.`,
+      );
+      setStage("result");
+      return;
+    }
+    if (result.status === 409 && result.warning) {
+      setWarning(result.message || result.warning);
+      setForceConfirm(true);
+      setStage("confirm");
+      return;
+    }
+    setResultOk(false);
+    setResultMessage(result.message || "Unable to record scan.");
+    setStage("result");
+  }
+
+  return (
+    <div className="qr-modal-backdrop" role="dialog" aria-modal="true" aria-label="QR check-in">
+      <div className="qr-modal panel">
+        <div className="toolbar">
+          <div>
+            <div className="page-kicker">Check-in</div>
+            <h2 className="page-title" style={{ fontSize: "var(--text-lg)" }}>{session.name}</h2>
+            <div className="player-sub">
+              {formatDate(session.date)} · {session.startTime}–{session.endTime} · {session.location}
+            </div>
+          </div>
+          <button type="button" className="icon-button" onClick={onClose} aria-label="Close check-in">
+            <X size={18} />
+          </button>
+        </div>
+
+        {stage === "choose" && (
+          <div className="form-section">
+            <label className="form-field full">
+              <span>Player</span>
+              <select value={playerId} onChange={(e) => changePlayer(e.target.value)} data-testid="select-qr-player">
+                {players.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} · {p.team}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="filter-row" aria-label="Scan type">
+              {(["Arrival", "Departure"] as const).map((type) => (
+                <button
+                  key={type}
+                  type="button"
+                  className={`filter-button ${scanType === type ? "active" : ""}`}
+                  onClick={() => changeScanType(type)}
+                  data-testid={`button-qr-scantype-${type.toLowerCase()}`}
+                >
+                  {type}
+                </button>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: "var(--space-2)", marginTop: "var(--space-3)" }}>
+              <button
+                type="button"
+                className="primary-button"
+                disabled={!playerId}
+                onClick={() => setStage("confirm")}
+                data-testid="button-qr-review"
+              >
+                Review
+              </button>
+              <button type="button" className="filter-button" onClick={onClose}>Cancel</button>
+            </div>
+          </div>
+        )}
+
+        {(stage === "confirm" || stage === "submitting") && player && (
+          <div className="form-section">
+            <h3>Confirm scan</h3>
+            <div className="summary-list">
+              <div className="summary-item"><span>Session</span><strong>{session.name}</strong></div>
+              <div className="summary-item"><span>Player</span><strong>{player.name}</strong></div>
+              <div className="summary-item"><span>Team</span><strong>{player.team} · {player.ageGroup}</strong></div>
+              <div className="summary-item"><span>Scan</span><strong>{scanType}</strong></div>
+            </div>
+            {warning && (
+              <div className="message error" data-testid="status-qr-warning">
+                {warning} {forceConfirm ? "Tap Confirm anyway to override." : ""}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: "var(--space-2)", marginTop: "var(--space-3)" }}>
+              <button
+                type="button"
+                className="primary-button"
+                disabled={stage === "submitting"}
+                onClick={() => send(forceConfirm)}
+                data-testid="button-qr-confirm"
+              >
+                {stage === "submitting" ? "Sending..." : forceConfirm ? "Confirm anyway" : "Confirm"}
+              </button>
+              <button type="button" className="filter-button" onClick={() => setStage("choose")}>Back</button>
+            </div>
+          </div>
+        )}
+
+        {stage === "result" && (
+          <div className="form-section">
+            <div className={`message ${resultOk ? "success" : "error"}`} data-testid="status-qr-result">
+              {resultMessage}
+            </div>
+            <button type="button" className="primary-button" onClick={onClose}>Close</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Sessions({ sessions, players }: { sessions: Session[]; players: Player[] }) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"all" | SessionState>("all");
+  const [checkinSession, setCheckinSession] = useState<Session | null>(null);
 
   const now = new Date();
   const upcoming = sessions.filter((s) => s.state === "scheduled" && new Date(s.date) >= new Date(now.toDateString())).length;
@@ -1042,6 +1288,7 @@ function Sessions({ sessions }: { sessions: Session[] }) {
                   <th>Coach</th>
                   <th>Type / Status</th>
                   <th>Notes</th>
+                  <th>Check-in</th>
                 </tr>
               </thead>
               <tbody>
@@ -1083,6 +1330,20 @@ function Sessions({ sessions }: { sessions: Session[] }) {
                     <td>
                       <span className="notes-cell">{session.notes}</span>
                     </td>
+                    <td>
+                      {session.state === "scheduled" ? (
+                        <button
+                          type="button"
+                          className="filter-button"
+                          onClick={() => setCheckinSession(session)}
+                          data-testid={`button-checkin-${session.id}`}
+                        >
+                          QR check-in
+                        </button>
+                      ) : (
+                        <span className="player-sub">—</span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -1090,6 +1351,13 @@ function Sessions({ sessions }: { sessions: Session[] }) {
           </div>
         )}
       </section>
+      {checkinSession && (
+        <QrCheckinDialog
+          session={checkinSession}
+          players={players}
+          onClose={() => setCheckinSession(null)}
+        />
+      )}
     </>
   );
 }
@@ -1727,7 +1995,7 @@ function App() {
         <div className="content">
           {activeView === "overview" && <Overview data={data} />}
           {activeView === "players" && <PlayerList players={data.players} />}
-          {activeView === "sessions" && <Sessions sessions={data.sessions} />}
+          {activeView === "sessions" && <Sessions sessions={data.sessions} players={data.players} />}
           {activeView === "attendance" && <Attendance attendance={data.attendance} sessions={data.sessions} />}
           {activeView === "safeguarding" && <Safeguarding players={data.players} />}
           {activeView === "payments" && <Payments payments={data.payments} />}
