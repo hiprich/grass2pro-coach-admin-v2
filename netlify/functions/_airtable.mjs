@@ -541,6 +541,122 @@ export async function listAttendance({ sessionId } = {}) {
   return records.map(normaliseAttendance);
 }
 
+// ---------- Media Consents ----------
+//
+// The Media Consents table is the source of truth for what permissions a
+// parent has actually granted. The Players table has its own Photo/Video
+// Consent checkboxes for legacy/manual use, but new submissions only land in
+// Media Consents. The Overview mini-cards (and the Players page consent
+// badges) need to reflect the latest Media Consents row per player so a
+// freshly submitted consent shows up immediately.
+//
+// We pick the most recent row per linked Player record. Rows where the
+// parent later set "Withdrawal Requested" override an earlier Active grant
+// and are treated as withdrawn (red).
+export async function listMediaConsents() {
+  const table = tableName("AIRTABLE_MEDIA_CONSENTS_TABLE", "Media Consents", TABLE_IDS.MEDIA_CONSENTS);
+  if (!hasAirtableConfig()) return [];
+  const params = { pageSize: "100" };
+  const records = await airtableList(table, params);
+  return records;
+}
+
+function mediaConsentTimestamp(record) {
+  const fields = record?.fields || {};
+  const raw =
+    fields["Submitted At"] ||
+    fields["Submission Date"] ||
+    fields["Date Submitted"] ||
+    fields["Created"] ||
+    record?.createdTime ||
+    "";
+  const parsed = Date.parse(raw);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function consentStatusFromMediaConsent(record) {
+  const fields = record?.fields || {};
+  if (boolValue(fields["Withdrawal Requested"])) return "red";
+  const explicit = stringValue(fields["Consent Status"]).toLowerCase();
+  if (explicit.includes("withdraw")) return "red";
+  if (explicit === "active") return "green";
+  if (explicit === "limited") return "amber";
+  if (explicit.includes("needs review") || explicit.includes("not")) return "grey";
+  // Fall back to the permission booleans on the consent row itself.
+  const photo = boolValue(fields["Photo Permission"]);
+  const video = boolValue(fields["Video Permission"]);
+  if (photo && video) return "green";
+  if (photo || video) return "amber";
+  return "grey";
+}
+
+function consentRecordChildName(record) {
+  const fields = record?.fields || {};
+  // The Media Consents form writes the child name into the "Consent Record"
+  // primary field as "Child - Parent - Consent - DD/MM/YYYY HH:mm". When the
+  // row is also linked to a Player, the linked record id is what we match on
+  // first; this name fallback covers consent rows that failed player lookup.
+  const label = stringValue(fields["Consent Record"]);
+  if (label) {
+    const head = label.split(" - ")[0];
+    if (head) return head.trim().toLowerCase();
+  }
+  const direct = stringValue(fields["Child Name"] || fields.Child || fields["Player Name"]);
+  return direct ? direct.trim().toLowerCase() : "";
+}
+
+// Pick the most recent Media Consents record per player. We index by linked
+// Player record id when the consent row has one, and by lowercased child
+// name as a fallback so consent submissions whose player lookup failed at
+// submit time still flow through to the dashboard.
+export function indexLatestMediaConsents(records) {
+  const byPlayerId = new Map();
+  const byChildName = new Map();
+  const upsert = (map, key, record, ts) => {
+    if (!key) return;
+    const existing = map.get(key);
+    if (!existing || ts >= existing.ts) map.set(key, { record, ts });
+  };
+  for (const record of records || []) {
+    const fields = record?.fields || {};
+    const playerLinks = Array.isArray(fields.Player) ? fields.Player : fields.Player ? [fields.Player] : [];
+    const ts = mediaConsentTimestamp(record);
+    for (const playerId of playerLinks) upsert(byPlayerId, playerId, record, ts);
+    upsert(byChildName, consentRecordChildName(record), record, ts);
+  }
+  return { byPlayerId, byChildName };
+}
+
+// Overlay live Media Consents data onto the player objects produced by
+// normalisePlayer. The Media Consents row wins when present because the form
+// is the source of truth for what permissions the parent granted.
+export function mergeMediaConsentsIntoPlayers(players, consentRecords) {
+  const { byPlayerId, byChildName } = indexLatestMediaConsents(consentRecords);
+  if (byPlayerId.size === 0 && byChildName.size === 0) return players;
+  return players.map((player) => {
+    const entry =
+      byPlayerId.get(player.id) ||
+      byChildName.get(String(player.name || "").trim().toLowerCase());
+    if (!entry) return player;
+    const fields = entry.record?.fields || {};
+    const photoConsent = boolValue(fields["Photo Permission"]);
+    const videoConsent = boolValue(fields["Video Permission"]);
+    const websiteConsent = boolValue(fields["Website Use"]);
+    const socialConsent = boolValue(fields["Social Media Use"]);
+    const highlightsConsent = boolValue(fields["Highlights/Reels Use"]);
+    const consentStatus = consentStatusFromMediaConsent(entry.record);
+    return {
+      ...player,
+      consentStatus,
+      photoConsent,
+      videoConsent,
+      websiteConsent,
+      socialConsent,
+      highlightsConsent,
+    };
+  });
+}
+
 // Demo data used when AIRTABLE_* env vars are missing so the API still works.
 function demoSessions(scope = "upcoming") {
   const today = new Date();
