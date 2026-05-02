@@ -5,7 +5,7 @@
 //    Pages deploy is picked up immediately and offline still works.
 //  - Bumping CACHE_VERSION invalidates everything from prior deploys.
 
-const CACHE_VERSION = 'v3'
+const CACHE_VERSION = 'v4'
 const CACHE_NAME = `g2p-coach-${CACHE_VERSION}`
 
 // Paths the SW must NEVER cache and must always send straight to the network.
