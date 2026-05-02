@@ -1028,17 +1028,29 @@ function Overview({ data }: { data: AdminData }) {
         <article className="card mini-card">
           <Camera size={20} aria-hidden="true" />
           <h3>Photo permissions</h3>
-          <p>{players.filter((player) => player.photoConsent).length} players currently allow session or match photos.</p>
+          <p>{(() => {
+            const n = players.filter((player) => player.photoConsent).length;
+            return n === 1
+              ? "1 player currently allows session or match photos."
+              : `${n} players currently allow session or match photos.`;
+          })()}</p>
         </article>
         <article className="card mini-card">
           <Video size={20} aria-hidden="true" />
           <h3>Video review</h3>
-          <p>{players.filter((player) => player.videoConsent).length} players have permission for coach analysis footage.</p>
+          <p>{(() => {
+            const n = players.filter((player) => player.videoConsent).length;
+            return n === 1
+              ? "1 player has permission for coach analysis footage."
+              : `${n} players have permission for coach analysis footage.`;
+          })()}</p>
         </article>
         <article className="card mini-card">
           <ShieldCheck size={20} aria-hidden="true" />
           <h3>Needs follow-up</h3>
-          <p>{needsAction} records need parent follow-up before any public media usage.</p>
+          <p>{needsAction === 1
+            ? "1 record needs parent follow-up before any public media usage."
+            : `${needsAction} records need parent follow-up before any public media usage.`}</p>
         </article>
       </section>
     </>
