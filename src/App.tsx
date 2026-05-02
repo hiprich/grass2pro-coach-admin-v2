@@ -1014,6 +1014,8 @@ function Overview({ data }: { data: AdminData }) {
   const notRecorded = players.filter((player) => player.consentStatus === "grey").length;
   const withdrawn = players.filter((player) => player.consentStatus === "red").length;
   const needsAction = notRecorded + withdrawn;
+  const photoCount = players.filter((player) => player.photoConsent).length;
+  const videoCount = players.filter((player) => player.videoConsent).length;
 
   return (
     <>
@@ -1028,17 +1030,23 @@ function Overview({ data }: { data: AdminData }) {
         <article className="card mini-card">
           <Camera size={20} aria-hidden="true" />
           <h3>Photo permissions</h3>
-          <p>{players.filter((player) => player.photoConsent).length} players currently allow session or match photos.</p>
+          <p>
+            {photoCount} {photoCount === 1 ? "player currently allows" : "players currently allow"} session or match photos.
+          </p>
         </article>
         <article className="card mini-card">
           <Video size={20} aria-hidden="true" />
           <h3>Video review</h3>
-          <p>{players.filter((player) => player.videoConsent).length} players have permission for coach analysis footage.</p>
+          <p>
+            {videoCount} {videoCount === 1 ? "player has" : "players have"} permission for coach analysis footage.
+          </p>
         </article>
         <article className="card mini-card">
           <ShieldCheck size={20} aria-hidden="true" />
           <h3>Needs follow-up</h3>
-          <p>{needsAction} records need parent follow-up before any public media usage.</p>
+          <p>
+            {needsAction} {needsAction === 1 ? "record needs" : "records need"} parent follow-up before any public media usage.
+          </p>
         </article>
       </section>
     </>
