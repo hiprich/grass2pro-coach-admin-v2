@@ -386,14 +386,29 @@ export const handler = async (event) => {
 
     // Parent-fallback player resolution. If the child name didn't match any
     // player exactly or fuzzily, look at the players already linked to the
-    // resolved Parent/Guardian and pick the one whose name best matches the
+    // resolved Parent/Guardian and pick the one whose name overlaps the
     // submitted child name. This rescues submissions where the parent typed
     // only a first name (e.g. "Leonce") but the Players table holds the full
-    // name ("Leonce Boateng"). When the parent has exactly one linked player
-    // we use it unconditionally; with multiple linked players we require a
-    // first-name overlap so we don't silently link a sibling.
+    // name ("Leonce Boateng"). A name overlap is REQUIRED — we never link a
+    // single linked player unconditionally, otherwise a sibling submission
+    // (e.g. "Malique" under a parent who already has "Leonce Boateng") would
+    // be silently mis-linked to the wrong child.
     if (!playerId && parentId && Array.isArray(players)) {
       playerId = matchPlayerByParent(players, parentId, payload.childName);
+    }
+
+    // If we still have no Player after exact/fuzzy/parent-fallback matching,
+    // the submitted child is genuinely new for this household. Create a
+    // Player row from the submitted details and link it to the resolved
+    // Parent/Guardian so the consent record points at the right child rather
+    // than reusing a sibling. Failures are logged but never block the
+    // consent record — the audit text retains the submitted child name.
+    if (!playerId && parentId) {
+      try {
+        playerId = await createPlayerForConsent(payload, parentId, dateOfBirth);
+      } catch (error) {
+        console.error("Player create-on-consent failed:", error);
+      }
     }
 
     if (playerId) fields.Player = [playerId];
@@ -518,24 +533,65 @@ function matchPlayerByName(players, childName) {
 }
 
 // Fall back to the player(s) already linked to the resolved Parent/Guardian.
-// When the parent has exactly one player we trust the link directly; with
-// multiple players (e.g. siblings) we require a first-name overlap with the
-// submitted child name so we don't silently attach the wrong sibling.
+// A name overlap with the submitted child name is REQUIRED: we never trust
+// the parent link alone, because a household submitting consent for a new
+// sibling (e.g. "Malique") under the same parent that already has "Leonce
+// Boateng" must NOT have the consent record linked to Leonce. Accepts an
+// exact normalised name match, a startsWith match (e.g. "Leonce" vs
+// "Leonce Boateng"), an unambiguous first-token overlap, or — only when the
+// candidate set is a single player — a substring containment.
 function matchPlayerByParent(players, parentId, childName) {
   if (!Array.isArray(players) || !parentId) return null;
   const candidates = players.filter((player) => player.guardianIds.includes(parentId));
   if (candidates.length === 0) return null;
-  if (candidates.length === 1) return candidates[0].id;
 
   const trimmed = String(childName || "").trim().toLowerCase();
   if (!trimmed) return null;
+
+  const exact = candidates.find((player) => player.name.toLowerCase() === trimmed);
+  if (exact) return exact.id;
+
+  const startsWith = candidates.filter((player) =>
+    player.name.toLowerCase().startsWith(`${trimmed} `),
+  );
+  if (startsWith.length === 1) return startsWith[0].id;
+
   const firstToken = trimmed.split(/\s+/)[0];
-  const firstNameMatches = candidates.filter((player) => {
-    const candidateFirst = player.name.toLowerCase().split(/\s+/)[0];
-    return candidateFirst && candidateFirst === firstToken;
-  });
-  if (firstNameMatches.length === 1) return firstNameMatches[0].id;
+  if (firstToken) {
+    const firstNameMatches = candidates.filter((player) => {
+      const candidateFirst = player.name.toLowerCase().split(/\s+/)[0];
+      return candidateFirst && candidateFirst === firstToken;
+    });
+    if (firstNameMatches.length === 1) return firstNameMatches[0].id;
+  }
+
+  if (candidates.length === 1) {
+    const only = candidates[0];
+    if (only.name.toLowerCase().includes(trimmed)) return only.id;
+  }
+
   return null;
+}
+
+// Create a Players row for a submitted child that could not be matched to
+// any existing Player (by name or via the resolved Parent/Guardian's links).
+// We write only the schema fields the form supplies — Full Name, optional
+// Date of Birth (the Age Group formula reads from this), and the linked
+// Parent/Guardian — and let Airtable's typecast add unknown values rather
+// than reject the create. Returns the new record id, or null if creation
+// could not be attempted (e.g. blank child name).
+async function createPlayerForConsent(payload, parentId, dateOfBirth) {
+  const fullName = String(payload.childName || "").trim();
+  if (!fullName) return null;
+  const playerFields = { "Full Name": fullName };
+  if (dateOfBirth) playerFields["Date of Birth"] = dateOfBirth;
+  if (parentId) playerFields["Parent/Guardian"] = [parentId];
+  const created = await airtableCreate(
+    tableName("AIRTABLE_PLAYERS_TABLE", "Players", TABLE_IDS.PLAYERS),
+    playerFields,
+    { typecast: true },
+  );
+  return created?.id || null;
 }
 
 async function findParentId(email, name) {
