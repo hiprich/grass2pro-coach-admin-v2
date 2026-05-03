@@ -58,6 +58,10 @@ type Player = {
   websiteConsent: boolean;
   socialConsent: boolean;
   highlightsConsent: boolean;
+  internalReportsConsent?: boolean;
+  pressConsent?: boolean;
+  emergencyContactConsent?: boolean;
+  medicalInformationConsent?: boolean;
   reviewDue: string;
   progressScore: number;
 };
@@ -155,6 +159,10 @@ const demoPlayers: Player[] = [
     websiteConsent: true,
     socialConsent: false,
     highlightsConsent: true,
+    internalReportsConsent: true,
+    pressConsent: false,
+    emergencyContactConsent: true,
+    medicalInformationConsent: true,
     reviewDue: "2026-05-02",
     progressScore: 84,
   },
@@ -174,6 +182,10 @@ const demoPlayers: Player[] = [
     websiteConsent: false,
     socialConsent: false,
     highlightsConsent: false,
+    internalReportsConsent: true,
+    pressConsent: false,
+    emergencyContactConsent: true,
+    medicalInformationConsent: false,
     reviewDue: "2026-05-07",
     progressScore: 71,
   },
@@ -193,6 +205,10 @@ const demoPlayers: Player[] = [
     websiteConsent: false,
     socialConsent: false,
     highlightsConsent: false,
+    internalReportsConsent: false,
+    pressConsent: false,
+    emergencyContactConsent: false,
+    medicalInformationConsent: false,
     reviewDue: "2026-05-10",
     progressScore: 48,
   },
@@ -212,6 +228,10 @@ const demoPlayers: Player[] = [
     websiteConsent: false,
     socialConsent: false,
     highlightsConsent: false,
+    internalReportsConsent: false,
+    pressConsent: false,
+    emergencyContactConsent: false,
+    medicalInformationConsent: false,
     reviewDue: "2026-05-12",
     progressScore: 67,
   },
@@ -231,6 +251,10 @@ const demoPlayers: Player[] = [
     websiteConsent: false,
     socialConsent: false,
     highlightsConsent: true,
+    internalReportsConsent: true,
+    pressConsent: false,
+    emergencyContactConsent: true,
+    medicalInformationConsent: true,
     reviewDue: "2026-05-04",
     progressScore: 76,
   },
@@ -861,6 +885,31 @@ function Grass2ProLogo() {
   );
 }
 
+// Coach-facing labels for each consent purpose granted on the latest Media
+// Consent. Order is meaningful: photos before video, sessions before matches,
+// then the downstream uses (reports/website/social/press), and finally the
+// information-sharing grants. The Players table renders the granted entries
+// as chips so coaches can see exactly what is allowed at a glance.
+const CONSENT_PURPOSE_LABELS: Array<{ key: keyof Player; label: string }> = [
+  { key: "photoConsent", label: "Photos – sessions" },
+  { key: "matchPhotoConsent", label: "Photos – matches" },
+  { key: "videoConsent", label: "Video – coaching review" },
+  { key: "matchVideoConsent", label: "Video – matches" },
+  { key: "internalReportsConsent", label: "Parent progress reports" },
+  { key: "websiteConsent", label: "Grass2Pro website" },
+  { key: "socialConsent", label: "Social media highlights" },
+  { key: "highlightsConsent", label: "Highlight clips" },
+  { key: "pressConsent", label: "Press / partner media" },
+  { key: "emergencyContactConsent", label: "Emergency contact sharing" },
+  { key: "medicalInformationConsent", label: "Medical info sharing" },
+];
+
+function consentPurposesForPlayer(player: Player): string[] {
+  return CONSENT_PURPOSE_LABELS.filter(({ key }) => Boolean(player[key])).map(
+    ({ label }) => label,
+  );
+}
+
 function ConsentBadge({ status }: { status: ConsentStatus }) {
   const label = {
     green: "Full consent",
@@ -1166,13 +1215,15 @@ function PlayerList({ players }: { players: Player[] }) {
                 <th>Player</th>
                 <th>Team</th>
                 <th>Consent</th>
-                <th>Permissions</th>
+                <th>Consent details</th>
                 <th>Review due</th>
                 <th>Progress</th>
               </tr>
             </thead>
             <tbody>
-              {filteredPlayers.map((player) => (
+              {filteredPlayers.map((player) => {
+                const purposes = consentPurposesForPlayer(player);
+                return (
                 <tr key={player.id} data-testid={`row-player-${player.id}`}>
                   <td>
                     <div className="player-cell">
@@ -1196,9 +1247,23 @@ function PlayerList({ players }: { players: Player[] }) {
                     <div className="player-sub">{player.status}</div>
                   </td>
                   <td>
-                    <div className="player-sub">
-                      Photo {player.photoConsent ? "yes" : "no"} · Video {player.videoConsent ? "yes" : "no"} · Social {player.socialConsent ? "yes" : "no"}
-                    </div>
+                    {purposes.length === 0 ? (
+                      <div className="player-sub" data-testid={`text-consent-details-${player.id}`}>
+                        No consent purposes recorded.
+                      </div>
+                    ) : (
+                      <ul
+                        className="consent-chip-list"
+                        aria-label={`Consent purposes for ${player.name}`}
+                        data-testid={`list-consent-details-${player.id}`}
+                      >
+                        {purposes.map((label) => (
+                          <li key={label} className="consent-chip">
+                            {label}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </td>
                   <td>{new Date(player.reviewDue).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}</td>
                   <td>
@@ -1208,7 +1273,8 @@ function PlayerList({ players }: { players: Player[] }) {
                     <div className="player-sub">{player.progressScore}%</div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

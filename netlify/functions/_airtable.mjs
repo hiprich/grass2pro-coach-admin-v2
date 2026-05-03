@@ -370,6 +370,16 @@ export function normalisePlayer(record) {
     websiteConsent: boolValue(fields["Website Consent"] || fields["Website Permission"]),
     socialConsent: boolValue(fields["Social Consent"] || fields["Social Permission"]),
     highlightsConsent: boolValue(fields["Highlights Consent"] || fields["Highlight Permission"]),
+    internalReportsConsent: boolValue(
+      fields["Internal Reports Consent"] || fields["Internal Coaching Use"],
+    ),
+    pressConsent: boolValue(fields["Press Consent"] || fields["Press/Partner Use"]),
+    emergencyContactConsent: boolValue(
+      fields["Emergency Contact Consent"] || fields["Emergency Contact Sharing"],
+    ),
+    medicalInformationConsent: boolValue(
+      fields["Medical Information Consent"] || fields["Medical Information Sharing"],
+    ),
     reviewDue: stringValue(fields["Review Due"] || fields["Next Review"], new Date().toISOString()),
     progressScore: numberValue(fields["Progress Score"] || fields.Progress, 0),
   };
@@ -768,6 +778,15 @@ function permissionsFromMediaConsent(record) {
     pressConsent:
       boolValue(fields["Press/Partner Use"]) ||
       chips.some((chip) => chip.includes("press") || chip.includes("partner")),
+    // Information-sharing grants live on the same row as the media chips. They
+    // are independent of media consent status but the dashboard still needs to
+    // surface them so coaches can see exactly what each parent agreed to.
+    emergencyContactConsent:
+      boolValue(fields["Emergency Contact Sharing"]) ||
+      chips.some((chip) => chip.includes("emergency contact")),
+    medicalInformationConsent:
+      boolValue(fields["Medical Information Sharing"]) ||
+      chips.some((chip) => chip.includes("medical")),
   };
 }
 
@@ -931,6 +950,10 @@ export function mergeMediaConsentsIntoPlayers(players, consentRecords) {
       websiteConsent: perms.websiteConsent,
       socialConsent: perms.socialConsent,
       highlightsConsent: perms.highlightsConsent,
+      internalReportsConsent: perms.internalReportsConsent,
+      pressConsent: perms.pressConsent,
+      emergencyContactConsent: perms.emergencyContactConsent,
+      medicalInformationConsent: perms.medicalInformationConsent,
     };
   });
 }
