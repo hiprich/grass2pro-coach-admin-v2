@@ -2401,6 +2401,10 @@ function ConsentForm() {
                 <span className="field-help">
                   Consent can be withdrawn by contacting Grass2Pro. Grass2Pro will stop future use and remove stored media where practical, but already published online or printed media may be difficult to fully recall.
                 </span>
+                <span className="field-help" data-testid="text-withdrawal-contact">
+                  To withdraw consent, contact Grass2Pro at{" "}
+                  <a href="mailto:cjones@grass2pro.com">cjones@grass2pro.com</a>.
+                </span>
               </span>
             </label>
           </div>

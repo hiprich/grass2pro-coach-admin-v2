@@ -834,6 +834,11 @@
     font-size: var(--text-xs);
   }
 
+  .field-help a {
+    color: var(--primary);
+    text-decoration: underline;
+  }
+
   .field-error {
     color: #c0392b;
     font-size: var(--text-xs);
