@@ -701,7 +701,7 @@
   table {
     width: 100%;
     border-collapse: collapse;
-    min-width: 56rem;
+    min-width: 48rem;
   }
 
   th,
@@ -1594,7 +1594,7 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  min-width: 12rem;
+  min-width: 9rem;
 }
 .pathway-inline-select {
   width: 100%;
@@ -1624,7 +1624,24 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  min-width: 11rem;
+  min-width: 9rem;
+}
+
+/* Keep the Actions column compact and always visible */
+th.actions-col,
+td.actions-col {
+  width: 1%;
+  white-space: nowrap;
+}
+
+/* Cap the Consent details column so it can't push other columns off-screen */
+th.consent-details-col,
+td.consent-details-col {
+  max-width: 18rem;
+}
+td.consent-details-col .consent-details {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .player-row-actions-empty {
   font-style: italic;

@@ -1963,10 +1963,10 @@ function PlayerList({
                 <tr>
                   <th>Player</th>
                   <th>Team</th>
+                  <th className="actions-col">Actions</th>
                   <th>Football pathway</th>
                   <th>Consent</th>
                   <th className="consent-details-col">Consent details</th>
-                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -1999,6 +1999,13 @@ function PlayerList({
                       <strong>{player.team}</strong>
                       <div className="player-sub">{player.ageGroup}</div>
                     </td>
+                    <td className="actions-col">
+                      <PlayerRowActions
+                        player={player}
+                        onPlayerUpdate={onPlayerUpdate}
+                        onRequestMarkLeft={setLeavingPlayer}
+                      />
+                    </td>
                     <td>
                       <PathwayInlineEdit player={player} onPlayerUpdate={onPlayerUpdate} />
                     </td>
@@ -2007,13 +2014,6 @@ function PlayerList({
                     </td>
                     <td className="consent-details-col">
                       <ConsentDetailsBody player={player} variant="card" />
-                    </td>
-                    <td>
-                      <PlayerRowActions
-                        player={player}
-                        onPlayerUpdate={onPlayerUpdate}
-                        onRequestMarkLeft={setLeavingPlayer}
-                      />
                     </td>
                   </tr>
                 ))}
