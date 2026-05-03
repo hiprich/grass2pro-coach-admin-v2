@@ -1,11 +1,142 @@
-import { getCoachAndPlayers, json } from "./_airtable.mjs";
+import {
+  TABLE_IDS,
+  airtableUpdate,
+  getCoachAndPlayers,
+  hasAirtableConfig,
+  json,
+  mintPathwayToken,
+  normalisePlayer,
+  tableName,
+  tokenExpiryIso,
+} from "./_airtable.mjs";
 
-export const handler = async () => {
+// Players API.
+//
+// GET  /api/players                 -> list of normalised players (unchanged)
+// PATCH /api/players                -> coach-side mutations:
+//   { id, action: "set-pathway", value: "<one of footballPathwayOptions>" }
+//     Inline pathway edit on the Players list. Empty string clears the value.
+//   { id, action: "mark-left", reason, notes }
+//     Coach confirms a leaver. Sets Status = "Left", records the reason and
+//     timestamp, and clears any outstanding leave-request flag so the row
+//     stops showing on the Action needed card.
+//   { id, action: "mint-pathway-token" }
+//     Issues (or refreshes) a 7-day pathway-update token so the coach can
+//     send a parent-facing link without leaving the dashboard. Returns the
+//     token + expiry so the UI can build the URL.
+//
+// All mutations require Airtable to be configured \u2014 demo mode is read-only
+// because the new fields don't exist on the demo dataset. The endpoint is
+// deliberately coach-only (no token gate) because it lives behind the same
+// Netlify protection as the rest of the dashboard.
+
+const ALLOWED_LEAVE_REASONS = new Set([
+  "Moved area",
+  "Joined another club",
+  "Finished age group",
+  "Parent request",
+  "Other",
+]);
+
+const ALLOWED_PATHWAYS = new Set([
+  "Grassroots Football",
+  "Academy Football",
+  "School Football",
+  "Not Currently With a Team",
+  "Other / Unsure",
+  "", // empty = clear
+]);
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+async function handlePatch(event) {
+  if (!hasAirtableConfig()) {
+    return json(503, { error: "Airtable is not configured." });
+  }
+
+  let body;
   try {
-    const data = await getCoachAndPlayers();
-    return json(200, data.players);
+    body = JSON.parse(event.body || "{}");
+  } catch {
+    return json(400, { error: "Invalid JSON body." });
+  }
+
+  const id = String(body.id || "").trim();
+  const action = String(body.action || "").trim();
+  if (!id || !action) {
+    return json(400, { error: "id and action are required." });
+  }
+
+  const playersTable = tableName("AIRTABLE_PLAYERS_TABLE", "Players", TABLE_IDS.PLAYERS);
+
+  if (action === "set-pathway") {
+    const value = String(body.value ?? "").trim();
+    if (!ALLOWED_PATHWAYS.has(value)) {
+      return json(400, { error: "Unsupported pathway value." });
+    }
+    // Airtable accepts empty string to clear a singleSelect. We pass the
+    // string verbatim so the Overview's "Pathway not set" tile reflects the
+    // change immediately on the next reload.
+    const updated = await airtableUpdate(playersTable, id, {
+      "Football Pathway": value || null,
+    });
+    return json(200, { player: normalisePlayer(updated) });
+  }
+
+  if (action === "mark-left") {
+    const reasonRaw = String(body.reason || "").trim();
+    if (!ALLOWED_LEAVE_REASONS.has(reasonRaw)) {
+      return json(400, { error: "Unsupported leave reason." });
+    }
+    const notes = String(body.notes || "").trim();
+    // Coach confirmation moves the player to Status="Left", stamps the
+    // reason, and clears any outstanding parent-initiated leave request so
+    // the row drops off the Action needed card. We deliberately do NOT
+    // touch erasure flags here \u2014 erasure is always a separate, explicit
+    // step.
+    const updated = await airtableUpdate(playersTable, id, {
+      Status: "Left",
+      "Leave Reason": reasonRaw,
+      "Leave Requested At": nowIso(),
+      "Leave Notes": notes || null,
+      "Leave Requested": false,
+    });
+    return json(200, { player: normalisePlayer(updated) });
+  }
+
+  if (action === "mint-pathway-token") {
+    const token = mintPathwayToken();
+    const expires = tokenExpiryIso(7);
+    const updated = await airtableUpdate(playersTable, id, {
+      "Pathway Update Token": token,
+      "Pathway Token Expires": expires,
+    });
+    return json(200, {
+      player: normalisePlayer(updated),
+      token,
+      expiresAt: expires,
+    });
+  }
+
+  return json(400, { error: `Unknown action: ${action}` });
+}
+
+export const handler = async (event) => {
+  const method = (event.httpMethod || "GET").toUpperCase();
+
+  try {
+    if (method === "GET") {
+      const data = await getCoachAndPlayers();
+      return json(200, data.players);
+    }
+    if (method === "PATCH") {
+      return await handlePatch(event);
+    }
+    return json(405, { error: `Method ${method} not allowed.` });
   } catch (error) {
     console.error(error);
-    return json(500, { error: "Unable to load player records." });
+    return json(500, { error: "Unable to update player record." });
   }
 };

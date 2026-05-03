@@ -3,12 +3,15 @@ import {
   Banknote,
   CalendarDays,
   Camera,
+  Check,
   CheckCircle2,
   ClipboardCheck,
   ClipboardList,
   Clock,
   FileText,
   Home,
+  Link as LinkIcon,
+  LogOut,
   MapPin,
   Menu,
   Moon,
@@ -16,12 +19,13 @@ import {
   Search,
   ShieldCheck,
   Sun,
+  Trash2,
   Users,
   Video,
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { FormEvent } from "react";
+import type { FormEvent, ReactNode } from "react";
 
 type ConsentStatus = "green" | "amber" | "red" | "grey";
 
@@ -51,6 +55,15 @@ type Player = {
   guardianName: string;
   dateOfBirth?: string;
   footballPathway?: string;
+  // Leave/erasure flags surfaced from Airtable. Undefined when the dataset
+  // pre-dates the new fields (older players, demo data) so any UI gating must
+  // treat falsy values as "no request on file".
+  leaveRequested?: boolean;
+  leaveRequestedAt?: string;
+  leaveReason?: string;
+  leaveNotes?: string;
+  erasureRequested?: boolean;
+  erasureRequestedAt?: string;
   consentStatus: ConsentStatus;
   photoConsent: boolean;
   videoConsent: boolean;
@@ -803,6 +816,54 @@ async function loadAdminData(): Promise<AdminData> {
   }
 }
 
+// Coach-side player mutations. Each call hits PATCH /api/players with a small
+// action verb. The endpoint always returns the freshly normalised player so
+// the UI can splice it back into state without reloading the whole dataset.
+async function patchPlayerAction<T = { player: Player }>(payload: Record<string, unknown>): Promise<T> {
+  const response = await fetch(apiPath("/players"), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    let detail = "";
+    try {
+      const body = (await response.json()) as { error?: string };
+      detail = body?.error || "";
+    } catch {
+      // ignore — fall back to the generic message below
+    }
+    throw new Error(detail || `Request failed (${response.status})`);
+  }
+  return (await response.json()) as T;
+}
+
+async function setPlayerPathway(id: string, value: string): Promise<Player> {
+  const data = await patchPlayerAction<{ player: Player }>({ id, action: "set-pathway", value });
+  return data.player;
+}
+
+async function markPlayerAsLeft(
+  id: string,
+  reason: string,
+  notes: string,
+): Promise<Player> {
+  const data = await patchPlayerAction<{ player: Player }>({
+    id,
+    action: "mark-left",
+    reason,
+    notes,
+  });
+  return data.player;
+}
+
+async function mintPlayerPathwayToken(id: string): Promise<{ token: string; expiresAt: string; player: Player }> {
+  return patchPlayerAction<{ token: string; expiresAt: string; player: Player }>({
+    id,
+    action: "mint-pathway-token",
+  });
+}
+
 type QrCheckinScanType = "Arrival" | "Departure";
 
 type QrCheckinResult =
@@ -1359,13 +1420,26 @@ function KpiCard({ label, value, foot, icon: Icon }: { label: string; value: num
   );
 }
 
-function Overview({ data }: { data: AdminData }) {
-  const players = data.players;
+function Overview({
+  data,
+  onJumpToPlayers,
+}: {
+  data: AdminData;
+  onJumpToPlayers?: () => void;
+}) {
+  // Active roster excludes players the coach has already marked as Left so
+  // KPIs reflect the current squad. The Action needed card below still uses
+  // the full list because outstanding leave/erasure requests can come from
+  // both active and recently-left players.
+  const players = data.players.filter((player) => player.status !== "Left");
   const fullConsent = players.filter((player) => player.consentStatus === "green").length;
   const limited = players.filter((player) => player.consentStatus === "amber").length;
   const notRecorded = players.filter((player) => player.consentStatus === "grey").length;
   const withdrawn = players.filter((player) => player.consentStatus === "red").length;
   const needsAction = notRecorded + withdrawn;
+
+  const pendingLeave = data.players.filter((player) => player.leaveRequested);
+  const pendingErasure = data.players.filter((player) => player.erasureRequested);
 
   // Football Pathway KPI counts. Phase one is purely the current pathway split
   // — a coach can show parents "this is where my players come from today".
@@ -1418,6 +1492,77 @@ function Overview({ data }: { data: AdminData }) {
           />
         )}
       </section>
+
+      {(pendingLeave.length > 0 || pendingErasure.length > 0) && (
+        <section className="panel action-needed-card" aria-labelledby="action-needed-title">
+          <div className="toolbar">
+            <div>
+              <div className="page-kicker">Action needed</div>
+              <h2 id="action-needed-title" className="page-title" style={{ fontSize: "var(--text-lg)" }}>
+                Parent requests waiting for you
+              </h2>
+            </div>
+            {onJumpToPlayers && (
+              <button
+                type="button"
+                className="primary-button"
+                onClick={onJumpToPlayers}
+                data-testid="button-jump-to-players"
+              >
+                Open players list
+              </button>
+            )}
+          </div>
+          <ul className="action-needed-list">
+            {pendingLeave.map((player) => (
+              <li key={`leave-${player.id}`} className="action-needed-item">
+                <span className="action-needed-icon action-needed-icon--leave" aria-hidden="true">
+                  <LogOut size={16} />
+                </span>
+                <div className="action-needed-body">
+                  <strong>{player.name}</strong>
+                  <span className="player-sub">
+                    Parent asked to move on{player.leaveReason ? ` — ${player.leaveReason}` : ""}
+                  </span>
+                  {player.leaveNotes && (
+                    <span className="player-sub action-needed-notes">{player.leaveNotes}</span>
+                  )}
+                </div>
+                <span className="action-needed-meta">
+                  {player.leaveRequestedAt
+                    ? new Date(player.leaveRequestedAt).toLocaleDateString("en-GB", {
+                        day: "2-digit",
+                        month: "short",
+                      })
+                    : ""}
+                </span>
+              </li>
+            ))}
+            {pendingErasure.map((player) => (
+              <li key={`erase-${player.id}`} className="action-needed-item">
+                <span className="action-needed-icon action-needed-icon--erasure" aria-hidden="true">
+                  <Trash2 size={16} />
+                </span>
+                <div className="action-needed-body">
+                  <strong>{player.name}</strong>
+                  <span className="player-sub">
+                    Parent requested data erasure — verify and action manually in Airtable
+                  </span>
+                </div>
+                <span className="action-needed-meta">
+                  {player.erasureRequestedAt
+                    ? new Date(player.erasureRequestedAt).toLocaleDateString("en-GB", {
+                        day: "2-digit",
+                        month: "short",
+                      })
+                    : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       <section className="cards-grid">
         <article className="card mini-card">
           <Camera size={20} aria-hidden="true" />
@@ -1471,17 +1616,289 @@ function Overview({ data }: { data: AdminData }) {
   );
 }
 
-function PlayerList({ players }: { players: Player[] }) {
+// Inline pathway dropdown shown on every Players list row. Saving fires the
+// `set-pathway` PATCH and the parent splices the updated player back into
+// state — we don't reload the whole admin payload, so the change feels
+// instantaneous. Errors are surfaced inline so the coach knows the change
+// didn't stick (network blip, Airtable rejecting an unknown option, etc.).
+function PathwayInlineEdit({
+  player,
+  onPlayerUpdate,
+}: {
+  player: Player;
+  onPlayerUpdate: (player: Player) => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const value = player.footballPathway || "";
+
+  async function handleChange(next: string) {
+    setSaving(true);
+    setError("");
+    try {
+      const updated = await setPlayerPathway(player.id, next);
+      onPlayerUpdate(updated);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save pathway.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="pathway-inline">
+      <label className="sr-only" htmlFor={`pathway-${player.id}`}>
+        Football pathway for {player.name}
+      </label>
+      <select
+        id={`pathway-${player.id}`}
+        className={`pathway-inline-select ${value ? "" : "pathway-inline-empty"}`}
+        value={value}
+        disabled={saving}
+        onChange={(event) => handleChange(event.target.value)}
+        data-testid={`select-pathway-${player.id}`}
+      >
+        <option value="">Pathway not set</option>
+        {footballPathwayOptions.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+      {saving && <span className="player-sub">Saving…</span>}
+      {error && <span className="player-sub pathway-inline-error">{error}</span>}
+    </div>
+  );
+}
+
+// Per-row coach action menu: send the parent a pathway-update link, or open
+// the Mark-as-Left modal. Lives next to the pathway pill so all the row's
+// editing surfaces are in one place. Active players see the full menu;
+// already-Left players only get a disabled hint to keep the UI honest.
+function PlayerRowActions({
+  player,
+  onPlayerUpdate,
+  onRequestMarkLeft,
+}: {
+  player: Player;
+  onPlayerUpdate: (player: Player) => void;
+  onRequestMarkLeft: (player: Player) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [linkInfo, setLinkInfo] = useState<{ url: string; copied: boolean } | null>(null);
+  const [error, setError] = useState("");
+
+  if (player.status === "Left") {
+    return (
+      <span className="player-sub player-row-actions-empty">
+        Player has left the squad
+      </span>
+    );
+  }
+
+  async function sendLink() {
+    setBusy(true);
+    setError("");
+    try {
+      const result = await mintPlayerPathwayToken(player.id);
+      onPlayerUpdate(result.player);
+      const origin =
+        typeof window !== "undefined" && window.location
+          ? window.location.origin
+          : "";
+      const url = `${origin}/pathway/${result.token}`;
+      let copied = false;
+      if (typeof navigator !== "undefined" && navigator.clipboard) {
+        try {
+          await navigator.clipboard.writeText(url);
+          copied = true;
+        } catch {
+          // Clipboard can be denied (no user gesture, insecure context). The
+          // link is still shown below the button so the coach can copy it
+          // manually — we just won't claim we copied it for them.
+        }
+      }
+      setLinkInfo({ url, copied });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not create link.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="player-row-actions">
+      <button
+        type="button"
+        className="link-button"
+        onClick={sendLink}
+        disabled={busy}
+        data-testid={`button-send-pathway-link-${player.id}`}
+      >
+        <LinkIcon size={14} aria-hidden="true" /> {busy ? "Creating link…" : "Send link to parent"}
+      </button>
+      <button
+        type="button"
+        className="link-button link-button--danger"
+        onClick={() => onRequestMarkLeft(player)}
+        data-testid={`button-mark-left-${player.id}`}
+      >
+        <LogOut size={14} aria-hidden="true" /> Mark as left
+      </button>
+      {linkInfo && (
+        <div className="player-row-link-info" data-testid={`link-info-${player.id}`}>
+          {linkInfo.copied ? (
+            <span className="player-sub">
+              <Check size={14} aria-hidden="true" /> Link copied. It works for 7 days.
+            </span>
+          ) : (
+            <span className="player-sub">Copy this link to share with the parent (works for 7 days):</span>
+          )}
+          <code className="player-row-link">{linkInfo.url}</code>
+        </div>
+      )}
+      {error && <span className="player-sub pathway-inline-error">{error}</span>}
+    </div>
+  );
+}
+
+// Coach-confirmed leaver modal. Reason is required; notes are optional and
+// useful when "Other" is picked. The modal closes itself after a successful
+// save and the parent splices the now-Left player back into state.
+const LEAVE_REASONS = [
+  "Moved area",
+  "Joined another club",
+  "Finished age group",
+  "Parent request",
+  "Other",
+] as const;
+
+function MarkAsLeftModal({
+  player,
+  onClose,
+  onPlayerUpdate,
+}: {
+  player: Player;
+  onClose: () => void;
+  onPlayerUpdate: (player: Player) => void;
+}) {
+  const [reason, setReason] = useState<string>(player.leaveReason || "");
+  const [notes, setNotes] = useState<string>(player.leaveNotes || "");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!reason) {
+      setError("Please pick a reason.");
+      return;
+    }
+    setSubmitting(true);
+    setError("");
+    try {
+      const updated = await markPlayerAsLeft(player.id, reason, notes);
+      onPlayerUpdate(updated);
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save.");
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="qr-modal-backdrop" role="dialog" aria-modal="true" aria-label="Mark player as left">
+      <div className="qr-modal panel">
+        <div className="toolbar">
+          <div>
+            <div className="page-kicker">Mark as left</div>
+            <h2 className="page-title" style={{ fontSize: "var(--text-lg)" }}>{player.name}</h2>
+            <div className="player-sub">
+              {player.team} · {player.ageGroup}
+            </div>
+          </div>
+          <button type="button" className="icon-button" onClick={onClose} aria-label="Close">
+            <X size={18} />
+          </button>
+        </div>
+        <form className="form-section" onSubmit={submit}>
+          <p className="player-sub">
+            This moves the player to <strong>Left</strong>. The record stays on file (attendance,
+            payments and consent history are preserved). Use the separate erasure flow only if the
+            parent has asked to delete personal data.
+          </p>
+          <label className="form-field full">
+            <span>Reason</span>
+            <select
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              data-testid="select-leave-reason"
+              required
+            >
+              <option value="">Choose a reason…</option>
+              {LEAVE_REASONS.map((r) => (
+                <option key={r} value={r}>{r}</option>
+              ))}
+            </select>
+          </label>
+          <label className="form-field full">
+            <span>Notes (optional)</span>
+            <textarea
+              rows={3}
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+              placeholder="Anything useful for the audit trail — new club, moving date, etc."
+              data-testid="textarea-leave-notes"
+            />
+          </label>
+          {error && (
+            <div className="message error" data-testid="status-leave-error">
+              {error}
+            </div>
+          )}
+          <div style={{ display: "flex", gap: "var(--space-2)", marginTop: "var(--space-3)" }}>
+            <button
+              type="submit"
+              className="primary-button"
+              disabled={submitting}
+              data-testid="button-confirm-mark-left"
+            >
+              {submitting ? "Saving…" : "Mark as left"}
+            </button>
+            <button type="button" className="filter-button" onClick={onClose}>
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function PlayerList({
+  players,
+  onPlayerUpdate,
+}: {
+  players: Player[];
+  onPlayerUpdate: (player: Player) => void;
+}) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"all" | ConsentStatus>("all");
+  const [showLeft, setShowLeft] = useState(false);
+  const [leavingPlayer, setLeavingPlayer] = useState<Player | null>(null);
+
+  const leftCount = useMemo(
+    () => players.filter((p) => p.status === "Left").length,
+    [players],
+  );
 
   const filteredPlayers = useMemo(() => {
     return players.filter((player) => {
+      if (!showLeft && player.status === "Left") return false;
       const matchesFilter = filter === "all" || player.consentStatus === filter;
       const matchesQuery = `${player.name} ${player.team} ${player.ageGroup} ${player.guardianName}`.toLowerCase().includes(query.toLowerCase());
       return matchesFilter && matchesQuery;
     });
-  }, [filter, players, query]);
+  }, [filter, players, query, showLeft]);
 
   return (
     <section className="panel player-table-card" aria-labelledby="players-title">
@@ -1521,6 +1938,16 @@ function PlayerList({ players }: { players: Player[] }) {
             {label}
           </button>
         ))}
+        {leftCount > 0 && (
+          <button
+            type="button"
+            className={`filter-button ${showLeft ? "active" : ""}`}
+            onClick={() => setShowLeft((s) => !s)}
+            data-testid="button-toggle-show-left"
+          >
+            {showLeft ? `Hide players who have left (${leftCount})` : `Show players who have left (${leftCount})`}
+          </button>
+        )}
       </div>
       {filteredPlayers.length === 0 ? (
         <div className="empty-state">
@@ -1536,15 +1963,19 @@ function PlayerList({ players }: { players: Player[] }) {
                 <tr>
                   <th>Player</th>
                   <th>Team</th>
+                  <th>Football pathway</th>
                   <th>Consent</th>
                   <th className="consent-details-col">Consent details</th>
-                  <th>Review due</th>
-                  <th>Progress</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredPlayers.map((player) => (
-                  <tr key={player.id} data-testid={`row-player-${player.id}`}>
+                  <tr
+                    key={player.id}
+                    data-testid={`row-player-${player.id}`}
+                    className={player.status === "Left" ? "row-left" : ""}
+                  >
                     <td>
                       <div className="player-cell">
                         <span className="player-avatar">{initials(player.name)}</span>
@@ -1555,6 +1986,12 @@ function PlayerList({ players }: { players: Player[] }) {
                           {playerMetaLine(player) && (
                             <span className="player-sub">{playerMetaLine(player)}</span>
                           )}
+                          {player.status === "Left" && (
+                            <span className="player-sub status-left-tag">Left the squad</span>
+                          )}
+                          {player.leaveRequested && player.status !== "Left" && (
+                            <span className="player-sub status-leave-pending">Parent asked to move on</span>
+                          )}
                         </span>
                       </div>
                     </td>
@@ -1563,17 +2000,20 @@ function PlayerList({ players }: { players: Player[] }) {
                       <div className="player-sub">{player.ageGroup}</div>
                     </td>
                     <td>
+                      <PathwayInlineEdit player={player} onPlayerUpdate={onPlayerUpdate} />
+                    </td>
+                    <td>
                       <PlayerConsentCell player={player} />
                     </td>
                     <td className="consent-details-col">
                       <ConsentDetailsBody player={player} variant="card" />
                     </td>
-                    <td>{new Date(player.reviewDue).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}</td>
                     <td>
-                      <div className="progress-track" aria-label={`${player.progressScore}% progress`}>
-                        <div className="progress-fill" style={{ width: `${player.progressScore}%` }} />
-                      </div>
-                      <div className="player-sub">{player.progressScore}%</div>
+                      <PlayerRowActions
+                        player={player}
+                        onPlayerUpdate={onPlayerUpdate}
+                        onRequestMarkLeft={setLeavingPlayer}
+                      />
                     </td>
                   </tr>
                 ))}
@@ -1582,7 +2022,11 @@ function PlayerList({ players }: { players: Player[] }) {
           </div>
           <ul className="player-card-list" aria-label="Players">
             {filteredPlayers.map((player) => (
-              <li key={player.id} className="player-card" data-testid={`row-player-${player.id}`}>
+              <li
+                key={player.id}
+                className={`player-card ${player.status === "Left" ? "player-card-left" : ""}`}
+                data-testid={`row-player-${player.id}`}
+              >
                 <div className="player-card-head">
                   <span className="player-avatar">{initials(player.name)}</span>
                   <div className="player-card-identity">
@@ -1595,12 +2039,24 @@ function PlayerList({ players }: { players: Player[] }) {
                     <span className="player-sub">
                       <strong>{player.team}</strong> · {player.ageGroup}
                     </span>
+                    {player.status === "Left" && (
+                      <span className="player-sub status-left-tag">Left the squad</span>
+                    )}
+                    {player.leaveRequested && player.status !== "Left" && (
+                      <span className="player-sub status-leave-pending">Parent asked to move on</span>
+                    )}
                   </div>
                 </div>
                 <div className="player-card-consent">
                   <PlayerConsentCell player={player} />
                 </div>
                 <dl className="player-card-meta">
+                  <div className="player-card-meta-row">
+                    <dt>Football pathway</dt>
+                    <dd>
+                      <PathwayInlineEdit player={player} onPlayerUpdate={onPlayerUpdate} />
+                    </dd>
+                  </div>
                   <div className="player-card-meta-row">
                     <dt>Review due</dt>
                     <dd>
@@ -1610,26 +2066,25 @@ function PlayerList({ players }: { players: Player[] }) {
                       })}
                     </dd>
                   </div>
-                  <div className="player-card-meta-row">
-                    <dt>Progress</dt>
-                    <dd>
-                      <div
-                        className="progress-track"
-                        aria-label={`${player.progressScore}% progress`}
-                      >
-                        <div
-                          className="progress-fill"
-                          style={{ width: `${player.progressScore}%` }}
-                        />
-                      </div>
-                      <div className="player-sub">{player.progressScore}%</div>
-                    </dd>
-                  </div>
                 </dl>
+                <div className="player-card-actions">
+                  <PlayerRowActions
+                    player={player}
+                    onPlayerUpdate={onPlayerUpdate}
+                    onRequestMarkLeft={setLeavingPlayer}
+                  />
+                </div>
               </li>
             ))}
           </ul>
         </>
+      )}
+      {leavingPlayer && (
+        <MarkAsLeftModal
+          player={leavingPlayer}
+          onClose={() => setLeavingPlayer(null)}
+          onPlayerUpdate={onPlayerUpdate}
+        />
       )}
     </section>
   );
@@ -2927,7 +3382,406 @@ function LoadingState() {
   );
 }
 
+// ----- Public parent-facing pages -----
+//
+// These pages render OUTSIDE the coach dashboard shell. The router is
+// intentionally string-matching window.location.pathname instead of pulling
+// in react-router — we only have three routes and the SPA fallback in
+// netlify.toml already serves index.html for any unknown path. Each page
+// owns its own data fetching, error handling and styling so a parent
+// landing on a stale link sees a clear, friendly message rather than the
+// dashboard.
+
+type PublicRoute =
+  | { kind: "pathway"; token: string }
+  | { kind: "leave"; token: string }
+  | { kind: "erasure" };
+
+function resolvePublicRoute(): PublicRoute | null {
+  if (typeof window === "undefined") return null;
+  const path = window.location.pathname || "";
+  const pathwayMatch = /^\/pathway\/([A-Za-z0-9._-]+)\/?$/.exec(path);
+  if (pathwayMatch) return { kind: "pathway", token: pathwayMatch[1] };
+  const leaveMatch = /^\/leave\/([A-Za-z0-9._-]+)\/?$/.exec(path);
+  if (leaveMatch) return { kind: "leave", token: leaveMatch[1] };
+  if (/^\/erasure\/?$/.test(path)) return { kind: "erasure" };
+  return null;
+}
+
+function PublicPageShell({ children }: { children: ReactNode }) {
+  return (
+    <div className="public-page">
+      <header className="public-page-header">
+        <span className="public-page-brand">Grass2Pro</span>
+      </header>
+      <main className="public-page-main">
+        <div className="public-page-card panel">{children}</div>
+      </main>
+      <footer className="public-page-footer">
+        <span>Grass2Pro · Grassroots football coaching</span>
+      </footer>
+    </div>
+  );
+}
+
+function PathwayUpdatePage({ token }: { token: string }) {
+  type Summary = { childName: string; ageGroup: string; team: string; currentPathway: string };
+  const [summary, setSummary] = useState<Summary | null>(null);
+  const [loadError, setLoadError] = useState("");
+  const [value, setValue] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let mounted = true;
+    fetch(apiPath(`/pathway-update?token=${encodeURIComponent(token)}`))
+      .then(async (response) => {
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error((body as { error?: string }).error || "This link is no longer valid.");
+        }
+        if (!mounted) return;
+        setSummary(body as Summary);
+        setValue((body as Summary).currentPathway || "");
+      })
+      .catch((err) => {
+        if (mounted) setLoadError(err instanceof Error ? err.message : "This link is no longer valid.");
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [token]);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!value) {
+      setError("Please choose one option.");
+      return;
+    }
+    setSubmitting(true);
+    setError("");
+    try {
+      const response = await fetch(apiPath(`/pathway-update?token=${encodeURIComponent(token)}`), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value }),
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error || "Could not save your choice.");
+      }
+      setDone(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save your choice.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (loadError) {
+    return (
+      <PublicPageShell>
+        <h1>Link no longer valid</h1>
+        <p>{loadError}</p>
+        <p className="player-sub">Please ask your coach to send a fresh link.</p>
+      </PublicPageShell>
+    );
+  }
+
+  if (!summary) {
+    return (
+      <PublicPageShell>
+        <p>Loading…</p>
+      </PublicPageShell>
+    );
+  }
+
+  if (done) {
+    return (
+      <PublicPageShell>
+        <h1>Thank you</h1>
+        <p>We've recorded the football pathway for <strong>{summary.childName}</strong>.</p>
+        <p className="player-sub">You can close this page now.</p>
+      </PublicPageShell>
+    );
+  }
+
+  return (
+    <PublicPageShell>
+      <div className="page-kicker">Football pathway</div>
+      <h1>Update {summary.childName}'s football pathway</h1>
+      <p>
+        {summary.team ? <>Squad: <strong>{summary.team}</strong>{summary.ageGroup ? ` · ${summary.ageGroup}` : ""}<br /></> : null}
+        Choose the option that best describes your child's football today. Your coach uses this to
+        plan sessions and to support the right development pathway.
+      </p>
+      <form className="form-section" onSubmit={submit}>
+        <fieldset className="public-radio-group">
+          <legend className="sr-only">Football pathway options</legend>
+          {footballPathwayOptions.map((option) => (
+            <label key={option.value} className="public-radio-option">
+              <input
+                type="radio"
+                name="pathway"
+                value={option.value}
+                checked={value === option.value}
+                onChange={() => setValue(option.value)}
+              />
+              <span>
+                <strong>{option.label}</strong>
+                <span className="player-sub">{option.help}</span>
+              </span>
+            </label>
+          ))}
+        </fieldset>
+        {error && <div className="message error">{error}</div>}
+        <button type="submit" className="primary-button" disabled={submitting}>
+          {submitting ? "Saving…" : "Save pathway"}
+        </button>
+      </form>
+    </PublicPageShell>
+  );
+}
+
+function LeaveRequestPage({ token }: { token: string }) {
+  type Summary = { childName: string; ageGroup: string; team: string };
+  const [summary, setSummary] = useState<Summary | null>(null);
+  const [loadError, setLoadError] = useState("");
+  const [reason, setReason] = useState("");
+  const [notes, setNotes] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let mounted = true;
+    fetch(apiPath(`/leave-request?token=${encodeURIComponent(token)}`))
+      .then(async (response) => {
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error((body as { error?: string }).error || "This link is no longer valid.");
+        }
+        if (!mounted) return;
+        setSummary(body as Summary);
+      })
+      .catch((err) => {
+        if (mounted) setLoadError(err instanceof Error ? err.message : "This link is no longer valid.");
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [token]);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!reason) {
+      setError("Please pick a reason.");
+      return;
+    }
+    setSubmitting(true);
+    setError("");
+    try {
+      const response = await fetch(apiPath(`/leave-request?token=${encodeURIComponent(token)}`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason, notes }),
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error || "Could not send your request.");
+      }
+      setDone(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not send your request.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (loadError) {
+    return (
+      <PublicPageShell>
+        <h1>Link no longer valid</h1>
+        <p>{loadError}</p>
+        <p className="player-sub">Please ask your coach to send a fresh link.</p>
+      </PublicPageShell>
+    );
+  }
+
+  if (!summary) {
+    return (
+      <PublicPageShell>
+        <p>Loading…</p>
+      </PublicPageShell>
+    );
+  }
+
+  if (done) {
+    return (
+      <PublicPageShell>
+        <h1>Request sent</h1>
+        <p>
+          Thanks. Your coach has been notified that you'd like to move on with{" "}
+          <strong>{summary.childName}</strong>. They'll be in touch to confirm the next steps.
+        </p>
+        <p className="player-sub">
+          If you also want your child's personal data deleted, please use the
+          {" "}<a href="/erasure">data erasure form</a>.
+        </p>
+      </PublicPageShell>
+    );
+  }
+
+  return (
+    <PublicPageShell>
+      <div className="page-kicker">Move on / leave squad</div>
+      <h1>Let your coach know you'd like to move on</h1>
+      <p>
+        {summary.team ? <>Squad: <strong>{summary.team}</strong>{summary.ageGroup ? ` · ${summary.ageGroup}` : ""}<br /></> : null}
+        We'll let your coach know about <strong>{summary.childName}</strong>. The coach will then
+        confirm and update the squad records. This form does <strong>not</strong> delete personal
+        data — use the data erasure form for that.
+      </p>
+      <form className="form-section" onSubmit={submit}>
+        <label className="form-field full">
+          <span>Reason for leaving</span>
+          <select value={reason} onChange={(event) => setReason(event.target.value)} required>
+            <option value="">Choose a reason…</option>
+            {LEAVE_REASONS.map((r) => (
+              <option key={r} value={r}>{r}</option>
+            ))}
+          </select>
+        </label>
+        <label className="form-field full">
+          <span>Anything else (optional)</span>
+          <textarea
+            rows={4}
+            value={notes}
+            onChange={(event) => setNotes(event.target.value)}
+            placeholder="e.g. moving to a new area in June, joined another club, etc."
+          />
+        </label>
+        {error && <div className="message error">{error}</div>}
+        <button type="submit" className="primary-button" disabled={submitting}>
+          {submitting ? "Sending…" : "Send request"}
+        </button>
+      </form>
+    </PublicPageShell>
+  );
+}
+
+function ErasureRequestPage() {
+  const [childName, setChildName] = useState("");
+  const [parentEmail, setParentEmail] = useState("");
+  const [notes, setNotes] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setError("");
+    if (!childName.trim()) {
+      setError("Please enter the child's full name.");
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(parentEmail.trim())) {
+      setError("Please enter a valid email address.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const response = await fetch(apiPath("/erasure-request"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ childName: childName.trim(), parentEmail: parentEmail.trim(), notes: notes.trim() }),
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error || "Could not send your request.");
+      }
+      setDone(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not send your request.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (done) {
+    return (
+      <PublicPageShell>
+        <h1>Request received</h1>
+        <p>
+          Thanks. Your erasure request has been logged for the coach to review. Under UK GDPR we
+          must verify the request before deleting personal data, so the coach will contact you to
+          confirm before any data is removed.
+        </p>
+        <p className="player-sub">You can close this page now.</p>
+      </PublicPageShell>
+    );
+  }
+
+  return (
+    <PublicPageShell>
+      <div className="page-kicker">Data erasure</div>
+      <h1>Request deletion of your child's personal data</h1>
+      <p>
+        Use this form if you want us to delete your child's personal information from the Grass2Pro
+        Coach Admin records. This is separate from leaving the squad — if you only want to stop
+        coaching sessions, please use the move-on link your coach sent you instead.
+      </p>
+      <p className="player-sub">
+        Under UK GDPR we'll review and verify your request before any data is removed. The coach
+        will contact you to confirm before deletion.
+      </p>
+      <form className="form-section" onSubmit={submit}>
+        <label className="form-field full">
+          <span>Child's full name</span>
+          <input
+            type="text"
+            value={childName}
+            onChange={(event) => setChildName(event.target.value)}
+            required
+            autoComplete="off"
+          />
+        </label>
+        <label className="form-field full">
+          <span>Your email address</span>
+          <input
+            type="email"
+            value={parentEmail}
+            onChange={(event) => setParentEmail(event.target.value)}
+            required
+            autoComplete="email"
+          />
+        </label>
+        <label className="form-field full">
+          <span>Anything else (optional)</span>
+          <textarea
+            rows={4}
+            value={notes}
+            onChange={(event) => setNotes(event.target.value)}
+            placeholder="Any additional context that helps us verify or action the request."
+          />
+        </label>
+        {error && <div className="message error">{error}</div>}
+        <button type="submit" className="primary-button" disabled={submitting}>
+          {submitting ? "Sending…" : "Send erasure request"}
+        </button>
+      </form>
+    </PublicPageShell>
+  );
+}
+
 function App() {
+  // Public parent-facing pages live under SPA paths and bypass the dashboard
+  // shell entirely. We resolve them from window.location once at mount; the
+  // pages themselves do not need React Router and never render any of the
+  // coach dashboard chrome (sidebar, topbar, KPIs).
+  const publicRoute = useMemo(() => resolvePublicRoute(), []);
+
   const [data, setData] = useState<AdminData | null>(null);
   const [activeView, setActiveView] = useState("overview");
   const [theme, setTheme] = useState<"light" | "dark">(() =>
@@ -2940,6 +3794,7 @@ function App() {
   }, [theme]);
 
   useEffect(() => {
+    if (publicRoute) return; // public pages don't need the admin dataset
     let mounted = true;
     loadAdminData().then((payload) => {
       if (mounted) setData(payload);
@@ -2947,7 +3802,28 @@ function App() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [publicRoute]);
+
+  // Splice an updated player back into the admin dataset without reloading
+  // everything. Used by inline pathway edits, mark-as-left and the action
+  // needed card so the UI reacts immediately to a successful PATCH.
+  function applyPlayerUpdate(updated: Player) {
+    setData((prev) => {
+      if (!prev) return prev;
+      const players = prev.players.map((p) => (p.id === updated.id ? updated : p));
+      return { ...prev, players };
+    });
+  }
+
+  if (publicRoute?.kind === "pathway") {
+    return <PathwayUpdatePage token={publicRoute.token} />;
+  }
+  if (publicRoute?.kind === "leave") {
+    return <LeaveRequestPage token={publicRoute.token} />;
+  }
+  if (publicRoute?.kind === "erasure") {
+    return <ErasureRequestPage />;
+  }
 
   if (!data) return <LoadingState />;
 
@@ -2997,8 +3873,12 @@ function App() {
           </div>
         </header>
         <div className="content">
-          {activeView === "overview" && <Overview data={data} />}
-          {activeView === "players" && <PlayerList players={data.players} />}
+          {activeView === "overview" && (
+            <Overview data={data} onJumpToPlayers={() => setActiveView("players")} />
+          )}
+          {activeView === "players" && (
+            <PlayerList players={data.players} onPlayerUpdate={applyPlayerUpdate} />
+          )}
           {activeView === "sessions" && <Sessions sessions={data.sessions} players={data.players} />}
           {activeView === "attendance" && <Attendance attendance={data.attendance} sessions={data.sessions} />}
           {activeView === "safeguarding" && <Safeguarding players={data.players} />}

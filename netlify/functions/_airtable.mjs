@@ -361,6 +361,15 @@ export function normalisePlayer(record) {
     // Empty string when unset so the Overview's "Pathway not set" tile can
     // count migrated players that pre-date this field.
     footballPathway: stringValue(fields["Football Pathway"], ""),
+    // Leave/move-on flow flags. These are surfaced on the Overview "Action
+    // needed" card and on the Players list so a coach can act on parent
+    // requests without leaving the dashboard.
+    leaveRequested: boolValue(fields["Leave Requested"]),
+    leaveRequestedAt: stringValue(fields["Leave Requested At"], ""),
+    leaveReason: stringValue(fields["Leave Reason"], ""),
+    leaveNotes: stringValue(fields["Leave Notes"], ""),
+    erasureRequested: boolValue(fields["Erasure Requested"]),
+    erasureRequestedAt: stringValue(fields["Erasure Requested At"], ""),
     consentStatus,
     photoConsent: boolValue(fields["Photo Consent"] || fields["Photo Permission"]),
     videoConsent: boolValue(fields["Video Consent"] || fields["Video Permission"]),
@@ -959,6 +968,63 @@ export function mergeMediaConsentsIntoPlayers(players, consentRecords) {
       medicalInformationConsent: perms.medicalInformationConsent,
     };
   });
+}
+
+// Mint a short opaque token used as a one-time-ish handle for parent-facing
+// pages (pathway fill, leave request). The token is written to the Players
+// row alongside an expiry timestamp; the public endpoints look the player up
+// by token + non-expired expiry. Length is comfortably long for a URL while
+// remaining short enough to keep the share link readable on a phone.
+export function mintPathwayToken() {
+  // 24 hex chars (~96 bits of entropy) — collision risk for the squad size
+  // we operate at is effectively zero, and Airtable singleLineText is fine
+  // with this length.
+  if (globalThis.crypto && typeof globalThis.crypto.randomUUID === "function") {
+    return globalThis.crypto.randomUUID().replace(/-/g, "").slice(0, 24);
+  }
+  let out = "";
+  for (let i = 0; i < 24; i += 1) {
+    out += Math.floor(Math.random() * 16).toString(16);
+  }
+  return out;
+}
+
+// ISO timestamp `daysAhead` days from now. Used as the expiry stamp on
+// pathway/leave tokens. Stored in UTC; Airtable renders it in the base
+// timezone (Europe/London for this project).
+export function tokenExpiryIso(daysAhead = 7) {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + daysAhead);
+  return d.toISOString();
+}
+
+// Look up a Players row by its `Pathway Update Token`. Returns the raw
+// Airtable record (with `id` and `fields`) or null when no row matches or the
+// token has expired. Callers receive the raw record so they can surface
+// whichever fields the page needs (child name, parent contact) without a
+// second round-trip.
+export async function findPlayerByPathwayToken(rawToken) {
+  const tokenStr = String(rawToken || "").trim();
+  if (!tokenStr) return null;
+  if (!hasAirtableConfig()) return null;
+  const safe = escapeFormulaString(tokenStr);
+  const records = await airtableList(
+    tableName("AIRTABLE_PLAYERS_TABLE", "Players", TABLE_IDS.PLAYERS),
+    {
+      filterByFormula: `{Pathway Update Token} = '${safe}'`,
+      maxRecords: "1",
+    },
+  );
+  const record = records[0];
+  if (!record) return null;
+  const expiresRaw = record.fields?.["Pathway Token Expires"];
+  if (expiresRaw) {
+    const expires = new Date(expiresRaw);
+    if (!Number.isNaN(expires.getTime()) && expires.getTime() < Date.now()) {
+      return null;
+    }
+  }
+  return record;
 }
 
 // Demo data used when AIRTABLE_* env vars are missing so the API still works.
