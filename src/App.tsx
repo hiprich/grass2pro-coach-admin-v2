@@ -1953,17 +1953,28 @@ function todayIsoDate(): string {
   return `${year}-${month}-${day}`;
 }
 
-// Date of birth must be a real, past date. We only refuse the obvious cases —
-// missing, malformed or in the future — and let the API/Airtable surface
-// anything more exotic.
-function isValidDateOfBirth(value: string): boolean {
+// Date of birth must be a real, past date. We classify the value so the form
+// can surface a parent-friendly message for the specific failure (empty,
+// future or otherwise unparseable) and decide when it is safe to submit or
+// echo into the record summary.
+type DateOfBirthState = "empty" | "future" | "invalid" | "valid";
+
+function classifyDateOfBirth(value: string): DateOfBirthState {
   const trimmed = value.trim();
-  if (!trimmed) return false;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return false;
+  if (!trimmed) return "empty";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return "invalid";
   const parsed = new Date(`${trimmed}T00:00:00Z`);
-  if (Number.isNaN(parsed.getTime())) return false;
+  if (Number.isNaN(parsed.getTime())) return "invalid";
   const todayUtc = new Date(`${todayIsoDate()}T00:00:00Z`);
-  return parsed.getTime() <= todayUtc.getTime();
+  if (parsed.getTime() > todayUtc.getTime()) return "future";
+  return "valid";
+}
+
+function dateOfBirthErrorFor(state: DateOfBirthState): string | undefined {
+  if (state === "empty") return "Enter the player's date of birth.";
+  if (state === "future") return "Player date of birth cannot be in the future.";
+  if (state === "invalid") return "Enter a valid date of birth.";
+  return undefined;
 }
 
 function ConsentForm() {
@@ -1980,9 +1991,15 @@ function ConsentForm() {
   const update = (key: keyof ConsentPayload, value: string | boolean | Record<string, boolean>) => {
     setForm((current) => ({ ...current, [key]: value }));
     if (key === "childDateOfBirth") {
-      const trimmed = String(value).trim();
-      if (trimmed.length === 0 || isValidDateOfBirth(String(value))) {
+      const state = classifyDateOfBirth(String(value));
+      // Stay quiet while the field is empty so the parent does not see an
+      // error before they have had a chance to type. Future/invalid values
+      // get an immediate red border and message; valid past dates clear it.
+      if (state === "empty" || state === "valid") {
         clearError("childDateOfBirth");
+      } else {
+        const liveError = dateOfBirthErrorFor(state);
+        if (liveError) setError("childDateOfBirth", liveError);
       }
     }
     if (key === "parentEmail") {
@@ -2080,6 +2097,8 @@ function ConsentForm() {
     return next;
   }
 
+  const dobState = classifyDateOfBirth(form.childDateOfBirth);
+  const dobIsValid = dobState === "valid";
   const selectedCount = Object.values(form.permissions).filter(Boolean).length;
   const infoSharingCount = Object.values(form.infoSharing).filter(Boolean).length;
   // Active only when every media permission the form exposes is granted. A
@@ -2103,11 +2122,8 @@ function ConsentForm() {
       return;
     }
 
-    const dobError = !isValidDateOfBirth(form.childDateOfBirth)
-      ? form.childDateOfBirth.trim().length === 0
-        ? "Enter the player's date of birth."
-        : "Enter a valid date of birth that is not in the future."
-      : undefined;
+    const dobState = classifyDateOfBirth(form.childDateOfBirth);
+    const dobError = dateOfBirthErrorFor(dobState);
     const contactErrors = validateContactDetails();
     if (dobError) contactErrors.childDateOfBirth = dobError;
     if (Object.keys(contactErrors).length > 0) {
@@ -2115,7 +2131,9 @@ function ConsentForm() {
       setErrors(contactErrors);
       setMessage(
         dobError
-          ? "Please add the player's date of birth before submitting."
+          ? dobState === "empty"
+            ? "Please add the player's date of birth before submitting."
+            : "Please fix the highlighted player date of birth before submitting."
           : "Please fix the highlighted contact details before submitting.",
       );
       return;
@@ -2384,7 +2402,12 @@ function ConsentForm() {
 
         {message && <div className={`message consent-form-message ${status === "success" ? "success" : "error"}`} data-testid="status-form-message">{message}</div>}
 
-        <button className="primary-button" type="submit" disabled={status === "submitting"} data-testid="button-submit-consent">
+        <button
+          className="primary-button"
+          type="submit"
+          disabled={status === "submitting" || !dobIsValid}
+          data-testid="button-submit-consent"
+        >
           {status === "submitting" ? "Submitting..." : "Submit consent record"}
         </button>
       </form>
@@ -2398,7 +2421,13 @@ function ConsentForm() {
           </div>
           <div className="summary-item">
             <span>Date of birth</span>
-            <strong>{form.childDateOfBirth || "Not entered"}</strong>
+            <strong data-testid="summary-child-dob">
+              {dobIsValid
+                ? form.childDateOfBirth
+                : dobState === "empty"
+                  ? "Not entered"
+                  : "Not valid"}
+            </strong>
           </div>
           <div className="summary-item">
             <span>Parent</span>
