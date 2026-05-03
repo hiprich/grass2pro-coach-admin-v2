@@ -863,10 +863,10 @@ function Grass2ProLogo() {
 
 function ConsentBadge({ status }: { status: ConsentStatus }) {
   const label = {
-    green: "Green consent",
+    green: "Full consent",
     amber: "Limited consent",
     red: "Withdrawn",
-    grey: "Not recorded",
+    grey: "No consent",
   }[status];
 
   return (
@@ -1117,9 +1117,9 @@ function PlayerList({ players }: { players: Player[] }) {
     <section className="panel player-table-card" aria-labelledby="players-title">
       <div className="toolbar">
         <div>
-          <div className="page-kicker">Players table</div>
+          <div className="page-kicker">Players list</div>
           <h2 id="players-title" className="page-title">
-            Squad consent and KPIs
+            Player list and consent status
           </h2>
         </div>
         <label className="search-field">
@@ -1134,15 +1134,21 @@ function PlayerList({ players }: { players: Player[] }) {
         </label>
       </div>
       <div className="filter-row" aria-label="Consent filters">
-        {(["all", "green", "amber", "red", "grey"] as const).map((status) => (
+        {([
+          { value: "all", label: "All" },
+          { value: "green", label: "Full consent" },
+          { value: "amber", label: "Limited consent" },
+          { value: "red", label: "Withdrawn" },
+          { value: "grey", label: "No consent" },
+        ] as const).map(({ value, label }) => (
           <button
-            key={status}
+            key={value}
             type="button"
-            className={`filter-button ${filter === status ? "active" : ""}`}
-            onClick={() => setFilter(status)}
-            data-testid={`button-filter-${status}`}
+            className={`filter-button ${filter === value ? "active" : ""}`}
+            onClick={() => setFilter(value)}
+            data-testid={`button-filter-${value}`}
           >
-            {status === "all" ? "All" : status}
+            {label}
           </button>
         ))}
       </div>
