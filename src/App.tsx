@@ -1953,15 +1953,26 @@ function ConsentForm() {
   const update = (key: keyof ConsentPayload, value: string | boolean | Record<string, boolean>) => {
     setForm((current) => ({ ...current, [key]: value }));
     if (key === "parentEmail") {
-      clearErrorIf("parentEmailConfirm", normaliseEmail(value as string) === normaliseEmail(parentEmailConfirm));
+      syncConfirmError(
+        "parentEmailConfirm",
+        parentEmailConfirm,
+        value as string,
+        normaliseEmail,
+        "Emails do not match.",
+      );
     }
     if (key === "parentPhone") {
-      clearErrorIf("parentPhoneConfirm", normalisePhone(value as string) === normalisePhone(parentPhoneConfirm));
+      syncConfirmError(
+        "parentPhoneConfirm",
+        parentPhoneConfirm,
+        value as string,
+        normalisePhone,
+        "Phone numbers do not match.",
+      );
     }
   };
 
-  function clearErrorIf(key: keyof ConsentFormErrors, condition: boolean) {
-    if (!condition) return;
+  function clearError(key: keyof ConsentFormErrors) {
     setErrors((current) => {
       if (!current[key]) return current;
       const next = { ...current };
@@ -1970,14 +1981,43 @@ function ConsentForm() {
     });
   }
 
+  function setError(key: keyof ConsentFormErrors, message: string) {
+    setErrors((current) => {
+      if (current[key] === message) return current;
+      return { ...current, [key]: message };
+    });
+  }
+
+  // Live-sync the confirm-field error state. If the confirm field is empty we
+  // stay quiet (no noisy error before the parent has had a chance to type).
+  // Otherwise we show the mismatch error immediately so the red border and
+  // message track keystrokes in either field.
+  function syncConfirmError(
+    key: "parentEmailConfirm" | "parentPhoneConfirm",
+    confirmValue: string,
+    originalValue: string,
+    normalise: (value: string) => string,
+    mismatchMessage: string,
+  ) {
+    if (confirmValue.length === 0) {
+      clearError(key);
+      return;
+    }
+    if (normalise(originalValue) === normalise(confirmValue)) {
+      clearError(key);
+    } else {
+      setError(key, mismatchMessage);
+    }
+  }
+
   function onParentEmailConfirmChange(value: string) {
     setParentEmailConfirm(value);
-    clearErrorIf("parentEmailConfirm", normaliseEmail(form.parentEmail) === normaliseEmail(value));
+    syncConfirmError("parentEmailConfirm", value, form.parentEmail, normaliseEmail, "Emails do not match.");
   }
 
   function onParentPhoneConfirmChange(value: string) {
     setParentPhoneConfirm(value);
-    clearErrorIf("parentPhoneConfirm", normalisePhone(form.parentPhone) === normalisePhone(value));
+    syncConfirmError("parentPhoneConfirm", value, form.parentPhone, normalisePhone, "Phone numbers do not match.");
   }
 
   const emailConfirmMatches =
