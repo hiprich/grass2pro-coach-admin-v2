@@ -132,6 +132,30 @@ const INFO_SHARING_TYPE_MAP = {
 // but is not a valid choice — fall through to "Other".
 const PARENT_RELATIONSHIP_CHOICES = ["Mother", "Father", "Guardian", "Carer", "Other"];
 
+// "Football Pathway" on the Players table is a singleSelect with a fixed
+// choice list. Whatever the form sends must be one of these or it gets
+// dropped — we'd rather skip the field on a malformed value than have
+// Airtable reject the whole consent submission with
+// INVALID_MULTIPLE_CHOICE_OPTIONS. The labels are matched case-insensitively
+// because the registration form sends pretty-cased values ("Grassroots
+// Football") that match Airtable exactly today, but the safety net keeps
+// older clients submitting lower-case values working too.
+const FOOTBALL_PATHWAY_CHOICES = [
+  "Grassroots Football",
+  "Academy Football",
+  "School Football",
+  "Not Currently With a Team",
+  "Other / Unsure",
+];
+
+function normaliseFootballPathway(raw) {
+  const trimmed = String(raw || "").trim();
+  if (!trimmed) return "";
+  const lower = trimmed.toLowerCase();
+  const match = FOOTBALL_PATHWAY_CHOICES.find((choice) => choice.toLowerCase() === lower);
+  return match || "";
+}
+
 // Format a timestamp as "DD/MM/YYYY HH:mm" in Europe/London. Intl handles BST
 // vs GMT automatically, so the label always reflects the wall-clock time the
 // parent saw when they submitted. Falls back to a UTC ISO-style render only if
@@ -225,6 +249,11 @@ export const handler = async (event) => {
     });
   }
 
+  // Football Pathway is optional — a parent may not yet know which bucket the
+  // child falls into. We only forward it when it matches one of the known
+  // singleSelect choices so Airtable doesn't reject the create.
+  const footballPathway = normaliseFootballPathway(payload.footballPathway);
+
   const permissions = payload.permissions || {};
   const selectedMediaKeys = ALL_MEDIA_PERMISSION_KEYS.filter((key) => Boolean(permissions[key]));
 
@@ -295,6 +324,7 @@ export const handler = async (event) => {
     `Child: ${payload.childName}`,
     dateOfBirth ? `Date of birth: ${dateOfBirth}` : null,
     payload.ageGroup ? `Age group: ${payload.ageGroup}` : null,
+    footballPathway ? `Football pathway: ${footballPathway}` : null,
     `Parent/Guardian: ${payload.parentName} <${payload.parentEmail}>`,
     payload.parentPhone ? `Phone: ${payload.parentPhone}` : null,
     payload.relationship ? `Relationship: ${payload.relationship}` : null,
@@ -457,6 +487,25 @@ export const handler = async (event) => {
         );
       } catch (error) {
         console.error("Player Date of Birth update failed:", error);
+      }
+    }
+
+    // Best-effort write of the Football Pathway into the Players table. We
+    // run this even when the child name resolved to an existing player so a
+    // re-submission can correct or update the pathway as the child moves
+    // (e.g. grassroots → academy). Failures are logged but never block the
+    // consent submission — the Football Pathway field is non-critical for
+    // safeguarding, and the consent record itself is the audit document the
+    // parent expects to be saved.
+    if (footballPathway && playerId) {
+      try {
+        await airtableUpdate(
+          tableName("AIRTABLE_PLAYERS_TABLE", "Players", TABLE_IDS.PLAYERS),
+          playerId,
+          { "Football Pathway": footballPathway },
+        );
+      } catch (error) {
+        console.error("Player Football Pathway update failed:", error);
       }
     }
   }
@@ -633,6 +682,7 @@ async function createPlayerForConsent(payload, parentId, dateOfBirth) {
   const fullName = String(payload.childName || "").trim();
   if (!fullName) return null;
   const table = tableName("AIRTABLE_PLAYERS_TABLE", "Players", TABLE_IDS.PLAYERS);
+  const footballPathway = normaliseFootballPathway(payload.footballPathway);
 
   let lastError = null;
   for (const nameField of PLAYER_NAME_FIELD_CANDIDATES) {
@@ -644,6 +694,7 @@ async function createPlayerForConsent(payload, parentId, dateOfBirth) {
     for (const parentField of parentCandidates) {
       const playerFields = { [nameField]: fullName };
       if (dateOfBirth) playerFields["Date of Birth"] = dateOfBirth;
+      if (footballPathway) playerFields["Football Pathway"] = footballPathway;
       if (parentField && parentId) playerFields[parentField] = [parentId];
 
       try {

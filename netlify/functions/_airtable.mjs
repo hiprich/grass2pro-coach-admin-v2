@@ -358,6 +358,9 @@ export function normalisePlayer(record) {
     guardianName: stringValue(fields["Guardian Name"] || fields["Parent/Guardian"] || fields.Parent, "Parent/Guardian"),
     guardianIds: recordIdArray(fields["Parent/Guardian"] || fields.Parent || fields["Guardian Name"]),
     dateOfBirth: stringValue(fields["Date of Birth"] || fields.DOB, ""),
+    // Empty string when unset so the Overview's "Pathway not set" tile can
+    // count migrated players that pre-date this field.
+    footballPathway: stringValue(fields["Football Pathway"], ""),
     consentStatus,
     photoConsent: boolValue(fields["Photo Consent"] || fields["Photo Permission"]),
     videoConsent: boolValue(fields["Video Consent"] || fields["Video Permission"]),

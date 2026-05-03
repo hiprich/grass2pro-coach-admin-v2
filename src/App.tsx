@@ -50,6 +50,7 @@ type Player = {
   status: string;
   guardianName: string;
   dateOfBirth?: string;
+  footballPathway?: string;
   consentStatus: ConsentStatus;
   photoConsent: boolean;
   videoConsent: boolean;
@@ -128,6 +129,7 @@ type ConsentPayload = {
   childName: string;
   childDateOfBirth: string;
   ageGroup: string;
+  footballPathway: string;
   parentName: string;
   parentEmail: string;
   parentPhone: string;
@@ -142,6 +144,19 @@ type ConsentPayload = {
   notes: string;
 };
 
+// Football Pathway choices mirror the Single select options on the Airtable
+// Players table. Order matters — it drives the registration dropdown order
+// and the Overview KPI tile order. "" is the unset state — a parent can save
+// the form without choosing one (existing players migrated before this field
+// existed will start unset).
+const footballPathwayOptions = [
+  { value: "Grassroots Football", label: "Grassroots football", help: "Currently with a grassroots club or league side." },
+  { value: "Academy Football", label: "Academy football", help: "Currently signed to an academy or development centre." },
+  { value: "School Football", label: "School football", help: "Plays for a school team or college side." },
+  { value: "Not Currently With a Team", label: "Not currently with a team", help: "Between clubs or starting out." },
+  { value: "Other / Unsure", label: "Other or unsure", help: "Use this if none of the above describe the player today." },
+];
+
 const demoPlayers: Player[] = [
   {
     id: "ply_01",
@@ -151,6 +166,7 @@ const demoPlayers: Player[] = [
     position: "CM",
     status: "Active",
     guardianName: "M. Cole",
+    footballPathway: "Grassroots Football",
     consentStatus: "green",
     photoConsent: true,
     videoConsent: true,
@@ -174,6 +190,7 @@ const demoPlayers: Player[] = [
     position: "RW",
     status: "Active",
     guardianName: "A. Patel",
+    footballPathway: "Academy Football",
     consentStatus: "amber",
     photoConsent: true,
     videoConsent: true,
@@ -197,6 +214,7 @@ const demoPlayers: Player[] = [
     position: "ST",
     status: "Needs parent follow-up",
     guardianName: "S. Brooks",
+    footballPathway: "Grassroots Football",
     consentStatus: "grey",
     photoConsent: false,
     videoConsent: false,
@@ -220,6 +238,7 @@ const demoPlayers: Player[] = [
     position: "CB",
     status: "Withdrawn media consent",
     guardianName: "T. James",
+    footballPathway: "School Football",
     consentStatus: "red",
     photoConsent: false,
     videoConsent: false,
@@ -243,6 +262,7 @@ const demoPlayers: Player[] = [
     position: "GK",
     status: "Active",
     guardianName: "R. Smith",
+    footballPathway: "Not Currently With a Team",
     consentStatus: "green",
     photoConsent: true,
     videoConsent: true,
@@ -1347,6 +1367,21 @@ function Overview({ data }: { data: AdminData }) {
   const withdrawn = players.filter((player) => player.consentStatus === "red").length;
   const needsAction = notRecorded + withdrawn;
 
+  // Football Pathway KPI counts. Phase one is purely the current pathway split
+  // — a coach can show parents "this is where my players come from today".
+  // Pathway history ("moved from grassroots to academy") will come in a later
+  // phase when we start writing pathway changes to a separate audit table, so
+  // anything claiming movement over time is deliberately absent here.
+  const pathwayCounts = footballPathwayOptions.map((option) => ({
+    value: option.value,
+    label: option.label,
+    help: option.help,
+    count: players.filter((player) => player.footballPathway === option.value).length,
+  }));
+  const pathwayUnset = players.filter(
+    (player) => !player.footballPathway || player.footballPathway.trim() === "",
+  ).length;
+
   return (
     <>
       <section className="kpi-grid" aria-label="Player KPIs">
@@ -1355,6 +1390,33 @@ function Overview({ data }: { data: AdminData }) {
         <KpiCard label="Limited consent" value={limited} foot="Internal-only or channel limits" icon={AlertTriangle} />
         <KpiCard label="Not recorded" value={notRecorded} foot="Awaiting parent form" icon={ClipboardCheck} />
         <KpiCard label="Withdrawn" value={withdrawn} foot="Media usage blocked" icon={X} />
+      </section>
+
+      <div className="section-heading">
+        <div className="page-kicker">Football pathway</div>
+        <p>
+          Where each player sits today. A useful conversation starter with new parents — it shows the
+          mix of children currently being coached.
+        </p>
+      </div>
+      <section className="kpi-grid" aria-label="Football pathway KPIs">
+        {pathwayCounts.map((entry) => (
+          <KpiCard
+            key={entry.value}
+            label={entry.label}
+            value={entry.count}
+            foot={entry.help}
+            icon={Users}
+          />
+        ))}
+        {pathwayUnset > 0 && (
+          <KpiCard
+            label="Pathway not set"
+            value={pathwayUnset}
+            foot="Existing players awaiting a pathway choice"
+            icon={ClipboardList}
+          />
+        )}
       </section>
       <section className="cards-grid">
         <article className="card mini-card">
@@ -2244,6 +2306,7 @@ const createInitialConsentForm = (): ConsentPayload => ({
   childName: "",
   childDateOfBirth: "",
   ageGroup: "",
+  footballPathway: "",
   parentName: "",
   parentEmail: "",
   parentPhone: "",
@@ -2574,10 +2637,28 @@ function ConsentForm() {
                 <input value={form.parentName} onChange={(event) => update("parentName", event.target.value)} data-testid="input-parent-name" />
               </label>
             </div>
-            <div className="form-pair form-pair--single">
+            <div className="form-pair">
               <label className="form-field">
                 <span>Relationship</span>
                 <input value={form.relationship} onChange={(event) => update("relationship", event.target.value)} data-testid="input-relationship" />
+              </label>
+              <label className="form-field">
+                <span>Football pathway</span>
+                <select
+                  value={form.footballPathway}
+                  onChange={(event) => update("footballPathway", event.target.value)}
+                  data-testid="select-football-pathway"
+                >
+                  <option value="">Select pathway</option>
+                  {footballPathwayOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <span className="field-help">
+                  Where the child plays today. Coaches can update this later as a player progresses.
+                </span>
               </label>
             </div>
             <div className="form-pair">
