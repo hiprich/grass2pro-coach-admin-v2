@@ -99,6 +99,7 @@ Do not prefix Airtable secrets with `VITE_`. The browser should call only the Wo
 - Highlights Consent
 - Review Due
 - Progress Score
+- Football Pathway (single select: Grassroots football, Academy football, School football, Not currently with a team, Other / unsure) — optional during rollout; the consent submission still succeeds when the column is missing.
 
 ### Parents
 

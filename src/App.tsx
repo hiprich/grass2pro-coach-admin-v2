@@ -64,6 +64,7 @@ type Player = {
   medicalInformationConsent?: boolean;
   reviewDue: string;
   progressScore: number;
+  footballPathway?: string;
 };
 
 type Session = {
@@ -132,6 +133,7 @@ type ConsentPayload = {
   parentEmail: string;
   parentPhone: string;
   relationship: string;
+  footballPathway: string;
   permissions: Record<string, boolean>;
   infoSharing: Record<string, boolean>;
   usageDetails: string;
@@ -501,6 +503,20 @@ const demoData: AdminData = {
   ],
   updatedAt: new Date().toISOString(),
 };
+
+// Football Pathway choices written into the Airtable Players "Football Pathway"
+// single-select. The labels are the EXACT option names the Airtable field must
+// expose — typecast on create lets Airtable add them on the fly the first time
+// a parent picks a value, but the names must still match the choice list once
+// the field exists. Keep this list in sync with the manual Airtable setup note
+// in the PR description.
+const FOOTBALL_PATHWAY_OPTIONS = [
+  "Grassroots football",
+  "Academy football",
+  "School football",
+  "Not currently with a team",
+  "Other / unsure",
+] as const;
 
 const permissionOptions = [
   {
@@ -1339,6 +1355,17 @@ function KpiCard({ label, value, foot, icon: Icon }: { label: string; value: num
   );
 }
 
+// Coach-facing labels for each Football Pathway choice on the Overview KPIs.
+// The keys mirror FOOTBALL_PATHWAY_OPTIONS exactly so we can match Airtable
+// data without normalising. Labels are kept short for the KPI tile.
+const PATHWAY_KPI_TILES: Array<{ value: string; label: string; foot: string }> = [
+  { value: "Grassroots football", label: "Grassroots", foot: "Mainly local club football" },
+  { value: "Academy football", label: "Academy", foot: "Currently in an academy setup" },
+  { value: "School football", label: "School football", foot: "Plays mainly with their school" },
+  { value: "Not currently with a team", label: "No team yet", foot: "Not currently with a team" },
+  { value: "Other / unsure", label: "Other / unsure", foot: "Pathway not confirmed" },
+];
+
 function Overview({ data }: { data: AdminData }) {
   const players = data.players;
   const fullConsent = players.filter((player) => player.consentStatus === "green").length;
@@ -1346,6 +1373,15 @@ function Overview({ data }: { data: AdminData }) {
   const notRecorded = players.filter((player) => player.consentStatus === "grey").length;
   const withdrawn = players.filter((player) => player.consentStatus === "red").length;
   const needsAction = notRecorded + withdrawn;
+
+  // Pathway KPIs only render when at least one player has a Football Pathway
+  // recorded — keeps the dashboard clean during the rollout window when the
+  // Airtable column may be missing or unfilled.
+  const pathwayCounts = PATHWAY_KPI_TILES.map((tile) => ({
+    ...tile,
+    count: players.filter((player) => (player.footballPathway || "") === tile.value).length,
+  }));
+  const hasPathwayData = pathwayCounts.some((tile) => tile.count > 0);
 
   return (
     <>
@@ -1356,6 +1392,19 @@ function Overview({ data }: { data: AdminData }) {
         <KpiCard label="Not recorded" value={notRecorded} foot="Awaiting parent form" icon={ClipboardCheck} />
         <KpiCard label="Withdrawn" value={withdrawn} foot="Media usage blocked" icon={X} />
       </section>
+      {hasPathwayData && (
+        <section className="kpi-grid" aria-label="Football pathway KPIs" data-testid="kpi-grid-football-pathway">
+          {pathwayCounts.map((tile) => (
+            <KpiCard
+              key={tile.value}
+              label={tile.label}
+              value={tile.count}
+              foot={tile.foot}
+              icon={Users}
+            />
+          ))}
+        </section>
+      )}
       <section className="cards-grid">
         <article className="card mini-card">
           <Camera size={20} aria-hidden="true" />
@@ -2248,6 +2297,7 @@ const createInitialConsentForm = (): ConsentPayload => ({
   parentEmail: "",
   parentPhone: "",
   relationship: "",
+  footballPathway: "",
   permissions: Object.fromEntries(permissionOptions.map((option) => [option.id, false])),
   infoSharing: Object.fromEntries(infoSharingOptions.map((option) => [option.id, false])),
   usageDetails:
@@ -2574,10 +2624,26 @@ function ConsentForm() {
                 <input value={form.parentName} onChange={(event) => update("parentName", event.target.value)} data-testid="input-parent-name" />
               </label>
             </div>
-            <div className="form-pair form-pair--single">
+            <div className="form-pair">
               <label className="form-field">
                 <span>Relationship</span>
                 <input value={form.relationship} onChange={(event) => update("relationship", event.target.value)} data-testid="input-relationship" />
+              </label>
+              <label className="form-field">
+                <span>Football pathway</span>
+                <select
+                  value={form.footballPathway}
+                  onChange={(event) => update("footballPathway", event.target.value)}
+                  data-testid="select-football-pathway"
+                >
+                  <option value="">Select pathway</option>
+                  {FOOTBALL_PATHWAY_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+                <span className="field-help">Where the child mainly plays football right now. Helps coaches see the squad mix.</span>
               </label>
             </div>
             <div className="form-pair">

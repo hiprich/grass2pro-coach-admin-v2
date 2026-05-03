@@ -320,6 +320,7 @@ function normalisePlayer(record = {}) {
     highlightsConsent: boolValue(fields["Highlights Consent"] || fields["Highlight Permission"]),
     reviewDue: stringValue(fields["Review Due"] || fields["Next Review"], new Date().toISOString()),
     progressScore: Number.isFinite(progress) ? progress : 0,
+    footballPathway: stringValue(fields["Football Pathway"], ""),
   };
 }
 
@@ -407,27 +408,72 @@ async function saveConsent(request, env) {
     fields,
   );
 
-  // Best-effort write of the player's Date of Birth into the Players table so
-  // the Age Group formula can pick it up. We only attempt this when the
-  // submitted child name maps unambiguously to an existing Player row —
-  // failures or no-matches never block the consent submission.
-  if (dateOfBirth && env.AIRTABLE_TOKEN && env.AIRTABLE_BASE_ID) {
+  // Best-effort write of the player's Date of Birth and Football Pathway into
+  // the Players table. We only attempt this when the submitted child name
+  // maps unambiguously to an existing Player row — failures or no-matches
+  // never block the consent submission. Football Pathway is brand new in
+  // Airtable so UNKNOWN_FIELD_NAME during the rollout window is tolerated.
+  const footballPathway = normaliseFootballPathway(payload.footballPathway);
+  if ((dateOfBirth || footballPathway) && env.AIRTABLE_TOKEN && env.AIRTABLE_BASE_ID) {
     try {
       const playerId = await findPlayerIdByName(env, payload.childName);
       if (playerId) {
-        await airtableUpdate(
-          env,
-          tableRef(env, "AIRTABLE_PLAYERS_TABLE", "Players", TABLE_IDS.PLAYERS),
-          playerId,
-          { "Date of Birth": dateOfBirth },
-        );
+        const updateFields = {};
+        if (dateOfBirth) updateFields["Date of Birth"] = dateOfBirth;
+        if (footballPathway) updateFields["Football Pathway"] = footballPathway;
+        try {
+          await airtableUpdate(
+            env,
+            tableRef(env, "AIRTABLE_PLAYERS_TABLE", "Players", TABLE_IDS.PLAYERS),
+            playerId,
+            updateFields,
+          );
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (
+            footballPathway &&
+            (message.includes("UNKNOWN_FIELD_NAME") || message.includes("Unknown field name"))
+          ) {
+            // Retry without the pathway so a missing Airtable column does
+            // not lose the Date of Birth update too.
+            console.warn(
+              `Player Football Pathway update skipped — Airtable column is missing. Retrying without it.`,
+            );
+            const fallbackFields = {};
+            if (dateOfBirth) fallbackFields["Date of Birth"] = dateOfBirth;
+            if (Object.keys(fallbackFields).length > 0) {
+              await airtableUpdate(
+                env,
+                tableRef(env, "AIRTABLE_PLAYERS_TABLE", "Players", TABLE_IDS.PLAYERS),
+                playerId,
+                fallbackFields,
+              );
+            }
+          } else {
+            throw error;
+          }
+        }
       }
     } catch (error) {
-      console.error("Player Date of Birth update failed:", error);
+      console.error("Player profile update failed:", error);
     }
   }
 
   return json({ ok: true, id: record.id, demo: Boolean(record.demo), selectedPermissions }, 200, env);
+}
+
+const FOOTBALL_PATHWAY_CHOICES = new Set([
+  "Grassroots football",
+  "Academy football",
+  "School football",
+  "Not currently with a team",
+  "Other / unsure",
+]);
+
+function normaliseFootballPathway(value) {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) return "";
+  return FOOTBALL_PATHWAY_CHOICES.has(trimmed) ? trimmed : "";
 }
 
 async function findPlayerIdByName(env, childName) {

@@ -382,6 +382,7 @@ export function normalisePlayer(record) {
     ),
     reviewDue: stringValue(fields["Review Due"] || fields["Next Review"], new Date().toISOString()),
     progressScore: numberValue(fields["Progress Score"] || fields.Progress, 0),
+    footballPathway: stringValue(fields["Football Pathway"], ""),
   };
 }
 

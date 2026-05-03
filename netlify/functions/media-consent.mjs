@@ -459,6 +459,32 @@ export const handler = async (event) => {
         console.error("Player Date of Birth update failed:", error);
       }
     }
+
+    // Best-effort write of the parent-supplied Football Pathway onto the
+    // matched Player. The consent submission is the only place this value is
+    // collected today, so a follow-up submission for the same child should
+    // refresh the Players row to match. The field is brand new in Airtable,
+    // so we tolerate UNKNOWN_FIELD_NAME during the rollout window — failure
+    // here never blocks the consent record.
+    const matchedPlayerPathway = normaliseFootballPathway(payload.footballPathway);
+    if (matchedPlayerPathway && playerId) {
+      try {
+        await airtableUpdate(
+          tableName("AIRTABLE_PLAYERS_TABLE", "Players", TABLE_IDS.PLAYERS),
+          playerId,
+          { "Football Pathway": matchedPlayerPathway },
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (message.includes("UNKNOWN_FIELD_NAME") || message.includes("Unknown field name")) {
+          console.warn(
+            `Player Football Pathway update skipped — Airtable column is missing. Add the "Football Pathway" single-select to the Players table.`,
+          );
+        } else {
+          console.error("Player Football Pathway update failed:", error);
+        }
+      }
+    }
   }
 
   try {
@@ -629,54 +655,110 @@ function isUnknownFieldError(error) {
   return body.includes("UNKNOWN_FIELD_NAME") || body.includes("Unknown field name");
 }
 
+// Detect the specific "Football Pathway field is missing" error so we can
+// retry the create without it. The PR ships ahead of the manual Airtable
+// schema change, so during the transition window the field may not exist yet
+// — we want the consent submission to succeed and silently drop the pathway
+// rather than refuse the registration.
+function isFootballPathwayUnknownFieldError(error) {
+  if (!isUnknownFieldError(error)) return false;
+  const body = String(error.body || "");
+  return body.includes("Football Pathway");
+}
+
 async function createPlayerForConsent(payload, parentId, dateOfBirth) {
   const fullName = String(payload.childName || "").trim();
   if (!fullName) return null;
   const table = tableName("AIRTABLE_PLAYERS_TABLE", "Players", TABLE_IDS.PLAYERS);
+  const footballPathway = normaliseFootballPathway(payload.footballPathway);
+
+  // Best-effort write of "Football Pathway": include it on the first pass; if
+  // Airtable rejects the create specifically because the column is missing,
+  // fall back to a second pass without it so the Player record still gets
+  // created. Other UNKNOWN_FIELD_NAME errors (e.g. wrong primary field name)
+  // are handled by the inner nameField/parentField fallback loop.
+  const includePathwayPasses = footballPathway ? [true, false] : [false];
 
   let lastError = null;
-  for (const nameField of PLAYER_NAME_FIELD_CANDIDATES) {
-    // Pair each candidate name field with each candidate parent-link field so
-    // a base whose primary field is "Player Name" and whose link field is
-    // "Parents/Guardians" still creates the row instead of silently failing.
-    // When parentId is missing we only try once per name field.
-    const parentCandidates = parentId ? PLAYER_PARENT_FIELD_CANDIDATES : [null];
-    for (const parentField of parentCandidates) {
-      const playerFields = { [nameField]: fullName };
-      if (dateOfBirth) playerFields["Date of Birth"] = dateOfBirth;
-      if (parentField && parentId) playerFields[parentField] = [parentId];
+  let pathwaySkipped = false;
+  for (const includePathway of includePathwayPasses) {
+    for (const nameField of PLAYER_NAME_FIELD_CANDIDATES) {
+      // Pair each candidate name field with each candidate parent-link field so
+      // a base whose primary field is "Player Name" and whose link field is
+      // "Parents/Guardians" still creates the row instead of silently failing.
+      // When parentId is missing we only try once per name field.
+      const parentCandidates = parentId ? PLAYER_PARENT_FIELD_CANDIDATES : [null];
+      for (const parentField of parentCandidates) {
+        const playerFields = { [nameField]: fullName };
+        if (dateOfBirth) playerFields["Date of Birth"] = dateOfBirth;
+        if (parentField && parentId) playerFields[parentField] = [parentId];
+        if (includePathway && footballPathway) {
+          playerFields["Football Pathway"] = footballPathway;
+        }
 
-      try {
-        const created = await airtableCreate(table, playerFields, { typecast: true });
-        if (created?.id) {
-          if (lastError) {
-            // Useful for the Netlify function logs when the schema diverges
-            // from the canonical "Full Name" / "Parent/Guardian" naming.
-            console.warn(
-              `Player create succeeded on fallback fields nameField=${nameField} parentField=${parentField || "none"} after earlier rejections.`,
-            );
+        try {
+          const created = await airtableCreate(table, playerFields, { typecast: true });
+          if (created?.id) {
+            if (lastError) {
+              // Useful for the Netlify function logs when the schema diverges
+              // from the canonical "Full Name" / "Parent/Guardian" naming.
+              console.warn(
+                `Player create succeeded on fallback fields nameField=${nameField} parentField=${parentField || "none"} pathway=${includePathway} after earlier rejections.`,
+              );
+            }
+            if (!includePathway && pathwaySkipped) {
+              console.warn(
+                `Player create succeeded WITHOUT Football Pathway — Airtable column is missing. Add the "Football Pathway" single-select to the Players table to capture this value going forward.`,
+              );
+            }
+            return created.id;
           }
-          return created.id;
+        } catch (error) {
+          lastError = error;
+          if (isFootballPathwayUnknownFieldError(error)) {
+            // Bail out of the inner loops and retry without the pathway.
+            pathwaySkipped = true;
+            console.warn(
+              `Player create rejected because "Football Pathway" column is missing — retrying without it.`,
+            );
+            break;
+          }
+          if (isUnknownFieldError(error)) {
+            console.warn(
+              `Player create rejected unknown field — retrying with different schema. nameField=${nameField} parentField=${parentField || "none"}: ${error.message}`,
+            );
+            continue;
+          }
+          // Anything other than UNKNOWN_FIELD_NAME is a real Airtable rejection
+          // (validation, choice options, permissions). Stop fallback iteration
+          // and let the caller surface the error — retrying with another field
+          // name will only mask the underlying problem.
+          throw error;
         }
-      } catch (error) {
-        lastError = error;
-        if (isUnknownFieldError(error)) {
-          console.warn(
-            `Player create rejected unknown field — retrying with different schema. nameField=${nameField} parentField=${parentField || "none"}: ${error.message}`,
-          );
-          continue;
-        }
-        // Anything other than UNKNOWN_FIELD_NAME is a real Airtable rejection
-        // (validation, choice options, permissions). Stop fallback iteration
-        // and let the caller surface the error — retrying with another field
-        // name will only mask the underlying problem.
-        throw error;
       }
+      if (pathwaySkipped && includePathway) break; // jump to the no-pathway pass
     }
   }
 
   if (lastError) throw lastError;
   return null;
+}
+
+// Football Pathway choices on the parent-facing form. Anything else submitted
+// is dropped at the API boundary so a determined caller cannot poison the
+// single-select with a free-text value Airtable would have to typecast in.
+const FOOTBALL_PATHWAY_CHOICES = new Set([
+  "Grassroots football",
+  "Academy football",
+  "School football",
+  "Not currently with a team",
+  "Other / unsure",
+]);
+
+function normaliseFootballPathway(value) {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) return "";
+  return FOOTBALL_PATHWAY_CHOICES.has(trimmed) ? trimmed : "";
 }
 
 async function findParentId(email, name) {
