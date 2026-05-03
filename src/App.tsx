@@ -857,6 +857,14 @@ async function markPlayerAsLeft(
   return data.player;
 }
 
+async function acknowledgePlayerLeave(id: string): Promise<Player> {
+  const data = await patchPlayerAction<{ player: Player }>({
+    id,
+    action: "acknowledge-leave",
+  });
+  return data.player;
+}
+
 async function mintPlayerPathwayToken(id: string): Promise<{ token: string; expiresAt: string; player: Player }> {
   return patchPlayerAction<{ token: string; expiresAt: string; player: Player }>({
     id,
@@ -1423,9 +1431,11 @@ function KpiCard({ label, value, foot, icon: Icon }: { label: string; value: num
 function Overview({
   data,
   onJumpToPlayers,
+  onPlayerUpdate,
 }: {
   data: AdminData;
   onJumpToPlayers?: () => void;
+  onPlayerUpdate?: (player: Player) => void;
 }) {
   // Active roster excludes players the coach has already marked as Left so
   // KPIs reflect the current squad. The Action needed card below still uses
@@ -1440,6 +1450,23 @@ function Overview({
 
   const pendingLeave = data.players.filter((player) => player.leaveRequested);
   const pendingErasure = data.players.filter((player) => player.erasureRequested);
+
+  const [ackBusyId, setAckBusyId] = useState<string | null>(null);
+  const [ackError, setAckError] = useState("");
+
+  async function handleAcknowledge(player: Player) {
+    if (!onPlayerUpdate) return;
+    setAckBusyId(player.id);
+    setAckError("");
+    try {
+      const updated = await acknowledgePlayerLeave(player.id);
+      onPlayerUpdate(updated);
+    } catch (err) {
+      setAckError(err instanceof Error ? err.message : "Could not update.");
+    } finally {
+      setAckBusyId(null);
+    }
+  }
 
   // Football Pathway KPI counts. Phase one is purely the current pathway split
   // — a coach can show parents "this is where my players come from today".
@@ -1497,9 +1524,9 @@ function Overview({
         <section className="panel action-needed-card" aria-labelledby="action-needed-title">
           <div className="toolbar">
             <div>
-              <div className="page-kicker">Action needed</div>
+              <div className="page-kicker">Heads up</div>
               <h2 id="action-needed-title" className="page-title" style={{ fontSize: "var(--text-lg)" }}>
-                Parent requests waiting for you
+                Recent parent decisions
               </h2>
             </div>
             {onJumpToPlayers && (
@@ -1513,6 +1540,11 @@ function Overview({
               </button>
             )}
           </div>
+          {ackError && (
+            <p className="player-sub pathway-inline-error" data-testid="text-ack-error">
+              {ackError}
+            </p>
+          )}
           <ul className="action-needed-list">
             {pendingLeave.map((player) => (
               <li key={`leave-${player.id}`} className="action-needed-item">
@@ -1522,20 +1554,34 @@ function Overview({
                 <div className="action-needed-body">
                   <strong>{player.name}</strong>
                   <span className="player-sub">
-                    Parent asked to move on{player.leaveReason ? ` — ${player.leaveReason}` : ""}
+                    Parent has moved on from your squad{player.leaveReason ? ` — ${player.leaveReason}` : ""}
                   </span>
                   {player.leaveNotes && (
                     <span className="player-sub action-needed-notes">{player.leaveNotes}</span>
                   )}
                 </div>
-                <span className="action-needed-meta">
-                  {player.leaveRequestedAt
-                    ? new Date(player.leaveRequestedAt).toLocaleDateString("en-GB", {
-                        day: "2-digit",
-                        month: "short",
-                      })
-                    : ""}
-                </span>
+                <div className="action-needed-side">
+                  <span className="action-needed-meta">
+                    {player.leaveRequestedAt
+                      ? new Date(player.leaveRequestedAt).toLocaleDateString("en-GB", {
+                          day: "2-digit",
+                          month: "short",
+                        })
+                      : ""}
+                  </span>
+                  {onPlayerUpdate && (
+                    <button
+                      type="button"
+                      className="link-button"
+                      onClick={() => handleAcknowledge(player)}
+                      disabled={ackBusyId === player.id}
+                      data-testid={`button-ack-leave-${player.id}`}
+                    >
+                      <Check size={14} aria-hidden="true" />
+                      {ackBusyId === player.id ? "Saving…" : "Got it"}
+                    </button>
+                  )}
+                </div>
               </li>
             ))}
             {pendingErasure.map((player) => (
@@ -1737,14 +1783,20 @@ function PlayerRowActions({
       >
         <LinkIcon size={14} aria-hidden="true" /> {busy ? "Creating link…" : "Send link to parent"}
       </button>
-      <button
-        type="button"
-        className="link-button link-button--danger"
-        onClick={() => onRequestMarkLeft(player)}
-        data-testid={`button-mark-left-${player.id}`}
-      >
-        <LogOut size={14} aria-hidden="true" /> Mark as left
-      </button>
+      <details className="player-row-overflow">
+        <summary>More…</summary>
+        <p className="player-sub player-row-overflow-hint">
+          Parents can leave the squad themselves with the link above. Use this only if a parent told you in person.
+        </p>
+        <button
+          type="button"
+          className="link-button link-button--danger"
+          onClick={() => onRequestMarkLeft(player)}
+          data-testid={`button-mark-left-${player.id}`}
+        >
+          <LogOut size={14} aria-hidden="true" /> Mark as left for them
+        </button>
+      </details>
       {linkInfo && (
         <div className="player-row-link-info" data-testid={`link-info-${player.id}`}>
           {linkInfo.copied ? (
@@ -1987,7 +2039,9 @@ function PlayerList({
                             <span className="player-sub">{playerMetaLine(player)}</span>
                           )}
                           {player.status === "Left" && (
-                            <span className="player-sub status-left-tag">Left the squad</span>
+                            <span className="player-sub status-left-tag">
+                              {player.leaveRequested ? "Left the squad (parent request)" : "Left the squad"}
+                            </span>
                           )}
                           {player.leaveRequested && player.status !== "Left" && (
                             <span className="player-sub status-leave-pending">Parent asked to move on</span>
@@ -2040,7 +2094,9 @@ function PlayerList({
                       <strong>{player.team}</strong> · {player.ageGroup}
                     </span>
                     {player.status === "Left" && (
-                      <span className="player-sub status-left-tag">Left the squad</span>
+                      <span className="player-sub status-left-tag">
+                        {player.leaveRequested ? "Left the squad (parent request)" : "Left the squad"}
+                      </span>
                     )}
                     {player.leaveRequested && player.status !== "Left" && (
                       <span className="player-sub status-leave-pending">Parent asked to move on</span>
@@ -3620,13 +3676,13 @@ function LeaveRequestPage({ token }: { token: string }) {
   if (done) {
     return (
       <PublicPageShell>
-        <h1>Request sent</h1>
+        <h1>You're done</h1>
         <p>
-          Thanks. Your coach has been notified that you'd like to move on with{" "}
-          <strong>{summary.childName}</strong>. They'll be in touch to confirm the next steps.
+          <strong>{summary.childName}</strong> has been removed from the squad and your coach has been
+          notified. You don't need to do anything else.
         </p>
         <p className="player-sub">
-          If you also want your child's personal data deleted, please use the
+          If you also want your child's personal data deleted from the club records, please use the
           {" "}<a href="/erasure">data erasure form</a>.
         </p>
       </PublicPageShell>
@@ -3635,13 +3691,13 @@ function LeaveRequestPage({ token }: { token: string }) {
 
   return (
     <PublicPageShell>
-      <div className="page-kicker">Move on / leave squad</div>
-      <h1>Let your coach know you'd like to move on</h1>
+      <div className="page-kicker">Leave squad</div>
+      <h1>Move on from this squad</h1>
       <p>
         {summary.team ? <>Squad: <strong>{summary.team}</strong>{summary.ageGroup ? ` · ${summary.ageGroup}` : ""}<br /></> : null}
-        We'll let your coach know about <strong>{summary.childName}</strong>. The coach will then
-        confirm and update the squad records. This form does <strong>not</strong> delete personal
-        data — use the data erasure form for that.
+        Submitting this form removes <strong>{summary.childName}</strong> from the squad. Your coach
+        will be notified automatically — you don't need to message them. This form does
+        {" "}<strong>not</strong> delete personal data; use the data erasure form for that.
       </p>
       <form className="form-section" onSubmit={submit}>
         <label className="form-field full">
@@ -3664,7 +3720,7 @@ function LeaveRequestPage({ token }: { token: string }) {
         </label>
         {error && <div className="message error">{error}</div>}
         <button type="submit" className="primary-button" disabled={submitting}>
-          {submitting ? "Sending…" : "Send request"}
+          {submitting ? "Sending…" : "Confirm and leave squad"}
         </button>
       </form>
     </PublicPageShell>
@@ -3874,7 +3930,11 @@ function App() {
         </header>
         <div className="content">
           {activeView === "overview" && (
-            <Overview data={data} onJumpToPlayers={() => setActiveView("players")} />
+            <Overview
+              data={data}
+              onJumpToPlayers={() => setActiveView("players")}
+              onPlayerUpdate={applyPlayerUpdate}
+            />
           )}
           {activeView === "players" && (
             <PlayerList players={data.players} onPlayerUpdate={applyPlayerUpdate} />

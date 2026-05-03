@@ -8,12 +8,16 @@ import {
 } from "./_airtable.mjs";
 
 // Public leave-request endpoint used by the parent-facing /leave/<token>
-// page. The same token type as the pathway link is reused intentionally \u2014
-// it's a per-player handle, not a per-action one, so the coach only ever
-// has one link to share with a parent. The parent flagging "We'd like to
-// move on" sets the Leave Requested checkbox and notes; it never moves the
-// player to "Left" automatically. The coach reviews the request in the
-// Action needed card and confirms via the Mark-as-Left modal.
+// page. The same token type as the pathway link is reused intentionally
+// because it's a per-player handle, not a per-action one, so the parent
+// only ever needs the one link from the coach.
+//
+// Parent submission is final: it moves the player to Status="Left"
+// straight away and records the reason + timestamp. We also set the
+// Leave Requested flag so the coach gets a heads-up on the dashboard
+// Action needed card (purely informational - the player is already gone
+// from active lists). The token is burned on submit so a link can't be
+// replayed.
 
 const ALLOWED_REASONS = new Set([
   "Moved area",
@@ -73,10 +77,12 @@ export const handler = async (event) => {
         "Players",
         TABLE_IDS.PLAYERS,
       );
-      // Flag only \u2014 the coach is responsible for actually marking the
-      // player as Left. We also burn the token so the link stops working
-      // once the parent has used it.
+      // Parent decision is final. Status flips to "Left" immediately and we
+      // stamp the reason. The Leave Requested flag stays true so the coach
+      // gets a visible notification on the dashboard until they acknowledge
+      // it. Burn the token so the link can't be reused.
       await airtableUpdate(playersTable, record.id, {
+        Status: "Left",
         "Leave Requested": true,
         "Leave Requested At": new Date().toISOString(),
         "Leave Reason": reason,

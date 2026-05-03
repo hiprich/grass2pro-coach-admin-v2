@@ -17,9 +17,15 @@ import {
 //   { id, action: "set-pathway", value: "<one of footballPathwayOptions>" }
 //     Inline pathway edit on the Players list. Empty string clears the value.
 //   { id, action: "mark-left", reason, notes }
-//     Coach confirms a leaver. Sets Status = "Left", records the reason and
+//     Coach-initiated leaver (quiet fallback for edge cases like "parent
+//     told me in person"). Sets Status = "Left", records the reason and
 //     timestamp, and clears any outstanding leave-request flag so the row
 //     stops showing on the Action needed card.
+//   { id, action: "acknowledge-leave" }
+//     Coach confirms they have seen a parent-initiated leave request. The
+//     player is already Status = "Left" (set by the parent's submission);
+//     this just clears the Leave Requested flag so the Action needed card
+//     drops the row.
 //   { id, action: "mint-pathway-token" }
 //     Issues (or refreshes) a 7-day pathway-update token so the coach can
 //     send a parent-facing link without leaving the dashboard. Returns the
@@ -101,6 +107,18 @@ async function handlePatch(event) {
       "Leave Reason": reasonRaw,
       "Leave Requested At": nowIso(),
       "Leave Notes": notes || null,
+      "Leave Requested": false,
+    });
+    return json(200, { player: normalisePlayer(updated) });
+  }
+
+  if (action === "acknowledge-leave") {
+    // Coach has seen the parent request on the Action needed card. The
+    // parent's submission already moved the player to Status="Left"; this
+    // simply turns the Leave Requested flag off so the row drops off the
+    // notification card. Status, reason and timestamp are preserved as a
+    // record.
+    const updated = await airtableUpdate(playersTable, id, {
       "Leave Requested": false,
     });
     return json(200, { player: normalisePlayer(updated) });
