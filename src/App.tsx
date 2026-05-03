@@ -2235,7 +2235,7 @@ function ConsentForm() {
           </label>
         </section>
 
-        {message && <div className={`message ${status === "success" ? "success" : "error"}`} data-testid="status-form-message">{message}</div>}
+        {message && <div className={`message consent-form-message ${status === "success" ? "success" : "error"}`} data-testid="status-form-message">{message}</div>}
 
         <button className="primary-button" type="submit" disabled={status === "submitting"} data-testid="button-submit-consent">
           {status === "submitting" ? "Submitting..." : "Submit consent record"}
