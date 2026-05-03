@@ -306,9 +306,11 @@ function normalisePlayer(record = {}) {
     name: stringValue(fields["Full Name"] || fields.Name || fields["Player Name"], "Unnamed player"),
     ageGroup: stringValue(fields["Age Group"] || fields.AgeGroup, "U11"),
     team: stringValue(fields.Team || fields.Squad, "Grass2Pro"),
-    position: stringValue(fields.Position, "N/A"),
+    position: readableValue(fields.Position, ""),
     status: stringValue(fields.Status, consentStatus === "red" ? "Withdrawn media consent" : "Active"),
-    guardianName: stringValue(fields["Guardian Name"] || fields["Parent/Guardian"] || fields.Parent, "Parent/Guardian"),
+    // Guardian field is often a linked-record array of Airtable record IDs; use
+    // readableValue so we don't leak rec... strings into the coach-facing UI.
+    guardianName: readableValue(fields["Guardian Name"] || fields["Parent/Guardian"] || fields.Parent, ""),
     dateOfBirth: stringValue(fields["Date of Birth"] || fields.DOB, ""),
     consentStatus,
     photoConsent: boolValue(fields["Photo Consent"] || fields["Photo Permission"]),
