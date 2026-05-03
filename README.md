@@ -85,6 +85,7 @@ Do not prefix Airtable secrets with `VITE_`. The browser should call only the Wo
 ### Players
 
 - Full Name
+- Date of Birth (date) — captured by the parent-facing consent/registration form. The Age Group formula reads from this field, so do not rename it.
 - Age Group
 - Team
 - Position

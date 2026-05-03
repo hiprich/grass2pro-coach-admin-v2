@@ -357,6 +357,7 @@ export function normalisePlayer(record) {
     status: stringValue(fields.Status, consentStatus === "red" ? "Withdrawn media consent" : "Active"),
     guardianName: stringValue(fields["Guardian Name"] || fields["Parent/Guardian"] || fields.Parent, "Parent/Guardian"),
     guardianIds: recordIdArray(fields["Parent/Guardian"] || fields.Parent || fields["Guardian Name"]),
+    dateOfBirth: stringValue(fields["Date of Birth"] || fields.DOB, ""),
     consentStatus,
     photoConsent: boolValue(fields["Photo Consent"] || fields["Photo Permission"]),
     videoConsent: boolValue(fields["Video Consent"] || fields["Video Permission"]),

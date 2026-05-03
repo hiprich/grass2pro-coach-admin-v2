@@ -188,6 +188,42 @@ async function airtableCreate(env, table, fields) {
   return response.json();
 }
 
+async function airtableUpdate(env, table, recordId, fields) {
+  if (!env.AIRTABLE_TOKEN || !env.AIRTABLE_BASE_ID) {
+    return { id: recordId || `demo_${Date.now()}`, fields, demo: true };
+  }
+  const url = `${AIRTABLE_API}/${env.AIRTABLE_BASE_ID}/${encodeTable(table)}/${encodeURIComponent(recordId)}`;
+  const response = await fetch(url, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${env.AIRTABLE_TOKEN}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ fields }),
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new AirtableHttpError(`Airtable update failed for ${table}/${recordId}: ${body}`, {
+      status: response.status,
+      body,
+      table,
+    });
+  }
+  return response.json();
+}
+
+function normaliseDateOfBirth(value) {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return null;
+  const parsed = new Date(`${trimmed}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  if (parsed.getTime() > today.getTime()) return null;
+  return trimmed;
+}
+
 function extractAirtableErrorDetail(body) {
   if (!body) return undefined;
   try {
@@ -273,6 +309,7 @@ function normalisePlayer(record = {}) {
     position: stringValue(fields.Position, "N/A"),
     status: stringValue(fields.Status, consentStatus === "red" ? "Withdrawn media consent" : "Active"),
     guardianName: stringValue(fields["Guardian Name"] || fields["Parent/Guardian"] || fields.Parent, "Parent/Guardian"),
+    dateOfBirth: stringValue(fields["Date of Birth"] || fields.DOB, ""),
     consentStatus,
     photoConsent: boolValue(fields["Photo Consent"] || fields["Photo Permission"]),
     videoConsent: boolValue(fields["Video Consent"] || fields["Video Permission"]),
@@ -322,6 +359,18 @@ async function saveConsent(request, env) {
   if (!payload.childName || !payload.parentName || !payload.parentEmail || !payload.parentalResponsibility || !payload.withdrawalProcessAcknowledged) {
     return json({ error: "Missing required consent fields." }, 400, env);
   }
+  // childDateOfBirth is optional at the API layer (older clients may not send
+  // it) but if it is present it must parse cleanly. The UI requires DOB; this
+  // guard protects direct API callers from corrupting the Players Date of
+  // Birth field with an unparseable value.
+  const dateOfBirth = normaliseDateOfBirth(payload.childDateOfBirth);
+  if (payload.childDateOfBirth && !dateOfBirth) {
+    return json(
+      { error: "Player date of birth must be a valid past date in YYYY-MM-DD format." },
+      400,
+      env,
+    );
+  }
   const permissions = payload.permissions || {};
   const selectedPermissions = Object.entries(permissions)
     .filter(([, value]) => Boolean(value))
@@ -355,7 +404,46 @@ async function saveConsent(request, env) {
     tableRef(env, "AIRTABLE_MEDIA_CONSENTS_TABLE", "Media Consents", TABLE_IDS.MEDIA_CONSENTS),
     fields,
   );
+
+  // Best-effort write of the player's Date of Birth into the Players table so
+  // the Age Group formula can pick it up. We only attempt this when the
+  // submitted child name maps unambiguously to an existing Player row —
+  // failures or no-matches never block the consent submission.
+  if (dateOfBirth && env.AIRTABLE_TOKEN && env.AIRTABLE_BASE_ID) {
+    try {
+      const playerId = await findPlayerIdByName(env, payload.childName);
+      if (playerId) {
+        await airtableUpdate(
+          env,
+          tableRef(env, "AIRTABLE_PLAYERS_TABLE", "Players", TABLE_IDS.PLAYERS),
+          playerId,
+          { "Date of Birth": dateOfBirth },
+        );
+      }
+    } catch (error) {
+      console.error("Player Date of Birth update failed:", error);
+    }
+  }
+
   return json({ ok: true, id: record.id, demo: Boolean(record.demo), selectedPermissions }, 200, env);
+}
+
+async function findPlayerIdByName(env, childName) {
+  const trimmed = String(childName || "").trim().toLowerCase();
+  if (!trimmed) return null;
+  const records = await airtableList(
+    env,
+    tableRef(env, "AIRTABLE_PLAYERS_TABLE", "Players", TABLE_IDS.PLAYERS),
+    { pageSize: "100" },
+  );
+  const nameOf = (record) => {
+    const fields = record?.fields || {};
+    return String(fields["Full Name"] || fields.Name || fields["Player Name"] || "")
+      .trim()
+      .toLowerCase();
+  };
+  const exact = records.find((record) => nameOf(record) === trimmed);
+  return exact?.id || null;
 }
 
 // ---------- Sessions / Attendance / QR Check-ins ----------
