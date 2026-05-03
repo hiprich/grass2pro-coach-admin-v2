@@ -24,7 +24,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { FormEvent } from "react";
+import type { FormEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
 
 type ConsentStatus = "green" | "amber" | "red" | "grey";
 
@@ -2845,6 +2845,206 @@ function dateOfBirthErrorFor(state: DateOfBirthState): string | undefined {
   return undefined;
 }
 
+// Splits a stored ISO date (YYYY-MM-DD) into the three segments the user
+// types. Empty / partial values are tolerated so we can mirror form state
+// even mid-typing without throwing.
+function splitIsoDate(value: string): { day: string; month: string; year: string } {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+  if (!match) return { day: "", month: "", year: "" };
+  const [, year, month, day] = match;
+  return { day, month, year };
+}
+
+// Recombines the three segments back into the ISO format the rest of the
+// form (and Airtable) already expects. Returns an empty string while any
+// segment is incomplete so existing classifyDateOfBirth/empty handling keeps
+// working unchanged.
+function joinIsoDate(day: string, month: string, year: string): string {
+  if (day.length !== 2 || month.length !== 2 || year.length !== 4) return "";
+  return `${year}-${month}-${day}`;
+}
+
+// Cosmetic-only: turn the stored ISO date back into the British format the
+// summary panel displays so parents see what they typed.
+function formatIsoDateBritish(value: string): string {
+  const { day, month, year } = splitIsoDate(value);
+  if (!day || !month || !year) return value;
+  return `${day}/${month}/${year}`;
+}
+
+interface DateOfBirthInputProps {
+  value: string;
+  onChange: (next: string) => void;
+  invalid?: boolean;
+  testIdPrefix?: string;
+}
+
+// Three segmented inputs (Day / Month / Year) that auto-advance as the user
+// types. The component is intentionally controlled — each keystroke is
+// reflected back into the parent's form state via onChange so the existing
+// validation pipeline (classifyDateOfBirth, summary, submit guard) keeps
+// working unchanged.
+function DateOfBirthInput({ value, onChange, invalid, testIdPrefix = "input-child-dob" }: DateOfBirthInputProps) {
+  const initial = splitIsoDate(value);
+  const [day, setDay] = useState(initial.day);
+  const [month, setMonth] = useState(initial.month);
+  const [year, setYear] = useState(initial.year);
+
+  const dayRef = useRef<HTMLInputElement | null>(null);
+  const monthRef = useRef<HTMLInputElement | null>(null);
+  const yearRef = useRef<HTMLInputElement | null>(null);
+
+  // Re-sync segments only when the parent's value diverges from what we'd
+  // produce locally — e.g. after a successful submit clears the form. This
+  // is the rare "sync to external prop" pattern the React docs sanction;
+  // ignoring lint here is intentional and the dependency is the value alone.
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    const localJoined = joinIsoDate(day, month, year);
+    if (localJoined === value) return;
+    const next = splitIsoDate(value);
+    setDay(next.day);
+    setMonth(next.month);
+    setYear(next.year);
+  }, [value]); // eslint-disable-line react-hooks/exhaustive-deps
+  /* eslint-enable react-hooks/set-state-in-effect */
+
+  const emit = (nextDay: string, nextMonth: string, nextYear: string) => {
+    onChange(joinIsoDate(nextDay, nextMonth, nextYear));
+  };
+
+  const handleSegmentChange = (
+    segment: "day" | "month" | "year",
+    raw: string,
+  ) => {
+    // Strip anything non-numeric so paste-from-elsewhere doesn't break things.
+    const digits = raw.replace(/\D/g, "");
+    if (segment === "day") {
+      const trimmed = digits.slice(0, 2);
+      setDay(trimmed);
+      emit(trimmed, month, year);
+      // Auto-advance once we have 2 digits, OR a single digit that can't be
+      // the start of a valid day (4-9 → no 40-something day exists).
+      if (trimmed.length === 2 || (trimmed.length === 1 && Number(trimmed) >= 4)) {
+        monthRef.current?.focus();
+        monthRef.current?.select();
+      }
+      return;
+    }
+    if (segment === "month") {
+      const trimmed = digits.slice(0, 2);
+      setMonth(trimmed);
+      emit(day, trimmed, year);
+      // Auto-advance on 2 digits, or a single digit that can't start a valid
+      // month (2-9 → no 20-something month). 1 stays put because the user
+      // might be typing 10/11/12.
+      if (trimmed.length === 2 || (trimmed.length === 1 && Number(trimmed) >= 2)) {
+        yearRef.current?.focus();
+        yearRef.current?.select();
+      }
+      return;
+    }
+    const trimmed = digits.slice(0, 4);
+    setYear(trimmed);
+    emit(day, month, trimmed);
+  };
+
+  const handleKeyDown = (
+    segment: "day" | "month" | "year",
+    event: ReactKeyboardEvent<HTMLInputElement>,
+  ) => {
+    const target = event.currentTarget;
+    // Backspace on an empty segment hops to the previous one so the parent
+    // can correct typos without reaching for the mouse.
+    if (event.key === "Backspace" && target.value === "") {
+      if (segment === "month") {
+        event.preventDefault();
+        dayRef.current?.focus();
+        const v = dayRef.current?.value ?? "";
+        dayRef.current?.setSelectionRange(v.length, v.length);
+      } else if (segment === "year") {
+        event.preventDefault();
+        monthRef.current?.focus();
+        const v = monthRef.current?.value ?? "";
+        monthRef.current?.setSelectionRange(v.length, v.length);
+      }
+      return;
+    }
+    // Forward slash / dash / space are common date separators — treat them
+    // as "jump to next field" for muscle memory.
+    if (event.key === "/" || event.key === "-" || event.key === " ") {
+      if (segment === "day") {
+        event.preventDefault();
+        monthRef.current?.focus();
+        monthRef.current?.select();
+      } else if (segment === "month") {
+        event.preventDefault();
+        yearRef.current?.focus();
+        yearRef.current?.select();
+      }
+    }
+  };
+
+  return (
+    <div
+      className={`dob-segmented${invalid ? " dob-segmented-invalid" : ""}`}
+      role="group"
+      aria-label="Player date of birth"
+    >
+      <input
+        ref={dayRef}
+        type="text"
+        inputMode="numeric"
+        autoComplete="bday-day"
+        placeholder="DD"
+        maxLength={2}
+        value={day}
+        onChange={(event) => handleSegmentChange("day", event.target.value)}
+        onKeyDown={(event) => handleKeyDown("day", event)}
+        onFocus={(event) => event.currentTarget.select()}
+        aria-label="Day"
+        aria-invalid={invalid || undefined}
+        data-testid={`${testIdPrefix}-day`}
+        className="dob-segment dob-segment-dd"
+      />
+      <span aria-hidden="true" className="dob-separator">/</span>
+      <input
+        ref={monthRef}
+        type="text"
+        inputMode="numeric"
+        autoComplete="bday-month"
+        placeholder="MM"
+        maxLength={2}
+        value={month}
+        onChange={(event) => handleSegmentChange("month", event.target.value)}
+        onKeyDown={(event) => handleKeyDown("month", event)}
+        onFocus={(event) => event.currentTarget.select()}
+        aria-label="Month"
+        aria-invalid={invalid || undefined}
+        data-testid={`${testIdPrefix}-month`}
+        className="dob-segment dob-segment-mm"
+      />
+      <span aria-hidden="true" className="dob-separator">/</span>
+      <input
+        ref={yearRef}
+        type="text"
+        inputMode="numeric"
+        autoComplete="bday-year"
+        placeholder="YYYY"
+        maxLength={4}
+        value={year}
+        onChange={(event) => handleSegmentChange("year", event.target.value)}
+        onKeyDown={(event) => handleKeyDown("year", event)}
+        onFocus={(event) => event.currentTarget.select()}
+        aria-label="Year"
+        aria-invalid={invalid || undefined}
+        data-testid={`${testIdPrefix}-year`}
+        className="dob-segment dob-segment-yyyy"
+      />
+    </div>
+  );
+}
+
 function ConsentForm() {
   const [form, setForm] = useState<ConsentPayload>(createInitialConsentForm);
   const [status, setStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
@@ -3043,15 +3243,12 @@ function ConsentForm() {
                 <span>Child full name *</span>
                 <input value={form.childName} onChange={(event) => update("childName", event.target.value)} data-testid="input-child-name" />
               </label>
-              <label className="form-field">
-                <span>Player date of birth *</span>
-                <input
-                  type="date"
+              <div className="form-field">
+                <span className="form-field-label">Player date of birth *</span>
+                <DateOfBirthInput
                   value={form.childDateOfBirth}
-                  onChange={(event) => update("childDateOfBirth", event.target.value)}
-                  max={todayIsoDate()}
-                  aria-invalid={Boolean(errors.childDateOfBirth)}
-                  data-testid="input-child-dob"
+                  onChange={(next) => update("childDateOfBirth", next)}
+                  invalid={Boolean(errors.childDateOfBirth)}
                 />
                 {errors.childDateOfBirth ? (
                   <span className="field-error" role="alert" data-testid="error-child-dob">
@@ -3060,7 +3257,7 @@ function ConsentForm() {
                 ) : (
                   <span className="field-help">Used to set the child&apos;s age group automatically. Stored once on the player record.</span>
                 )}
-              </label>
+              </div>
             </div>
             <div className="form-pair">
               <label className="form-field">
@@ -3323,7 +3520,7 @@ function ConsentForm() {
             <span>Date of birth</span>
             <strong data-testid="summary-child-dob">
               {dobIsValid
-                ? form.childDateOfBirth
+                ? formatIsoDateBritish(form.childDateOfBirth)
                 : dobState === "empty"
                   ? "Not entered"
                   : "Not valid"}
