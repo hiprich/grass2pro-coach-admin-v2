@@ -599,10 +599,6 @@ function sanitiseHumanString(value: string | undefined | null): string {
   return cleaned;
 }
 
-function playerPosition(player: Player): string {
-  return sanitiseHumanString(player.position);
-}
-
 function playerGuardianLabel(player: Player): string {
   const raw = (player.guardianName || "").trim();
   if (!raw) return "";
@@ -614,9 +610,11 @@ function playerGuardianLabel(player: Player): string {
 }
 
 function playerMetaLine(player: Player): string {
-  const position = playerPosition(player);
-  const guardian = playerGuardianLabel(player);
-  return [position, guardian].filter(Boolean).join(" · ");
+  // Position is intentionally omitted from the dashboard meta line: kids
+  // rotate across outfield roles for development, so a fixed position would
+  // be misleading here. The field is still mapped from Airtable for future
+  // scouting use.
+  return playerGuardianLabel(player);
 }
 
 function formatDate(iso: string) {
