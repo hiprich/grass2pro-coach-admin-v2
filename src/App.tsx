@@ -3567,7 +3567,683 @@ function LoadingState() {
   );
 }
 
-function App() {
+// ---------------------------------------------------------------------------
+// Parent portal (/portal)
+//
+// A self-contained route used by parents (not coaches) to sign in via magic
+// link, view their children's profile + attendance, update consent toggles,
+// change pathway, and request leave or data erasure. All API calls go
+// through the dedicated parent-* Netlify functions which scope every read
+// and write to the signed-in parent's email.
+// ---------------------------------------------------------------------------
+
+type ParentSummary = {
+  email: string;
+  players: Player[];
+  sessions: Session[];
+  attendance: AttendanceRecord[];
+};
+
+type ParentPortalView = "sign-in" | "check-email" | "verifying" | "overview" | "verify-error";
+
+async function postParentAuth(action: string, body: Record<string, unknown> = {}) {
+  const response = await fetch(apiPath("/parent-auth"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "same-origin",
+    body: JSON.stringify({ action, ...body }),
+  });
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+  return { ok: response.ok, status: response.status, payload };
+}
+
+async function fetchParentSummary(): Promise<ParentSummary | null> {
+  const response = await fetch(apiPath("/parent-data"), {
+    method: "GET",
+    credentials: "same-origin",
+  });
+  if (response.status === 401) return null;
+  if (!response.ok) throw new Error("Could not load parent data.");
+  return (await response.json()) as ParentSummary;
+}
+
+async function patchParentAction(body: Record<string, unknown>) {
+  const response = await fetch(apiPath("/parent-actions"), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    credentials: "same-origin",
+    body: JSON.stringify(body),
+  });
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+  return { ok: response.ok, status: response.status, payload };
+}
+
+// Tiny helper to grab `?token=...&email=...` from the magic-link URL the
+// parent followed from their inbox. Falls back to empty strings when the
+// query is absent so the sign-in form can render without crashing.
+function readMagicLinkQuery(): { email: string; token: string } {
+  if (typeof window === "undefined") return { email: "", token: "" };
+  const params = new URLSearchParams(window.location.search);
+  return {
+    email: (params.get("email") || "").trim(),
+    token: (params.get("token") || "").trim(),
+  };
+}
+
+// Strip the magic-link query off the address bar after we've consumed the
+// token, so a refresh doesn't re-trigger verification (the token will have
+// been burned by then).
+function clearMagicLinkQuery() {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  url.search = "";
+  window.history.replaceState({}, "", url.toString());
+}
+
+// Each consent flag the parent can toggle. The keys here correspond to the
+// short names accepted by parent-actions.mjs (CONSENT_KEY_TO_FIELD).
+const PARENT_CONSENT_TOGGLES: Array<{ key: string; label: string; help: string; field: keyof Player }> = [
+  { key: "photo", label: "Photos \u2014 sessions", help: "Photographs taken at training sessions.", field: "photoConsent" },
+  { key: "matchPhoto", label: "Photos \u2014 matches", help: "Photographs taken during matches and tournaments.", field: "matchPhotoConsent" },
+  { key: "video", label: "Video \u2014 coaching review", help: "Footage used for coaching feedback only.", field: "videoConsent" },
+  { key: "matchVideo", label: "Video \u2014 matches", help: "Match footage that may be shared with players and parents.", field: "matchVideoConsent" },
+  { key: "highlights", label: "Highlight clips \u2014 reels", help: "Short edited clips used in highlight reels.", field: "highlightsConsent" },
+  { key: "website", label: "Grass2Pro website", help: "Public profile or photos on the Grass2Pro website.", field: "websiteConsent" },
+  { key: "social", label: "Social media", help: "Posts on Grass2Pro's social media channels.", field: "socialConsent" },
+  { key: "press", label: "Press / partner media", help: "Sharing with partner clubs or press for showcase content.", field: "pressConsent" },
+  { key: "internalReports", label: "Internal coaching reports", help: "Used inside Grass2Pro coaching reports only.", field: "internalReportsConsent" },
+  { key: "emergencyContact", label: "Emergency contact sharing", help: "Sharing emergency contact details with team coaches.", field: "emergencyContactConsent" },
+  { key: "medicalInformation", label: "Medical information sharing", help: "Sharing medical information with team coaches and first aiders.", field: "medicalInformationConsent" },
+];
+
+const PARENT_PATHWAY_OPTIONS = [
+  "Grassroots Football",
+  "Academy Football",
+  "School Football",
+  "Not Currently With a Team",
+  "Other / Unsure",
+];
+
+const PARENT_LEAVE_REASONS = [
+  "Moved area",
+  "Joined another club",
+  "Finished age group",
+  "Parent request",
+  "Other",
+];
+
+function ParentSignInScreen({ onRequestLink, status, error, lastEmail }: {
+  onRequestLink: (email: string) => void;
+  status: "idle" | "submitting";
+  error: string;
+  lastEmail: string;
+}) {
+  const [email, setEmail] = useState(lastEmail);
+  return (
+    <div className="portal-shell">
+      <div className="portal-card">
+        <div className="portal-brand">
+          <span className="portal-brand-mark">G2P</span>
+          <div>
+            <div className="portal-brand-kicker">Grass2Pro</div>
+            <div className="portal-brand-title">Parent portal</div>
+          </div>
+        </div>
+        <h1 className="portal-heading">Sign in to your portal</h1>
+        <p className="portal-sub">
+          Enter the email address you used when filling in your child&apos;s consent form. We&apos;ll send you a link to sign in.
+        </p>
+        <form
+          className="portal-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (status === "submitting") return;
+            const trimmed = email.trim();
+            if (!trimmed) return;
+            onRequestLink(trimmed);
+          }}
+        >
+          <label className="form-field">
+            <span>Email address</span>
+            <input
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="you@example.com"
+              autoComplete="email"
+              autoFocus
+              required
+              data-testid="input-portal-email"
+            />
+          </label>
+          {error ? (
+            <p className="field-error" role="alert" data-testid="text-portal-error">{error}</p>
+          ) : (
+            <p className="field-help">We&apos;ll only ever use this to send sign-in links.</p>
+          )}
+          <button
+            type="submit"
+            className="portal-primary-button"
+            disabled={status === "submitting"}
+            data-testid="button-portal-request-link"
+          >
+            {status === "submitting" ? "Sending\u2026" : "Send sign-in link"}
+          </button>
+        </form>
+        <p className="portal-footnote">
+          Are you a coach? <a href="/" data-testid="link-portal-to-coach">Open coach dashboard</a>.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function ParentCheckEmailScreen({ email, onResend }: { email: string; onResend: () => void }) {
+  return (
+    <div className="portal-shell">
+      <div className="portal-card">
+        <div className="portal-brand">
+          <span className="portal-brand-mark">G2P</span>
+          <div>
+            <div className="portal-brand-kicker">Grass2Pro</div>
+            <div className="portal-brand-title">Parent portal</div>
+          </div>
+        </div>
+        <h1 className="portal-heading">Check your inbox</h1>
+        <p className="portal-sub">
+          If <strong data-testid="text-portal-email-sent">{email}</strong> is on file, we&apos;ve just sent a sign-in link.
+          The link expires in 15 minutes and can only be used once.
+        </p>
+        <ul className="portal-tip-list">
+          <li>Open the email on this device to keep things simple.</li>
+          <li>Not seeing it? Check your spam folder or try again below.</li>
+        </ul>
+        <button type="button" className="portal-secondary-button" onClick={onResend} data-testid="button-portal-resend">
+          Send another link
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ParentVerifyingScreen() {
+  return (
+    <div className="portal-shell">
+      <div className="portal-card">
+        <div className="portal-brand">
+          <span className="portal-brand-mark">G2P</span>
+          <div>
+            <div className="portal-brand-kicker">Grass2Pro</div>
+            <div className="portal-brand-title">Parent portal</div>
+          </div>
+        </div>
+        <h1 className="portal-heading">Signing you in\u2026</h1>
+        <p className="portal-sub">Just a moment while we verify your sign-in link.</p>
+      </div>
+    </div>
+  );
+}
+
+function ParentVerifyErrorScreen({ message, onRestart }: { message: string; onRestart: () => void }) {
+  return (
+    <div className="portal-shell">
+      <div className="portal-card">
+        <div className="portal-brand">
+          <span className="portal-brand-mark">G2P</span>
+          <div>
+            <div className="portal-brand-kicker">Grass2Pro</div>
+            <div className="portal-brand-title">Parent portal</div>
+          </div>
+        </div>
+        <h1 className="portal-heading">Sign-in link expired</h1>
+        <p className="portal-sub">{message}</p>
+        <button type="button" className="portal-primary-button" onClick={onRestart} data-testid="button-portal-restart">
+          Send a new link
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ParentChildCard({
+  player,
+  attendance,
+  sessions,
+  onConsentToggle,
+  onPathwayChange,
+  onLeaveRequest,
+  onErasureRequest,
+}: {
+  player: Player;
+  attendance: AttendanceRecord[];
+  sessions: Session[];
+  onConsentToggle: (key: string, value: boolean) => Promise<void>;
+  onPathwayChange: (value: string) => Promise<void>;
+  onLeaveRequest: (reason: string, notes: string) => Promise<void>;
+  onErasureRequest: () => Promise<void>;
+}) {
+  const [manageOpen, setManageOpen] = useState(false);
+  const [leaveReason, setLeaveReason] = useState("");
+  const [leaveNotes, setLeaveNotes] = useState("");
+  const [pendingKey, setPendingKey] = useState<string | null>(null);
+
+  const childAttendance = attendance.filter((row) => row.playerId === player.id);
+  const sessionLookup = new Map(sessions.map((session) => [session.id, session]));
+
+  return (
+    <article className="portal-child-card" data-testid={`card-portal-child-${player.id}`}>
+      <header className="portal-child-head">
+        <div>
+          <div className="portal-child-name" data-testid={`text-portal-child-name-${player.id}`}>{player.name}</div>
+          <div className="portal-child-meta">
+            {player.ageGroup}
+            {player.team ? ` \u00b7 ${player.team}` : ""}
+            {player.position && player.position !== "N/A" ? ` \u00b7 ${player.position}` : ""}
+          </div>
+        </div>
+        <span className={`portal-status portal-status-${player.consentStatus}`} data-testid={`badge-portal-status-${player.id}`}>
+          {player.status}
+        </span>
+      </header>
+
+      <section className="portal-section">
+        <h2 className="portal-section-title">Football pathway</h2>
+        <select
+          className="portal-input"
+          value={player.footballPathway || ""}
+          onChange={(event) => {
+            void onPathwayChange(event.target.value);
+          }}
+          data-testid={`select-portal-pathway-${player.id}`}
+        >
+          <option value="">Not set</option>
+          {PARENT_PATHWAY_OPTIONS.map((option) => (
+            <option key={option} value={option}>{option}</option>
+          ))}
+        </select>
+      </section>
+
+      <section className="portal-section">
+        <h2 className="portal-section-title">Consent</h2>
+        <p className="portal-section-help">Toggle off anything you&apos;d rather not allow. Changes save instantly.</p>
+        <ul className="portal-consent-list">
+          {PARENT_CONSENT_TOGGLES.map((toggle) => {
+            const enabled = Boolean(player[toggle.field]);
+            const isPending = pendingKey === toggle.key;
+            return (
+              <li key={toggle.key} className="portal-consent-item">
+                <div>
+                  <div className="portal-consent-label">{toggle.label}</div>
+                  <div className="portal-consent-help">{toggle.help}</div>
+                </div>
+                <label className="portal-switch" aria-label={toggle.label}>
+                  <input
+                    type="checkbox"
+                    checked={enabled}
+                    disabled={isPending}
+                    onChange={(event) => {
+                      const next = event.target.checked;
+                      setPendingKey(toggle.key);
+                      onConsentToggle(toggle.key, next).finally(() => setPendingKey(null));
+                    }}
+                    data-testid={`toggle-portal-consent-${toggle.key}-${player.id}`}
+                  />
+                  <span className="portal-switch-track" aria-hidden="true" />
+                </label>
+              </li>
+            );
+          })}
+        </ul>
+      </section>
+
+      <section className="portal-section">
+        <h2 className="portal-section-title">Recent attendance</h2>
+        {childAttendance.length === 0 ? (
+          <p className="portal-empty">No attendance recorded in the last 7 days.</p>
+        ) : (
+          <ul className="portal-attendance-list">
+            {childAttendance.map((row) => {
+              const session = sessionLookup.get(row.sessionId);
+              return (
+                <li key={row.id} className="portal-attendance-item">
+                  <div>
+                    <div className="portal-attendance-name">{session?.name || "Session"}</div>
+                    <div className="portal-attendance-meta">
+                      {session?.date ? new Date(session.date).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" }) : "Date TBC"}
+                      {session?.location ? ` \u00b7 ${session.location}` : ""}
+                    </div>
+                  </div>
+                  <span className={`portal-attendance-status portal-attendance-${row.status}`}>{row.status}</span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+
+      <details
+        className="portal-manage"
+        open={manageOpen}
+        onToggle={(event) => setManageOpen((event.target as HTMLDetailsElement).open)}
+      >
+        <summary className="portal-manage-summary" data-testid={`button-portal-manage-${player.id}`}>Manage record</summary>
+        <div className="portal-manage-body">
+          <div className="portal-manage-section">
+            <h3 className="portal-manage-title">Request to leave</h3>
+            <p className="portal-manage-help">Lets your coach know your child is moving on. They&apos;ll see this on their dashboard.</p>
+            <label className="form-field">
+              <span>Reason</span>
+              <select
+                className="portal-input"
+                value={leaveReason}
+                onChange={(event) => setLeaveReason(event.target.value)}
+                data-testid={`select-portal-leave-reason-${player.id}`}
+              >
+                <option value="">Select a reason</option>
+                {PARENT_LEAVE_REASONS.map((option) => (
+                  <option key={option} value={option}>{option}</option>
+                ))}
+              </select>
+            </label>
+            <label className="form-field">
+              <span>Notes (optional)</span>
+              <textarea
+                className="portal-input"
+                rows={3}
+                value={leaveNotes}
+                onChange={(event) => setLeaveNotes(event.target.value)}
+                data-testid={`input-portal-leave-notes-${player.id}`}
+              />
+            </label>
+            <button
+              type="button"
+              className="portal-secondary-button"
+              disabled={!leaveReason}
+              onClick={() => {
+                void onLeaveRequest(leaveReason, leaveNotes).then(() => {
+                  setLeaveReason("");
+                  setLeaveNotes("");
+                });
+              }}
+              data-testid={`button-portal-submit-leave-${player.id}`}
+            >
+              Submit leave request
+            </button>
+          </div>
+
+          <div className="portal-manage-section">
+            <h3 className="portal-manage-title">Request data erasure</h3>
+            <p className="portal-manage-help">
+              Your coach will be notified to remove personal data we hold about your child. This action stays on record for safeguarding compliance.
+            </p>
+            {player.erasureRequested ? (
+              <p className="portal-info" data-testid={`text-portal-erasure-pending-${player.id}`}>
+                An erasure request is already on file. Your coach will follow up directly.
+              </p>
+            ) : (
+              <button
+                type="button"
+                className="portal-danger-button"
+                onClick={() => {
+                  if (typeof window !== "undefined" && !window.confirm("Send a data erasure request for " + player.name + "?")) return;
+                  void onErasureRequest();
+                }}
+                data-testid={`button-portal-request-erasure-${player.id}`}
+              >
+                Request erasure
+              </button>
+            )}
+          </div>
+        </div>
+      </details>
+    </article>
+  );
+}
+
+function ParentOverviewScreen({
+  summary,
+  onRefresh,
+  onSignOut,
+}: {
+  summary: ParentSummary;
+  onRefresh: () => Promise<void>;
+  onSignOut: () => Promise<void>;
+}) {
+  const [working, setWorking] = useState(false);
+  const [message, setMessage] = useState<{ tone: "info" | "success" | "error"; text: string } | null>(null);
+
+  function flash(tone: "info" | "success" | "error", text: string) {
+    setMessage({ tone, text });
+    if (typeof window !== "undefined") {
+      window.setTimeout(() => setMessage(null), 4000);
+    }
+  }
+
+  async function runAction(body: Record<string, unknown>, onSuccess?: () => void) {
+    setWorking(true);
+    try {
+      const result = await patchParentAction(body);
+      if (!result.ok) {
+        const errorText = result.payload && typeof result.payload === "object" && "error" in result.payload
+          ? String((result.payload as { error?: string }).error)
+          : "We couldn't save that change. Please try again.";
+        flash("error", errorText);
+        return;
+      }
+      flash("success", "Saved.");
+      onSuccess?.();
+      await onRefresh();
+    } catch (error) {
+      console.error(error);
+      flash("error", "Network error. Please try again.");
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  return (
+    <div className="portal-overview">
+      <header className="portal-overview-head">
+        <div>
+          <div className="portal-brand-kicker">Grass2Pro parent portal</div>
+          <h1 className="portal-overview-title">Welcome back</h1>
+          <p className="portal-overview-sub" data-testid="text-portal-signed-in-as">Signed in as {summary.email}</p>
+        </div>
+        <button
+          type="button"
+          className="portal-secondary-button"
+          onClick={() => {
+            void onSignOut();
+          }}
+          data-testid="button-portal-sign-out"
+        >
+          Sign out
+        </button>
+      </header>
+
+      {message ? (
+        <div className={`portal-toast portal-toast-${message.tone}`} role="status" data-testid="text-portal-toast">
+          {message.text}
+        </div>
+      ) : null}
+
+      {summary.players.length === 0 ? (
+        <div className="portal-card portal-empty-card">
+          <h2>No children linked yet</h2>
+          <p>
+            We couldn&apos;t find a child registered to <strong>{summary.email}</strong>. Please contact your child&apos;s coach to confirm the email address on file.
+          </p>
+        </div>
+      ) : (
+        <div className="portal-child-list" aria-busy={working || undefined}>
+          {summary.players.map((player) => (
+            <ParentChildCard
+              key={player.id}
+              player={player}
+              attendance={summary.attendance}
+              sessions={summary.sessions}
+              onConsentToggle={(key, value) => runAction({ playerId: player.id, action: "set-consent", key, value })}
+              onPathwayChange={(value) => runAction({ playerId: player.id, action: "set-pathway", value })}
+              onLeaveRequest={(reason, notes) => runAction({ playerId: player.id, action: "request-leave", reason, notes })}
+              onErasureRequest={() => runAction({ playerId: player.id, action: "request-erasure" })}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ParentPortal() {
+  const [view, setView] = useState<ParentPortalView>("sign-in");
+  const [signInStatus, setSignInStatus] = useState<"idle" | "submitting">("idle");
+  const [signInError, setSignInError] = useState("");
+  const [lastEmail, setLastEmail] = useState("");
+  const [verifyError, setVerifyError] = useState("");
+  const [summary, setSummary] = useState<ParentSummary | null>(null);
+
+  const refresh = async () => {
+    try {
+      const next = await fetchParentSummary();
+      if (!next) {
+        setSummary(null);
+        setView("sign-in");
+        return;
+      }
+      setSummary(next);
+      setView("overview");
+    } catch (error) {
+      console.error(error);
+      setSignInError("Couldn't load your portal. Please sign in again.");
+      setView("sign-in");
+    }
+  };
+
+  // On mount: if the URL has a magic-link token, verify it. Otherwise check
+  // for an existing session cookie so a refreshed tab stays signed in.
+  useEffect(() => {
+    let cancelled = false;
+    const { token, email } = readMagicLinkQuery();
+    async function bootstrap() {
+      if (token && email) {
+        setView("verifying");
+        const result = await postParentAuth("verify-token", { token, email });
+        clearMagicLinkQuery();
+        if (cancelled) return;
+        if (!result.ok) {
+          const text = result.payload && typeof result.payload === "object" && "error" in result.payload
+            ? String((result.payload as { error?: string }).error)
+            : "Sign-in link is no longer valid.";
+          setVerifyError(text);
+          setView("verify-error");
+          return;
+        }
+        await refresh();
+        return;
+      }
+      // No magic-link query \u2014 try the existing session.
+      const existing = await fetchParentSummary().catch(() => null);
+      if (cancelled) return;
+      if (existing) {
+        setSummary(existing);
+        setView("overview");
+      } else {
+        setView("sign-in");
+      }
+    }
+    void bootstrap();
+    return () => {
+      cancelled = true;
+    };
+    // We deliberately run this bootstrap once on mount.
+  }, []);
+
+  async function requestLink(email: string) {
+    setSignInStatus("submitting");
+    setSignInError("");
+    setLastEmail(email);
+    const result = await postParentAuth("request-link", { email });
+    setSignInStatus("idle");
+    if (!result.ok) {
+      const text = result.payload && typeof result.payload === "object" && "error" in result.payload
+        ? String((result.payload as { error?: string }).error)
+        : "Something went wrong. Please try again.";
+      setSignInError(text);
+      return;
+    }
+    setView("check-email");
+  }
+
+  async function signOut() {
+    await postParentAuth("sign-out");
+    setSummary(null);
+    setView("sign-in");
+  }
+
+  if (view === "sign-in") {
+    return (
+      <ParentSignInScreen
+        onRequestLink={requestLink}
+        status={signInStatus}
+        error={signInError}
+        lastEmail={lastEmail}
+      />
+    );
+  }
+  if (view === "check-email") {
+    return (
+      <ParentCheckEmailScreen
+        email={lastEmail}
+        onResend={() => {
+          setView("sign-in");
+        }}
+      />
+    );
+  }
+  if (view === "verifying") return <ParentVerifyingScreen />;
+  if (view === "verify-error") {
+    return (
+      <ParentVerifyErrorScreen
+        message={verifyError || "Please request a fresh sign-in link."}
+        onRestart={() => {
+          setVerifyError("");
+          setView("sign-in");
+        }}
+      />
+    );
+  }
+  if (!summary) return <LoadingState />;
+  return <ParentOverviewScreen summary={summary} onRefresh={refresh} onSignOut={signOut} />;
+}
+
+// Detect whether the SPA should render the parent portal instead of the
+// coach dashboard. We keep this dead simple \u2014 any path that starts with
+// `/portal` (case-insensitive) routes through ParentPortal so /portal,
+// /portal/, and /portal?token=... all work.
+function shouldRenderParentPortal(): boolean {
+  if (typeof window === "undefined") return false;
+  return /^\/portal(\/|\?|$)/i.test(window.location.pathname + window.location.search);
+}
+
+// Top-level router: /portal renders the parent portal, everything else
+// renders the coach dashboard. Wrapper component so the dashboard's hooks
+// never run for parents (and parent portal hooks never run for coaches).
+function AppRoot() {
+  if (shouldRenderParentPortal()) return <ParentPortal />;
+  return <CoachDashboard />;
+}
+
+function CoachDashboard() {
   const [data, setData] = useState<AdminData | null>(null);
   const [activeView, setActiveView] = useState("overview");
   const [theme, setTheme] = useState<"light" | "dark">(() =>
@@ -3663,10 +4339,13 @@ function App() {
           {activeView === "safeguarding" && <Safeguarding players={data.players} />}
           {activeView === "payments" && <Payments payments={data.payments} />}
           {activeView === "consent" && <ConsentForm />}
+          <div className="coach-portal-note" role="note">
+            Parents sign in here: <a href="/portal">grass2pro.com/portal</a>
+          </div>
         </div>
       </main>
     </div>
   );
 }
 
-export default App;
+export default AppRoot;

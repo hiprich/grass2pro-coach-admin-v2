@@ -159,6 +159,11 @@ export const TABLE_IDS = {
   SESSIONS: "",
   ATTENDANCE: "",
   QR_CHECKINS: "",
+  // Auth Tokens stores hashed magic-link tokens for parent portal sign-in.
+  // The id is left blank so the AIRTABLE_AUTH_TOKENS_TABLE env var (or the
+  // human-readable "Auth Tokens" name) takes over until the table id is
+  // captured here.
+  AUTH_TOKENS: "",
 };
 
 function token() {
@@ -361,6 +366,11 @@ export function normalisePlayer(record) {
     // Empty string when unset so the Overview's "Pathway not set" tile can
     // count migrated players that pre-date this field.
     footballPathway: stringValue(fields["Football Pathway"], ""),
+    // Parent contact email used to look up which children belong to a
+    // signed-in parent on the /portal route. Stored as Email type in
+    // Airtable; we lower-case it on the way out so subsequent comparisons
+    // are case-insensitive.
+    parentEmail: stringValue(fields["Parent Email"], "").trim().toLowerCase(),
     // Leave/move-on flow flags. These are surfaced on the Overview "Action
     // needed" card and on the Players list so a coach can act on parent
     // requests without leaving the dashboard.
