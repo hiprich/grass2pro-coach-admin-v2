@@ -818,6 +818,18 @@
     font-size: var(--text-xs);
   }
 
+  .field-error {
+    color: #c0392b;
+    font-size: var(--text-xs);
+    font-weight: 600;
+  }
+
+  .form-field input[aria-invalid="true"],
+  .form-field select[aria-invalid="true"],
+  .form-field textarea[aria-invalid="true"] {
+    border-color: #c0392b;
+  }
+
   .checkbox-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));

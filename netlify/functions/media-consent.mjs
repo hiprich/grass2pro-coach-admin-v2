@@ -26,6 +26,25 @@ import {
 
 const required = ["childName", "parentName", "parentEmail"];
 
+// Mirrors the client-side checks in src/App.tsx so a determined caller hitting
+// the API directly cannot bypass the contact-detail validation. We only refuse
+// submissions for the obvious typo cases (malformed email, implausible phone)
+// — anything else falls through to Airtable as it does today.
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function isValidEmail(value) {
+  const trimmed = String(value || "").trim();
+  return trimmed.length > 0 && trimmed.length <= 254 && EMAIL_PATTERN.test(trimmed);
+}
+
+function isValidPhone(value) {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) return true; // phone is optional
+  const digits = trimmed.replace(/\D+/g, "");
+  if (digits.length < 10 || digits.length > 15) return false;
+  return /^[+()\-.\s\d]+$/.test(trimmed);
+}
+
 // Permission keys submitted by the UI mapped to their Airtable checkbox field
 // names. The order/membership of this map is what defines "all permissions"
 // for the Consent Status computation — see UI_PERMISSION_KEYS below.
@@ -160,6 +179,19 @@ export const handler = async (event) => {
     return json(400, {
       error: "Missing required consent fields.",
       missing,
+    });
+  }
+
+  if (!isValidEmail(payload.parentEmail)) {
+    return json(400, {
+      error: "Parent email is not a valid email address.",
+      field: "parentEmail",
+    });
+  }
+  if (!isValidPhone(payload.parentPhone)) {
+    return json(400, {
+      error: "Parent phone number must contain 10-15 digits and only common phone formatting.",
+      field: "parentPhone",
     });
   }
 

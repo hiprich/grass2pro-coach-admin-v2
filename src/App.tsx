@@ -1895,14 +1895,81 @@ const createInitialConsentForm = (): ConsentPayload => ({
   notes: "",
 });
 
+// Email/phone validation helpers. Kept deliberately permissive: the goal is to
+// catch obvious typos (e.g. confirm-field mismatch, missing "@", phone with two
+// digits) without rejecting legitimate UK formats. The server in
+// netlify/functions/media-consent.mjs runs the same shape of checks so a
+// determined caller can't bypass the UI.
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function normaliseEmail(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function isValidEmail(value: string): boolean {
+  const trimmed = value.trim();
+  return trimmed.length > 0 && trimmed.length <= 254 && EMAIL_PATTERN.test(trimmed);
+}
+
+// Strip everything that isn't a digit or a leading "+" so two visually
+// different but logically identical numbers (e.g. "07901 667878" and
+// "07901667878") compare equal. UK mobiles are 11 digits, international
+// formats add a country code, so 10-15 digits covers the realistic range.
+function normalisePhone(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  const hasPlus = trimmed.startsWith("+");
+  const digits = trimmed.replace(/\D+/g, "");
+  return hasPlus ? `+${digits}` : digits;
+}
+
+function isValidPhone(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return true; // optional field
+  const digits = trimmed.replace(/\D+/g, "");
+  if (digits.length < 10 || digits.length > 15) return false;
+  // Reject characters that aren't part of common phone formatting.
+  return /^[+()\-.\s\d]+$/.test(trimmed);
+}
+
+type ConsentFormErrors = {
+  parentEmail?: string;
+  parentEmailConfirm?: string;
+  parentPhone?: string;
+  parentPhoneConfirm?: string;
+};
+
 function ConsentForm() {
   const [form, setForm] = useState<ConsentPayload>(createInitialConsentForm);
   const [status, setStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
   const [message, setMessage] = useState("");
+  // Confirm fields are UI-only. They guard against typos in the contact
+  // details but are never sent to the API or stored in Airtable — the parent
+  // email/phone the audit trail keeps is the original field.
+  const [parentEmailConfirm, setParentEmailConfirm] = useState("");
+  const [parentPhoneConfirm, setParentPhoneConfirm] = useState("");
+  const [errors, setErrors] = useState<ConsentFormErrors>({});
 
   const update = (key: keyof ConsentPayload, value: string | boolean | Record<string, boolean>) => {
     setForm((current) => ({ ...current, [key]: value }));
   };
+
+  function validateContactDetails(): ConsentFormErrors {
+    const next: ConsentFormErrors = {};
+    if (!isValidEmail(form.parentEmail)) {
+      next.parentEmail = "Enter a valid email address.";
+    }
+    if (normaliseEmail(form.parentEmail) !== normaliseEmail(parentEmailConfirm)) {
+      next.parentEmailConfirm = "Emails do not match.";
+    }
+    if (!isValidPhone(form.parentPhone)) {
+      next.parentPhone = "Enter a phone number with 10-15 digits (spaces, +, brackets and hyphens are fine).";
+    }
+    if (normalisePhone(form.parentPhone) !== normalisePhone(parentPhoneConfirm)) {
+      next.parentPhoneConfirm = "Phone numbers do not match.";
+    }
+    return next;
+  }
 
   const selectedCount = Object.values(form.permissions).filter(Boolean).length;
   const infoSharingCount = Object.values(form.infoSharing).filter(Boolean).length;
@@ -1918,20 +1985,32 @@ function ConsentForm() {
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setStatus("submitting");
     setMessage("");
 
     if (!form.childName || !form.parentName || !form.parentEmail || !form.parentalResponsibility || !form.withdrawalProcessAcknowledged) {
       setStatus("error");
+      setErrors({});
       setMessage("Please complete the required child, parent and acknowledgement fields before submitting.");
       return;
     }
+
+    const contactErrors = validateContactDetails();
+    if (Object.keys(contactErrors).length > 0) {
+      setStatus("error");
+      setErrors(contactErrors);
+      setMessage("Please fix the highlighted contact details before submitting.");
+      return;
+    }
+    setErrors({});
+    setStatus("submitting");
 
     try {
       await submitConsent(form);
       setStatus("success");
       setMessage("Consent record submitted. Airtable will store the audit trail when environment variables are configured.");
       setForm(createInitialConsentForm());
+      setParentEmailConfirm("");
+      setParentPhoneConfirm("");
     } catch (error) {
       setStatus("error");
       setMessage(error instanceof Error ? error.message : "Consent submission failed.");
@@ -1980,13 +2059,72 @@ function ConsentForm() {
             </label>
             <label className="form-field">
               <span>Email *</span>
-              <input type="email" value={form.parentEmail} onChange={(event) => update("parentEmail", event.target.value)} data-testid="input-parent-email" />
+              <input
+                type="email"
+                value={form.parentEmail}
+                onChange={(event) => update("parentEmail", event.target.value)}
+                aria-invalid={Boolean(errors.parentEmail)}
+                data-testid="input-parent-email"
+              />
+              {errors.parentEmail && (
+                <span className="field-error" role="alert" data-testid="error-parent-email">
+                  {errors.parentEmail}
+                </span>
+              )}
+            </label>
+            <label className="form-field">
+              <span>Confirm email *</span>
+              <input
+                type="email"
+                value={parentEmailConfirm}
+                onChange={(event) => setParentEmailConfirm(event.target.value)}
+                onPaste={(event) => event.preventDefault()}
+                aria-invalid={Boolean(errors.parentEmailConfirm)}
+                autoComplete="off"
+                data-testid="input-parent-email-confirm"
+              />
+              {errors.parentEmailConfirm && (
+                <span className="field-error" role="alert" data-testid="error-parent-email-confirm">
+                  {errors.parentEmailConfirm}
+                </span>
+              )}
             </label>
             <label className="form-field">
               <span>Phone</span>
-              <input value={form.parentPhone} onChange={(event) => update("parentPhone", event.target.value)} data-testid="input-parent-phone" />
+              <input
+                value={form.parentPhone}
+                onChange={(event) => update("parentPhone", event.target.value)}
+                inputMode="tel"
+                aria-invalid={Boolean(errors.parentPhone)}
+                data-testid="input-parent-phone"
+              />
+              {errors.parentPhone && (
+                <span className="field-error" role="alert" data-testid="error-parent-phone">
+                  {errors.parentPhone}
+                </span>
+              )}
+            </label>
+            <label className="form-field">
+              <span>Confirm phone</span>
+              <input
+                value={parentPhoneConfirm}
+                onChange={(event) => setParentPhoneConfirm(event.target.value)}
+                onPaste={(event) => event.preventDefault()}
+                inputMode="tel"
+                aria-invalid={Boolean(errors.parentPhoneConfirm)}
+                autoComplete="off"
+                data-testid="input-parent-phone-confirm"
+              />
+              {errors.parentPhoneConfirm && (
+                <span className="field-error" role="alert" data-testid="error-parent-phone-confirm">
+                  {errors.parentPhoneConfirm}
+                </span>
+              )}
             </label>
           </div>
+          <p className="field-help" data-testid="contact-details-note">
+            We use these contact details for safeguarding, session administration and consent records. Promotional messages or app update announcements will use a separate opt-in.
+          </p>
         </section>
 
         <section className="form-section">
