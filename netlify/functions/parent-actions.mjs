@@ -33,19 +33,55 @@ import { normaliseEmail, requireParentSession } from "./_parent-session.mjs";
 // Map the SPA's short consent keys to the Airtable field names. Keeping
 // this dictionary explicit means the SPA can never set an arbitrary field
 // even if it tries — only the keys listed here are writable.
-const CONSENT_KEY_TO_FIELD = {
-  photo: "Photo Consent",
-  video: "Video Consent",
-  matchPhoto: "Match Photo Consent",
-  matchVideo: "Match Video Consent",
-  website: "Website Consent",
-  social: "Social Consent",
-  highlights: "Highlights Consent",
-  internalReports: "Internal Reports Consent",
-  press: "Press Consent",
-  emergencyContact: "Emergency Contact Consent",
-  medicalInformation: "Medical Information Consent",
+//
+// Each value is an *ordered list of candidate field names*. Different
+// generations of the Players base used different column names for the
+// same idea (e.g. "Photo Consent" vs the older "Photo Permission"). We
+// try each candidate in order and skip past `UNKNOWN_FIELD_NAME` so the
+// portal works on any base that has at least one of the candidates.
+const CONSENT_KEY_TO_FIELDS = {
+  photo: ["Photo Consent", "Photo Permission"],
+  video: ["Video Consent", "Video Permission"],
+  matchPhoto: ["Match Photo Consent", "Match Photo Permission"],
+  matchVideo: ["Match Video Consent", "Match Video Permission"],
+  website: ["Website Consent", "Website Permission"],
+  social: ["Social Consent", "Social Permission"],
+  highlights: ["Highlights Consent", "Highlight Permission", "Highlights/Reels Use"],
+  internalReports: ["Internal Reports Consent", "Internal Coaching Use"],
+  press: ["Press Consent", "Press/Partner Use"],
+  emergencyContact: ["Emergency Contact Consent", "Emergency Contact Sharing"],
+  medicalInformation: [
+    "Medical Information Consent",
+    "Medical Information Sharing",
+  ],
 };
+
+// True when an Airtable error body indicates we tried to write a field
+// that doesn't exist on the table. This is the only kind of error we
+// want to swallow + retry against the next candidate field name.
+function isUnknownFieldError(error) {
+  if (!error || typeof error.message !== "string") return false;
+  return error.message.includes("UNKNOWN_FIELD_NAME");
+}
+
+// PATCH a single field on a player record, trying each candidate field
+// name in turn until Airtable accepts one. Returns the updated record
+// or rethrows the last error if every candidate failed.
+async function airtableUpdateWithFieldFallback(table, recordId, candidates, value) {
+  let lastError = null;
+  for (const fieldName of candidates) {
+    try {
+      return await airtableUpdate(table, recordId, { [fieldName]: value });
+    } catch (error) {
+      lastError = error;
+      if (!isUnknownFieldError(error)) throw error;
+      console.warn(
+        `[parent-actions] Field \"${fieldName}\" not found on ${table}; trying next candidate.`,
+      );
+    }
+  }
+  throw lastError || new Error("No matching consent field found on the Players table.");
+}
 
 const ALLOWED_PATHWAYS = new Set([
   "Grassroots Football",
@@ -90,7 +126,7 @@ async function loadOwnedPlayer({ playerId, parentEmail }) {
 
 async function handleSetConsent({ playerId, body, parentEmail }) {
   const key = String(body.key || "").trim();
-  if (!Object.prototype.hasOwnProperty.call(CONSENT_KEY_TO_FIELD, key)) {
+  if (!Object.prototype.hasOwnProperty.call(CONSENT_KEY_TO_FIELDS, key)) {
     return json(400, { error: "Unsupported consent key." });
   }
   if (typeof body.value !== "boolean") {
@@ -99,10 +135,13 @@ async function handleSetConsent({ playerId, body, parentEmail }) {
   const owned = await loadOwnedPlayer({ playerId, parentEmail });
   if (owned.error) return owned.error;
 
-  const fieldName = CONSENT_KEY_TO_FIELD[key];
-  const updated = await airtableUpdate(owned.table, playerId, {
-    [fieldName]: body.value,
-  });
+  const candidates = CONSENT_KEY_TO_FIELDS[key];
+  const updated = await airtableUpdateWithFieldFallback(
+    owned.table,
+    playerId,
+    candidates,
+    body.value,
+  );
   return json(200, { player: normalisePlayer(updated) });
 }
 
