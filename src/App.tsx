@@ -2007,7 +2007,7 @@ function ConsentForm() {
     try {
       await submitConsent(form);
       setStatus("success");
-      setMessage("Consent record submitted. Airtable will store the audit trail when environment variables are configured.");
+      setMessage("Thank you, consent record submitted.");
       setForm(createInitialConsentForm());
       setParentEmailConfirm("");
       setParentPhoneConfirm("");
