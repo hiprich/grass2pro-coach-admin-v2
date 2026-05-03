@@ -401,13 +401,40 @@ export const handler = async (event) => {
     // the submitted child is genuinely new for this household. Create a
     // Player row from the submitted details and link it to the resolved
     // Parent/Guardian so the consent record points at the right child rather
-    // than reusing a sibling. Failures are logged but never block the
-    // consent record — the audit text retains the submitted child name.
+    // than reusing a sibling.
+    //
+    // Player creation failures are NOT swallowed any more. The earlier
+    // implementation logged-and-continued, which produced the exact bug
+    // we're fixing: a Media Consent row with the Player link blank and no
+    // matching Players record in Airtable. If we cannot create the Player
+    // here we surface the Airtable error to the caller so the parent sees a
+    // clear failure instead of a "successful" consent that points at no one.
     if (!playerId && parentId) {
       try {
         playerId = await createPlayerForConsent(payload, parentId, dateOfBirth);
       } catch (error) {
         console.error("Player create-on-consent failed:", error);
+        if (error instanceof AirtableHttpError) {
+          const detail = extractAirtableErrorDetail(error.body);
+          return json(error.status === 422 ? 422 : 502, {
+            error: "Unable to create the Player record for this consent submission.",
+            detail,
+            status: error.status,
+          });
+        }
+        return json(502, {
+          error: "Unable to create the Player record for this consent submission.",
+          detail: error instanceof Error ? error.message : undefined,
+        });
+      }
+      if (!playerId) {
+        // createPlayerForConsent returns null only when the submitted child
+        // name is blank — but the request validator above already requires
+        // childName, so reaching this branch means something else went wrong
+        // that we'd rather surface than hide.
+        return json(500, {
+          error: "Unable to create the Player record for this consent submission.",
+        });
       }
     }
 
@@ -575,23 +602,81 @@ function matchPlayerByParent(players, parentId, childName) {
 
 // Create a Players row for a submitted child that could not be matched to
 // any existing Player (by name or via the resolved Parent/Guardian's links).
-// We write only the schema fields the form supplies — Full Name, optional
-// Date of Birth (the Age Group formula reads from this), and the linked
-// Parent/Guardian — and let Airtable's typecast add unknown values rather
-// than reject the create. Returns the new record id, or null if creation
-// could not be attempted (e.g. blank child name).
+//
+// The Players table primary field name and the Parent/Guardian linked-record
+// field name vary between Airtable bases — the read normaliser already falls
+// through "Full Name | Name | Player Name" and "Parent/Guardian | Parent |
+// Guardian", so the writer must do the same or it ends up failing with
+// UNKNOWN_FIELD_NAME and the consent gets saved with a blank Player. We
+// retry the create with the next candidate name on UNKNOWN_FIELD_NAME and
+// surface any other error so the caller can return a useful HTTP response
+// instead of silently dropping the new player.
+//
+// `typecast: true` is applied so unknown singleSelect/multipleSelects values
+// (e.g. an Age Group choice the formula derives) are tolerated. typecast does
+// NOT bypass UNKNOWN_FIELD_NAME for missing columns — only choice values —
+// which is why the per-field fallbacks below exist.
+//
+// Returns the new record id, or null if creation could not be attempted
+// (e.g. blank child name). Throws on the final Airtable error if every
+// candidate field set is rejected.
+const PLAYER_NAME_FIELD_CANDIDATES = ["Full Name", "Name", "Player Name"];
+const PLAYER_PARENT_FIELD_CANDIDATES = ["Parent/Guardian", "Parents/Guardians", "Parent", "Guardian"];
+
+function isUnknownFieldError(error) {
+  if (!(error instanceof AirtableHttpError)) return false;
+  const body = String(error.body || "");
+  return body.includes("UNKNOWN_FIELD_NAME") || body.includes("Unknown field name");
+}
+
 async function createPlayerForConsent(payload, parentId, dateOfBirth) {
   const fullName = String(payload.childName || "").trim();
   if (!fullName) return null;
-  const playerFields = { "Full Name": fullName };
-  if (dateOfBirth) playerFields["Date of Birth"] = dateOfBirth;
-  if (parentId) playerFields["Parent/Guardian"] = [parentId];
-  const created = await airtableCreate(
-    tableName("AIRTABLE_PLAYERS_TABLE", "Players", TABLE_IDS.PLAYERS),
-    playerFields,
-    { typecast: true },
-  );
-  return created?.id || null;
+  const table = tableName("AIRTABLE_PLAYERS_TABLE", "Players", TABLE_IDS.PLAYERS);
+
+  let lastError = null;
+  for (const nameField of PLAYER_NAME_FIELD_CANDIDATES) {
+    // Pair each candidate name field with each candidate parent-link field so
+    // a base whose primary field is "Player Name" and whose link field is
+    // "Parents/Guardians" still creates the row instead of silently failing.
+    // When parentId is missing we only try once per name field.
+    const parentCandidates = parentId ? PLAYER_PARENT_FIELD_CANDIDATES : [null];
+    for (const parentField of parentCandidates) {
+      const playerFields = { [nameField]: fullName };
+      if (dateOfBirth) playerFields["Date of Birth"] = dateOfBirth;
+      if (parentField && parentId) playerFields[parentField] = [parentId];
+
+      try {
+        const created = await airtableCreate(table, playerFields, { typecast: true });
+        if (created?.id) {
+          if (lastError) {
+            // Useful for the Netlify function logs when the schema diverges
+            // from the canonical "Full Name" / "Parent/Guardian" naming.
+            console.warn(
+              `Player create succeeded on fallback fields nameField=${nameField} parentField=${parentField || "none"} after earlier rejections.`,
+            );
+          }
+          return created.id;
+        }
+      } catch (error) {
+        lastError = error;
+        if (isUnknownFieldError(error)) {
+          console.warn(
+            `Player create rejected unknown field — retrying with different schema. nameField=${nameField} parentField=${parentField || "none"}: ${error.message}`,
+          );
+          continue;
+        }
+        // Anything other than UNKNOWN_FIELD_NAME is a real Airtable rejection
+        // (validation, choice options, permissions). Stop fallback iteration
+        // and let the caller surface the error — retrying with another field
+        // name will only mask the underlying problem.
+        throw error;
+      }
+    }
+  }
+
+  if (lastError) throw lastError;
+  return null;
 }
 
 async function findParentId(email, name) {
