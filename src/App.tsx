@@ -1752,10 +1752,10 @@ function PlayerRowActions({
 // useful when "Other" is picked. The modal closes itself after a successful
 // save and the parent splices the now-Left player back into state.
 const LEAVE_REASONS = [
-  "Moved area",
-  "Joined another club",
-  "Finished age group",
-  "Parent request",
+  "Moved Area",
+  "Joined Another Club",
+  "Finished Age Group",
+  "Parent Request",
   "Other",
 ] as const;
 
@@ -3675,10 +3675,10 @@ const PARENT_PATHWAY_OPTIONS = [
 ];
 
 const PARENT_LEAVE_REASONS = [
-  "Moved area",
-  "Joined another club",
-  "Finished age group",
-  "Parent request",
+  "Moved Area",
+  "Joined Another Club",
+  "Finished Age Group",
+  "Parent Request",
   "Other",
 ];
 

@@ -93,10 +93,10 @@ const ALLOWED_PATHWAYS = new Set([
 ]);
 
 const ALLOWED_LEAVE_REASONS = new Set([
-  "Moved area",
-  "Joined another club",
-  "Finished age group",
-  "Parent request",
+  "Moved Area",
+  "Joined Another Club",
+  "Finished Age Group",
+  "Parent Request",
   "Other",
 ]);
 
