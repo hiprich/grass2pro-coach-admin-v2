@@ -4,10 +4,8 @@ import {
   getCoachAndPlayers,
   hasAirtableConfig,
   json,
-  mintPathwayToken,
   normalisePlayer,
   tableName,
-  tokenExpiryIso,
 } from "./_airtable.mjs";
 
 // Players API.
@@ -26,10 +24,6 @@ import {
 //     player is already Status = "Left" (set by the parent's submission);
 //     this just clears the Leave Requested flag so the Action needed card
 //     drops the row.
-//   { id, action: "mint-pathway-token" }
-//     Issues (or refreshes) a 7-day pathway-update token so the coach can
-//     send a parent-facing link without leaving the dashboard. Returns the
-//     token + expiry so the UI can build the URL.
 //
 // All mutations require Airtable to be configured \u2014 demo mode is read-only
 // because the new fields don't exist on the demo dataset. The endpoint is
@@ -122,20 +116,6 @@ async function handlePatch(event) {
       "Leave Requested": false,
     });
     return json(200, { player: normalisePlayer(updated) });
-  }
-
-  if (action === "mint-pathway-token") {
-    const token = mintPathwayToken();
-    const expires = tokenExpiryIso(7);
-    const updated = await airtableUpdate(playersTable, id, {
-      "Pathway Update Token": token,
-      "Pathway Token Expires": expires,
-    });
-    return json(200, {
-      player: normalisePlayer(updated),
-      token,
-      expiresAt: expires,
-    });
   }
 
   return json(400, { error: `Unknown action: ${action}` });
