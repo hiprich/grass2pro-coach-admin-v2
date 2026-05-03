@@ -15,6 +15,7 @@ import {
   Menu,
   Moon,
   PoundSterling,
+  RotateCcw,
   Search,
   ShieldCheck,
   Sun,
@@ -864,6 +865,14 @@ async function acknowledgePlayerLeave(id: string): Promise<Player> {
   return data.player;
 }
 
+async function reinstatePlayer(id: string): Promise<Player> {
+  const data = await patchPlayerAction<{ player: Player }>({
+    id,
+    action: "reinstate",
+  });
+  return data.player;
+}
+
 type QrCheckinScanType = "Arrival" | "Departure";
 
 type QrCheckinResult =
@@ -1445,6 +1454,7 @@ function Overview({
 
   const [ackBusyId, setAckBusyId] = useState<string | null>(null);
   const [ackError, setAckError] = useState("");
+  const [reinstateBusyId, setReinstateBusyId] = useState<string | null>(null);
 
   async function handleAcknowledge(player: Player) {
     if (!onPlayerUpdate) return;
@@ -1457,6 +1467,24 @@ function Overview({
       setAckError(err instanceof Error ? err.message : "Could not update.");
     } finally {
       setAckBusyId(null);
+    }
+  }
+
+  async function handleReinstate(player: Player) {
+    if (!onPlayerUpdate) return;
+    const ok = window.confirm(
+      `Reinstate ${player.name}? This clears any leave or erasure request and sets their status back to Active.`,
+    );
+    if (!ok) return;
+    setReinstateBusyId(player.id);
+    setAckError("");
+    try {
+      const updated = await reinstatePlayer(player.id);
+      onPlayerUpdate(updated);
+    } catch (err) {
+      setAckError(err instanceof Error ? err.message : "Could not update.");
+    } finally {
+      setReinstateBusyId(null);
     }
   }
 
@@ -1562,16 +1590,28 @@ function Overview({
                       : ""}
                   </span>
                   {onPlayerUpdate && (
-                    <button
-                      type="button"
-                      className="link-button"
-                      onClick={() => handleAcknowledge(player)}
-                      disabled={ackBusyId === player.id}
-                      data-testid={`button-ack-leave-${player.id}`}
-                    >
-                      <Check size={14} aria-hidden="true" />
-                      {ackBusyId === player.id ? "Saving…" : "Got it"}
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        className="link-button"
+                        onClick={() => handleAcknowledge(player)}
+                        disabled={ackBusyId === player.id || reinstateBusyId === player.id}
+                        data-testid={`button-ack-leave-${player.id}`}
+                      >
+                        <Check size={14} aria-hidden="true" />
+                        {ackBusyId === player.id ? "Saving…" : "Got it"}
+                      </button>
+                      <button
+                        type="button"
+                        className="link-button"
+                        onClick={() => handleReinstate(player)}
+                        disabled={ackBusyId === player.id || reinstateBusyId === player.id}
+                        data-testid={`button-reinstate-${player.id}`}
+                      >
+                        <RotateCcw size={14} aria-hidden="true" />
+                        {reinstateBusyId === player.id ? "Saving…" : "Reinstate"}
+                      </button>
+                    </>
                   )}
                 </div>
               </li>
@@ -1587,14 +1627,28 @@ function Overview({
                     Parent requested data erasure — verify and action manually in Airtable
                   </span>
                 </div>
-                <span className="action-needed-meta">
-                  {player.erasureRequestedAt
-                    ? new Date(player.erasureRequestedAt).toLocaleDateString("en-GB", {
-                        day: "2-digit",
-                        month: "short",
-                      })
-                    : ""}
-                </span>
+                <div className="action-needed-side">
+                  <span className="action-needed-meta">
+                    {player.erasureRequestedAt
+                      ? new Date(player.erasureRequestedAt).toLocaleDateString("en-GB", {
+                          day: "2-digit",
+                          month: "short",
+                        })
+                      : ""}
+                  </span>
+                  {onPlayerUpdate && (
+                    <button
+                      type="button"
+                      className="link-button"
+                      onClick={() => handleReinstate(player)}
+                      disabled={reinstateBusyId === player.id}
+                      data-testid={`button-reinstate-erase-${player.id}`}
+                    >
+                      <RotateCcw size={14} aria-hidden="true" />
+                      {reinstateBusyId === player.id ? "Saving…" : "Reinstate"}
+                    </button>
+                  )}
+                </div>
               </li>
             ))}
           </ul>

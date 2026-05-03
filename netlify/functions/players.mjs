@@ -24,6 +24,11 @@ import {
 //     player is already Status = "Left" (set by the parent's submission);
 //     this just clears the Leave Requested flag so the Action needed card
 //     drops the row.
+//   { id, action: "reinstate" }
+//     Coach undoes a parent-initiated leave or erasure request. Sets Status
+//     back to "Active" and clears every leave / erasure field so the row
+//     looks untouched and the Action needed card drops it. Useful after a
+//     test run or when a parent changes their mind.
 //
 // All mutations require Airtable to be configured \u2014 demo mode is read-only
 // because the new fields don't exist on the demo dataset. The endpoint is
@@ -31,10 +36,10 @@ import {
 // Netlify protection as the rest of the dashboard.
 
 const ALLOWED_LEAVE_REASONS = new Set([
-  "Moved area",
-  "Joined another club",
-  "Finished age group",
-  "Parent request",
+  "Moved Area",
+  "Joined Another Club",
+  "Finished Age Group",
+  "Parent Request",
   "Other",
 ]);
 
@@ -114,6 +119,23 @@ async function handlePatch(event) {
     // record.
     const updated = await airtableUpdate(playersTable, id, {
       "Leave Requested": false,
+    });
+    return json(200, { player: normalisePlayer(updated) });
+  }
+
+  if (action === "reinstate") {
+    // Restore the player to active duty. Clears every leave + erasure field
+    // and flips Status back to Active. Used to undo a parent's leave /
+    // erasure submission (mind-changed, test run, etc.) without the coach
+    // having to clear seven cells in Airtable by hand.
+    const updated = await airtableUpdate(playersTable, id, {
+      Status: "Active",
+      "Leave Requested": false,
+      "Leave Requested At": null,
+      "Leave Reason": null,
+      "Leave Notes": null,
+      "Erasure Requested": false,
+      "Erasure Requested At": null,
     });
     return json(200, { player: normalisePlayer(updated) });
   }
