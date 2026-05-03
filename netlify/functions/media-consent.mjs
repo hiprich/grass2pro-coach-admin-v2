@@ -3,6 +3,7 @@ import {
   TABLE_IDS,
   airtableCreate,
   airtableList,
+  airtableUpdate,
   hasAirtableConfig,
   json,
   tableName,
@@ -43,6 +44,23 @@ function isValidPhone(value) {
   const digits = trimmed.replace(/\D+/g, "");
   if (digits.length < 10 || digits.length > 15) return false;
   return /^[+()\-.\s\d]+$/.test(trimmed);
+}
+
+// Normalise a player date of birth into the YYYY-MM-DD form Airtable's date
+// field accepts. Returns null when the value is empty, malformed or in the
+// future — a missing DOB is allowed at the API layer (the consent record is
+// still saved); a malformed DOB is refused so we never write garbage to the
+// Players table.
+function normaliseDateOfBirth(value) {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return null;
+  const parsed = new Date(`${trimmed}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  const todayUtc = new Date();
+  todayUtc.setUTCHours(0, 0, 0, 0);
+  if (parsed.getTime() > todayUtc.getTime()) return null;
+  return trimmed;
 }
 
 // Permission keys submitted by the UI mapped to their Airtable checkbox field
@@ -195,6 +213,18 @@ export const handler = async (event) => {
     });
   }
 
+  // childDateOfBirth is optional at the API layer (older clients may not send
+  // it) but if it is present it must parse cleanly — otherwise we'd silently
+  // PATCH the Player record with a bad value and corrupt the Age Group
+  // formula. The UI requires DOB; this guards direct API callers.
+  const dateOfBirth = normaliseDateOfBirth(payload.childDateOfBirth);
+  if (payload.childDateOfBirth && !dateOfBirth) {
+    return json(400, {
+      error: "Player date of birth must be a valid past date in YYYY-MM-DD format.",
+      field: "childDateOfBirth",
+    });
+  }
+
   const permissions = payload.permissions || {};
   const selectedMediaKeys = ALL_MEDIA_PERMISSION_KEYS.filter((key) => Boolean(permissions[key]));
 
@@ -263,6 +293,7 @@ export const handler = async (event) => {
   const evidenceLines = [
     `Consent record: ${consentRecordLabel}`,
     `Child: ${payload.childName}`,
+    dateOfBirth ? `Date of birth: ${dateOfBirth}` : null,
     payload.ageGroup ? `Age group: ${payload.ageGroup}` : null,
     `Parent/Guardian: ${payload.parentName} <${payload.parentEmail}>`,
     payload.parentPhone ? `Phone: ${payload.parentPhone}` : null,
@@ -366,6 +397,26 @@ export const handler = async (event) => {
     }
 
     if (playerId) fields.Player = [playerId];
+
+    // Best-effort write of the player's Date of Birth into the Players table
+    // so the Age Group formula can pick it up. We do this only when we
+    // confidently resolved the consent submission to a Player record — the
+    // parent-facing form is the only place we collect DOB, so updating the
+    // matched Player here means it's stored once at the player profile level
+    // rather than being repeated on every consent record. Failures are logged
+    // but never block the consent submission, since the consent record itself
+    // is the audit document the parent expects to be saved.
+    if (dateOfBirth && playerId) {
+      try {
+        await airtableUpdate(
+          tableName("AIRTABLE_PLAYERS_TABLE", "Players", TABLE_IDS.PLAYERS),
+          playerId,
+          { "Date of Birth": dateOfBirth },
+        );
+      } catch (error) {
+        console.error("Player Date of Birth update failed:", error);
+      }
+    }
   }
 
   try {

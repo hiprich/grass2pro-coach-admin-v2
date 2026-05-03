@@ -49,6 +49,7 @@ type Player = {
   position: string;
   status: string;
   guardianName: string;
+  dateOfBirth?: string;
   consentStatus: ConsentStatus;
   photoConsent: boolean;
   videoConsent: boolean;
@@ -121,6 +122,7 @@ type AdminData = {
 
 type ConsentPayload = {
   childName: string;
+  childDateOfBirth: string;
   ageGroup: string;
   parentName: string;
   parentEmail: string;
@@ -1878,6 +1880,7 @@ function Safeguarding({ players }: { players: Player[] }) {
 
 const createInitialConsentForm = (): ConsentPayload => ({
   childName: "",
+  childDateOfBirth: "",
   ageGroup: "",
   parentName: "",
   parentEmail: "",
@@ -1933,11 +1936,35 @@ function isValidPhone(value: string): boolean {
 }
 
 type ConsentFormErrors = {
+  childDateOfBirth?: string;
   parentEmail?: string;
   parentEmailConfirm?: string;
   parentPhone?: string;
   parentPhoneConfirm?: string;
 };
+
+// Renders today's date in YYYY-MM-DD form for the date input's `max` attribute
+// so a parent can't pick a future birthday.
+function todayIsoDate(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+// Date of birth must be a real, past date. We only refuse the obvious cases —
+// missing, malformed or in the future — and let the API/Airtable surface
+// anything more exotic.
+function isValidDateOfBirth(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return false;
+  const parsed = new Date(`${trimmed}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return false;
+  const todayUtc = new Date(`${todayIsoDate()}T00:00:00Z`);
+  return parsed.getTime() <= todayUtc.getTime();
+}
 
 function ConsentForm() {
   const [form, setForm] = useState<ConsentPayload>(createInitialConsentForm);
@@ -1952,6 +1979,12 @@ function ConsentForm() {
 
   const update = (key: keyof ConsentPayload, value: string | boolean | Record<string, boolean>) => {
     setForm((current) => ({ ...current, [key]: value }));
+    if (key === "childDateOfBirth") {
+      const trimmed = String(value).trim();
+      if (trimmed.length === 0 || isValidDateOfBirth(String(value))) {
+        clearError("childDateOfBirth");
+      }
+    }
     if (key === "parentEmail") {
       syncConfirmError(
         "parentEmailConfirm",
@@ -2070,11 +2103,21 @@ function ConsentForm() {
       return;
     }
 
+    const dobError = !isValidDateOfBirth(form.childDateOfBirth)
+      ? form.childDateOfBirth.trim().length === 0
+        ? "Enter the player's date of birth."
+        : "Enter a valid date of birth that is not in the future."
+      : undefined;
     const contactErrors = validateContactDetails();
+    if (dobError) contactErrors.childDateOfBirth = dobError;
     if (Object.keys(contactErrors).length > 0) {
       setStatus("error");
       setErrors(contactErrors);
-      setMessage("Please fix the highlighted contact details before submitting.");
+      setMessage(
+        dobError
+          ? "Please add the player's date of birth before submitting."
+          : "Please fix the highlighted contact details before submitting.",
+      );
       return;
     }
     setErrors({});
@@ -2112,6 +2155,24 @@ function ConsentForm() {
             <label className="form-field">
               <span>Child full name *</span>
               <input value={form.childName} onChange={(event) => update("childName", event.target.value)} data-testid="input-child-name" />
+            </label>
+            <label className="form-field">
+              <span>Player date of birth *</span>
+              <input
+                type="date"
+                value={form.childDateOfBirth}
+                onChange={(event) => update("childDateOfBirth", event.target.value)}
+                max={todayIsoDate()}
+                aria-invalid={Boolean(errors.childDateOfBirth)}
+                data-testid="input-child-dob"
+              />
+              {errors.childDateOfBirth ? (
+                <span className="field-error" role="alert" data-testid="error-child-dob">
+                  {errors.childDateOfBirth}
+                </span>
+              ) : (
+                <span className="field-help">Used to set the child&apos;s age group automatically. Stored once on the player record.</span>
+              )}
             </label>
             <label className="form-field">
               <span>Age group</span>
@@ -2334,6 +2395,10 @@ function ConsentForm() {
           <div className="summary-item">
             <span>Child</span>
             <strong>{form.childName || "Not entered"}</strong>
+          </div>
+          <div className="summary-item">
+            <span>Date of birth</span>
+            <strong>{form.childDateOfBirth || "Not entered"}</strong>
           </div>
           <div className="summary-item">
             <span>Parent</span>
