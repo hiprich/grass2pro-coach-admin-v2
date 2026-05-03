@@ -2026,7 +2026,7 @@ function ConsentForm() {
             Media consent form
           </h1>
           <p>
-            Capture granular parent permissions for photo, video and usage channels, plus information-sharing permissions for emergency contact and medical details. Consent can be withdrawn later, and the record is designed to be auditable in Airtable.
+            Capture granular parent permissions for photo, video and usage channels, plus information-sharing permissions for emergency contact and medical details. Consent can be withdrawn later and the club keeps an audit record.
           </p>
         </div>
 
@@ -2267,7 +2267,7 @@ function ConsentForm() {
           </div>
         </div>
         <p>
-          Airtable stores the submitted timestamp, IP context if collected by Netlify, signer details, selected media permissions and information-sharing choices, storage period and withdrawal state.
+          We store the submitted timestamp, signer details, selected media permissions, information-sharing choices, storage period and withdrawal state for safeguarding and consent records.
         </p>
       </aside>
     </section>
