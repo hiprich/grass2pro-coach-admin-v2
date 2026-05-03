@@ -885,11 +885,11 @@ function Grass2ProLogo() {
   );
 }
 
-// Coach-facing labels for each consent purpose granted on the latest Media
+// Coach-facing labels for each consent purpose recorded on the latest Media
 // Consent. Order is meaningful: photos before video, sessions before matches,
 // then the downstream uses (reports/website/social/press), and finally the
-// information-sharing grants. The Players table renders the granted entries
-// as chips so coaches can see exactly what is allowed at a glance.
+// information-sharing grants. The Players table renders entries as chips so
+// coaches can see at a glance exactly what is allowed and what is not.
 const CONSENT_PURPOSE_LABELS: Array<{ key: keyof Player; label: string }> = [
   { key: "photoConsent", label: "Photos – sessions" },
   { key: "matchPhotoConsent", label: "Photos – matches" },
@@ -904,10 +904,22 @@ const CONSENT_PURPOSE_LABELS: Array<{ key: keyof Player; label: string }> = [
   { key: "medicalInformationConsent", label: "Medical info sharing" },
 ];
 
-function consentPurposesForPlayer(player: Player): string[] {
-  return CONSENT_PURPOSE_LABELS.filter(({ key }) => Boolean(player[key])).map(
-    ({ label }) => label,
-  );
+type ConsentPurposeBreakdown = {
+  allowed: string[];
+  restricted: string[];
+};
+
+function consentPurposeBreakdown(player: Player): ConsentPurposeBreakdown {
+  const allowed: string[] = [];
+  const restricted: string[] = [];
+  for (const { key, label } of CONSENT_PURPOSE_LABELS) {
+    if (player[key]) {
+      allowed.push(label);
+    } else {
+      restricted.push(label);
+    }
+  }
+  return { allowed, restricted };
 }
 
 const CONSENT_STATUS_LABELS: Record<ConsentStatus, string> = {
@@ -955,7 +967,10 @@ function useMediaQuery(query: string): boolean {
 }
 
 // Shared consent details panel: same chip list used in the desktop popover,
-// the mobile bottom-sheet modal, and the inline mobile card row.
+// the mobile bottom-sheet modal, and the inline mobile card row. Allowed
+// purposes render as positive chips; restricted purposes render in red so
+// coaches cannot miss them when consent is partial or withdrawn. For Full
+// consent the restricted block is hidden entirely to avoid clutter.
 function ConsentDetailsBody({
   player,
   variant,
@@ -963,26 +978,51 @@ function ConsentDetailsBody({
   player: Player;
   variant: "popover" | "modal" | "card";
 }) {
-  const purposes = consentPurposesForPlayer(player);
-  if (purposes.length === 0) {
+  const { allowed, restricted } = consentPurposeBreakdown(player);
+  const showRestricted =
+    restricted.length > 0 && player.consentStatus !== "green";
+
+  if (allowed.length === 0 && !showRestricted) {
     return (
       <p className="player-sub" data-testid={`text-consent-details-${variant}-${player.id}`}>
         No consent purposes recorded.
       </p>
     );
   }
+
   return (
-    <ul
-      className="consent-chip-list"
-      aria-label={`Consent purposes for ${player.name}`}
-      data-testid={`list-consent-details-${variant}-${player.id}`}
+    <div
+      className="consent-details"
+      data-testid={`details-consent-${variant}-${player.id}`}
     >
-      {purposes.map((label) => (
-        <li key={label} className="consent-chip">
-          {label}
-        </li>
-      ))}
-    </ul>
+      {allowed.length > 0 && (
+        <ul
+          className="consent-chip-list"
+          aria-label={`Allowed consent purposes for ${player.name}`}
+          data-testid={`list-consent-details-${variant}-${player.id}`}
+        >
+          {allowed.map((label) => (
+            <li key={label} className="consent-chip consent-chip-allowed">
+              {label}
+            </li>
+          ))}
+        </ul>
+      )}
+      {showRestricted && (
+        <ul
+          className="consent-chip-list consent-chip-list-restricted"
+          aria-label={`Restricted consent purposes for ${player.name}`}
+          data-testid={`list-consent-restricted-${variant}-${player.id}`}
+        >
+          {restricted.map((label) => (
+            <li key={label} className="consent-chip consent-chip-restricted">
+              <X size={12} aria-hidden="true" />
+              <span>{label} — not allowed</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
