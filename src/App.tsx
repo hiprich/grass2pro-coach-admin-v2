@@ -2212,7 +2212,7 @@ function ConsentForm() {
                 <input value={form.parentName} onChange={(event) => update("parentName", event.target.value)} data-testid="input-parent-name" />
               </label>
             </div>
-            <div className="form-pair">
+            <div className="form-pair form-pair--single">
               <label className="form-field">
                 <span>Relationship</span>
                 <input value={form.relationship} onChange={(event) => update("relationship", event.target.value)} data-testid="input-relationship" />
