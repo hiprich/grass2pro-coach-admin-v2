@@ -20,7 +20,7 @@ import {
   Video,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 
 type ConsentStatus = "green" | "amber" | "red" | "grey";
@@ -910,22 +910,116 @@ function consentPurposesForPlayer(player: Player): string[] {
   );
 }
 
-function ConsentBadge({ status }: { status: ConsentStatus }) {
-  const label = {
-    green: "Full consent",
-    amber: "Limited consent",
-    red: "Withdrawn",
-    grey: "No consent",
-  }[status];
+const CONSENT_STATUS_LABELS: Record<ConsentStatus, string> = {
+  green: "Full consent",
+  amber: "Limited consent",
+  red: "Withdrawn",
+  grey: "No consent",
+};
 
+function ConsentBadgeIcon({ status }: { status: ConsentStatus }) {
+  if (status === "green") return <CheckCircle2 size={14} aria-hidden="true" />;
+  if (status === "amber") return <AlertTriangle size={14} aria-hidden="true" />;
+  if (status === "red") return <X size={14} aria-hidden="true" />;
+  return <ClipboardCheck size={14} aria-hidden="true" />;
+}
+
+function ConsentBadge({ status }: { status: ConsentStatus }) {
   return (
     <span className={`consent-badge consent-${status}`} data-testid={`badge-consent-${status}`}>
-      {status === "green" && <CheckCircle2 size={14} aria-hidden="true" />}
-      {status === "amber" && <AlertTriangle size={14} aria-hidden="true" />}
-      {status === "red" && <X size={14} aria-hidden="true" />}
-      {status === "grey" && <ClipboardCheck size={14} aria-hidden="true" />}
-      {label}
+      <ConsentBadgeIcon status={status} />
+      {CONSENT_STATUS_LABELS[status]}
     </span>
+  );
+}
+
+// Mobile-friendly consent cell: tapping the badge reveals a popover listing
+// the player's granted consent purposes. The dedicated "Consent details"
+// column is hidden on mobile (see index.css), so the popover is the only way
+// to see the chips at narrow widths. On desktop the popover stays hidden and
+// the chip list in the next column carries the information.
+function PlayerConsentCell({ player }: { player: Player }) {
+  const [open, setOpen] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const purposes = consentPurposesForPlayer(player);
+  const popoverId = `consent-popover-${player.id}`;
+
+  useEffect(() => {
+    if (!open) return;
+    function handlePointerDown(event: MouseEvent | TouchEvent) {
+      const node = wrapperRef.current;
+      if (node && event.target instanceof Node && !node.contains(event.target)) {
+        setOpen(false);
+      }
+    }
+    function handleKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("touchstart", handlePointerDown);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("touchstart", handlePointerDown);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [open]);
+
+  return (
+    <div className="consent-cell" ref={wrapperRef}>
+      <button
+        type="button"
+        className={`consent-badge consent-${player.consentStatus} consent-badge-button`}
+        data-testid={`badge-consent-${player.consentStatus}`}
+        aria-expanded={open}
+        aria-controls={popoverId}
+        aria-label={`${CONSENT_STATUS_LABELS[player.consentStatus]} for ${player.name}. Tap to ${open ? "hide" : "show"} consent details.`}
+        onClick={() => setOpen((prev) => !prev)}
+      >
+        <ConsentBadgeIcon status={player.consentStatus} />
+        {CONSENT_STATUS_LABELS[player.consentStatus]}
+      </button>
+      <div className="player-sub">{player.status}</div>
+      {open && (
+        <div
+          id={popoverId}
+          className="consent-popover"
+          role="dialog"
+          aria-label={`Consent details for ${player.name}`}
+          data-testid={`popover-consent-details-${player.id}`}
+        >
+          <div className="consent-popover-header">
+            <span className="consent-popover-title">Consent details</span>
+            <button
+              type="button"
+              className="consent-popover-close"
+              onClick={() => setOpen(false)}
+              aria-label="Close consent details"
+              data-testid={`button-close-consent-details-${player.id}`}
+            >
+              <X size={16} aria-hidden="true" />
+            </button>
+          </div>
+          {purposes.length === 0 ? (
+            <p className="player-sub" data-testid={`text-consent-details-popover-${player.id}`}>
+              No consent purposes recorded.
+            </p>
+          ) : (
+            <ul
+              className="consent-chip-list"
+              aria-label={`Consent purposes for ${player.name}`}
+              data-testid={`list-consent-details-popover-${player.id}`}
+            >
+              {purposes.map((label) => (
+                <li key={label} className="consent-chip">
+                  {label}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1215,7 +1309,7 @@ function PlayerList({ players }: { players: Player[] }) {
                 <th>Player</th>
                 <th>Team</th>
                 <th>Consent</th>
-                <th>Consent details</th>
+                <th className="consent-details-col">Consent details</th>
                 <th>Review due</th>
                 <th>Progress</th>
               </tr>
@@ -1243,10 +1337,9 @@ function PlayerList({ players }: { players: Player[] }) {
                     <div className="player-sub">{player.ageGroup}</div>
                   </td>
                   <td>
-                    <ConsentBadge status={player.consentStatus} />
-                    <div className="player-sub">{player.status}</div>
+                    <PlayerConsentCell player={player} />
                   </td>
-                  <td>
+                  <td className="consent-details-col">
                     {purposes.length === 0 ? (
                       <div className="player-sub" data-testid={`text-consent-details-${player.id}`}>
                         No consent purposes recorded.
