@@ -211,10 +211,18 @@ export class AirtableHttpError extends Error {
   }
 }
 
-export async function airtableCreate(table, fields) {
+export async function airtableCreate(table, fields, options = {}) {
   if (!hasAirtableConfig()) {
     return { id: `demo_${Date.now()}`, fields, demo: true };
   }
+
+  const body = { fields };
+  // typecast lets Airtable accept singleSelect/multipleSelects values that are
+  // not yet in the field's choice list and add them on the fly. We use it for
+  // Media Consents so renaming the "Consent Type" chips to purpose-level
+  // labels (e.g. "Photos during sessions") doesn't fail with
+  // INVALID_MULTIPLE_CHOICE_OPTIONS the first time a new label is written.
+  if (options.typecast) body.typecast = true;
 
   const response = await fetch(`${AIRTABLE_API}/${process.env.AIRTABLE_BASE_ID}/${encodeTable(table)}`, {
     method: "POST",
@@ -222,7 +230,7 @@ export async function airtableCreate(table, fields) {
       Authorization: `Bearer ${token()}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ fields }),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
@@ -605,22 +613,40 @@ function consentTypeChips(record) {
   return raw.map((value) => String(value || "").toLowerCase().trim()).filter(Boolean);
 }
 
+// Each chip matcher accepts both the legacy broad/grouped chip values
+// ("Media/photo/video", "Match reports", "Website/social media") that early
+// consent rows were saved with AND the purpose-level labels ("Photos during
+// sessions", "Video for coaching review", "Parent progress reports", "Club
+// website", "Social media", "Press/partner use") used by current submissions.
+// Older records continue to read correctly while new rows store the more
+// specific labels the parent actually saw on the form.
 function chipImpliesPhoto(chips) {
-  return chips.some((chip) => chip.includes("photo") || chip.includes("media") || chip.includes("image"));
+  return chips.some(
+    (chip) =>
+      chip.includes("photo") ||
+      chip.includes("media/") ||
+      chip === "media" ||
+      chip.includes("image"),
+  );
 }
 
 function chipImpliesVideo(chips) {
   return chips.some(
     (chip) =>
       chip.includes("video") ||
-      chip.includes("media") ||
-      chip.includes("coaching review") ||
-      chip.includes("match report"),
+      chip.includes("media/") ||
+      chip === "media" ||
+      chip.includes("coaching review"),
   );
 }
 
 function chipImpliesWebsite(chips) {
-  return chips.some((chip) => chip.includes("website"));
+  return chips.some(
+    (chip) =>
+      chip.includes("website") ||
+      chip.includes("club website") ||
+      chip.includes("club site"),
+  );
 }
 
 function chipImpliesSocial(chips) {
@@ -647,8 +673,16 @@ function permissionsFromMediaConsent(record) {
     highlightsConsent: boolValue(fields["Highlights/Reels Use"]) || chipImpliesHighlights(chips),
     internalReportsConsent:
       boolValue(fields["Internal Coaching Use"]) ||
-      chips.some((chip) => chip.includes("match report") || chip.includes("internal")),
-    pressConsent: boolValue(fields["Press/Partner Use"]) || chips.some((chip) => chip.includes("press")),
+      chips.some(
+        (chip) =>
+          chip.includes("match report") ||
+          chip.includes("internal") ||
+          chip.includes("progress report") ||
+          chip.includes("coaching review"),
+      ),
+    pressConsent:
+      boolValue(fields["Press/Partner Use"]) ||
+      chips.some((chip) => chip.includes("press") || chip.includes("partner")),
   };
 }
 

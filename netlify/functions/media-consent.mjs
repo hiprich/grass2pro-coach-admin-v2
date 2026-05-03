@@ -45,12 +45,18 @@ const PERMISSION_FIELD_MAP = {
 // unreachable from the form.
 const UI_PERMISSION_KEYS = Object.keys(PERMISSION_FIELD_MAP);
 
+// Permission keys submitted by the UI mapped to the exact purpose-level
+// "Consent Type" multipleSelects label written into Airtable. These are the
+// labels parents see on the form (see permissionOptions in src/App.tsx), so
+// the chips in Airtable match what was actually agreed to rather than the
+// older grouped headings ("Media/photo/video", "Match reports").
 const PERMISSION_TYPE_MAP = {
-  photoTraining: "Media/photo/video",
-  videoTraining: "Media/photo/video",
-  internalReports: "Match reports",
-  website: "Website/social media",
-  social: "Website/social media",
+  photoTraining: "Photos during sessions",
+  videoTraining: "Video for coaching review",
+  internalReports: "Parent progress reports",
+  website: "Club website",
+  social: "Social media",
+  press: "Press/partner use",
 };
 
 // Information-sharing permissions submitted by the UI mapped to their exact
@@ -248,22 +254,28 @@ export const handler = async (event) => {
   // Parent's Email lookup column would stay blank even though the parent
   // typed their email into the form.
   //
-  // Player lookup failures are tolerated (the consent row remains useful as
-  // a standalone audit record and the child name is captured in the evidence
-  // text). Parent resolve/create failures are NOT swallowed: an unlinked
-  // consent record was the original bug — we'd rather refuse the submission
-  // and surface the Airtable error to the parent than silently save a row
-  // with no Parent/Guardian and no Parent's Email lookup.
+  // Parent resolve/create failures are NOT swallowed: an unlinked consent
+  // record was the original bug — we'd rather refuse the submission and
+  // surface the Airtable error to the parent than silently save a row with
+  // no Parent/Guardian and no Parent's Email lookup. Player lookup is best
+  // effort: we try exact name, then a fuzzy match against the player roster,
+  // and finally fall back to the player(s) attached to the resolved parent —
+  // but if all of those fail we still write the consent row so the audit
+  // trail is preserved (the child name lives in the evidence text and the
+  // primary Consent Record label).
   let playerId = null;
+  let players = null;
   if (hasAirtableConfig()) {
     try {
-      playerId = await findPlayerId(payload.childName);
-      if (playerId) fields.Player = [playerId];
+      players = await loadPlayers();
+      playerId = matchPlayerByName(players, payload.childName);
     } catch (error) {
       console.error("Player lookup failed:", error);
     }
+
+    let parentId = null;
     try {
-      const parentId = await resolveOrCreateParent(payload, playerId);
+      parentId = await resolveOrCreateParent(payload, playerId);
       if (parentId) {
         fields["Parent/Guardian"] = [parentId];
       } else {
@@ -286,12 +298,31 @@ export const handler = async (event) => {
         detail: error instanceof Error ? error.message : undefined,
       });
     }
+
+    // Parent-fallback player resolution. If the child name didn't match any
+    // player exactly or fuzzily, look at the players already linked to the
+    // resolved Parent/Guardian and pick the one whose name best matches the
+    // submitted child name. This rescues submissions where the parent typed
+    // only a first name (e.g. "Leonce") but the Players table holds the full
+    // name ("Leonce Boateng"). When the parent has exactly one linked player
+    // we use it unconditionally; with multiple linked players we require a
+    // first-name overlap so we don't silently link a sibling.
+    if (!playerId && parentId && Array.isArray(players)) {
+      playerId = matchPlayerByParent(players, parentId, payload.childName);
+    }
+
+    if (playerId) fields.Player = [playerId];
   }
 
   try {
     const record = await airtableCreate(
       tableName("AIRTABLE_MEDIA_CONSENTS_TABLE", "Media Consents", TABLE_IDS.MEDIA_CONSENTS),
       fields,
+      // typecast lets Airtable add new "Consent Type" choices on the fly. We
+      // moved from grouped chips ("Media/photo/video") to purpose-level chips
+      // ("Photos during sessions") and the multi-select field would otherwise
+      // reject any label that isn't already in its option list.
+      { typecast: true },
     );
     return json(200, {
       ok: true,
@@ -318,20 +349,88 @@ export const handler = async (event) => {
   }
 };
 
-async function findPlayerId(name) {
-  if (!name) return null;
-  const trimmed = String(name).trim().toLowerCase();
-  if (!trimmed) return null;
+function playerNameOf(record) {
+  const fields = record?.fields || {};
+  return String(fields["Full Name"] || fields.Name || fields["Player Name"] || "")
+    .trim();
+}
+
+function playerGuardianIds(record) {
+  const fields = record?.fields || {};
+  const raw = fields["Parent/Guardian"] || fields.Parent || fields.Guardian;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((value) => typeof value === "string" && value.startsWith("rec"));
+}
+
+async function loadPlayers() {
   const records = await airtableList(
     tableName("AIRTABLE_PLAYERS_TABLE", "Players", TABLE_IDS.PLAYERS),
     { pageSize: "100" },
   );
-  const match = records.find((record) => {
-    const fields = record?.fields || {};
-    const candidate = String(fields["Full Name"] || fields.Name || fields["Player Name"] || "").trim().toLowerCase();
-    return candidate && candidate === trimmed;
+  return records.map((record) => ({
+    id: record.id,
+    name: playerNameOf(record),
+    guardianIds: playerGuardianIds(record),
+  }));
+}
+
+// Resolve the submitted child name to a player record id. We try strict
+// equality first, then fall back to forgiving matches so submissions that
+// shorten the name ("Leonce" vs "Leonce Boateng") still link to the right
+// player. To avoid linking the wrong player when several share a first name,
+// fuzzy matches are only accepted when exactly one candidate matches.
+function matchPlayerByName(players, childName) {
+  if (!Array.isArray(players) || players.length === 0) return null;
+  const trimmed = String(childName || "").trim().toLowerCase();
+  if (!trimmed) return null;
+
+  const exact = players.find((player) => player.name.toLowerCase() === trimmed);
+  if (exact) return exact.id;
+
+  const startsWith = players.filter((player) =>
+    player.name.toLowerCase().startsWith(`${trimmed} `),
+  );
+  if (startsWith.length === 1) return startsWith[0].id;
+
+  // First-token (first name) overlap as a last resort — only accepted when
+  // unambiguous so siblings sharing a surname don't get cross-linked.
+  const firstToken = trimmed.split(/\s+/)[0];
+  if (firstToken) {
+    const firstNameMatches = players.filter((player) => {
+      const candidateFirst = player.name.toLowerCase().split(/\s+/)[0];
+      return candidateFirst && candidateFirst === firstToken;
+    });
+    if (firstNameMatches.length === 1) return firstNameMatches[0].id;
+  }
+
+  // Substring containment, again only when unique.
+  const contains = players.filter((player) =>
+    player.name.toLowerCase().includes(trimmed),
+  );
+  if (contains.length === 1) return contains[0].id;
+
+  return null;
+}
+
+// Fall back to the player(s) already linked to the resolved Parent/Guardian.
+// When the parent has exactly one player we trust the link directly; with
+// multiple players (e.g. siblings) we require a first-name overlap with the
+// submitted child name so we don't silently attach the wrong sibling.
+function matchPlayerByParent(players, parentId, childName) {
+  if (!Array.isArray(players) || !parentId) return null;
+  const candidates = players.filter((player) => player.guardianIds.includes(parentId));
+  if (candidates.length === 0) return null;
+  if (candidates.length === 1) return candidates[0].id;
+
+  const trimmed = String(childName || "").trim().toLowerCase();
+  if (!trimmed) return null;
+  const firstToken = trimmed.split(/\s+/)[0];
+  const firstNameMatches = candidates.filter((player) => {
+    const candidateFirst = player.name.toLowerCase().split(/\s+/)[0];
+    return candidateFirst && candidateFirst === firstToken;
   });
-  return match?.id || null;
+  if (firstNameMatches.length === 1) return firstNameMatches[0].id;
+  return null;
 }
 
 async function findParentId(email, name) {
