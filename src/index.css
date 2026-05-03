@@ -1637,11 +1637,20 @@ td.actions-col {
 /* Cap the Consent details column so it can't push other columns off-screen */
 th.consent-details-col,
 td.consent-details-col {
-  max-width: 18rem;
+  max-width: 16rem;
+  width: 16rem;
 }
-td.consent-details-col .consent-details {
+td.consent-details-col .consent-details,
+td.consent-details-col .consent-chip-list {
+  max-width: 100%;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+/* Inside the column cap, allow chip text to wrap so long labels don't push
+   the cell beyond its budget. */
+td.consent-details-col .consent-chip {
+  white-space: normal;
+  max-width: 100%;
 }
 .player-row-actions-empty {
   font-style: italic;
