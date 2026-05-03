@@ -1770,15 +1770,64 @@ function PathwayInlineEdit({
 function PlayerRowActions({
   player,
   onRequestMarkLeft,
+  onPlayerUpdate,
 }: {
   player: Player;
   onRequestMarkLeft: (player: Player) => void;
+  onPlayerUpdate?: (player: Player) => void;
 }) {
-  if (player.status === "Left") {
+  const [reinstating, setReinstating] = useState(false);
+  const [reinstateError, setReinstateError] = useState("");
+
+  async function handleReinstate() {
+    if (!onPlayerUpdate) return;
+    const ok = window.confirm(
+      `Reinstate ${player.name}? This clears any leave or erasure request and sets their status back to Active.`,
+    );
+    if (!ok) return;
+    setReinstating(true);
+    setReinstateError("");
+    try {
+      const updated = await reinstatePlayer(player.id);
+      onPlayerUpdate(updated);
+    } catch (err) {
+      setReinstateError(err instanceof Error ? err.message : "Could not update.");
+    } finally {
+      setReinstating(false);
+    }
+  }
+
+  // A player who has left the squad (or whose parent has asked for erasure)
+  // gets a Reinstate action right here on the Players list. This is the
+  // natural home for it because the coach is already looking at the player
+  // and can see the "LEFT THE SQUAD" tag. Works for both parent-initiated
+  // and coach-initiated leavers.
+  if (player.status === "Left" || player.erasureRequested) {
+    if (!onPlayerUpdate) {
+      return (
+        <span className="player-sub player-row-actions-empty">
+          Player has left the squad
+        </span>
+      );
+    }
     return (
-      <span className="player-sub player-row-actions-empty">
-        Player has left the squad
-      </span>
+      <div className="player-row-actions">
+        <button
+          type="button"
+          className="link-button"
+          onClick={handleReinstate}
+          disabled={reinstating}
+          data-testid={`button-reinstate-row-${player.id}`}
+        >
+          <RotateCcw size={14} aria-hidden="true" />
+          {reinstating ? "Saving…" : "Reinstate"}
+        </button>
+        {reinstateError && (
+          <span className="player-sub pathway-inline-error" data-testid={`text-reinstate-error-${player.id}`}>
+            {reinstateError}
+          </span>
+        )}
+      </div>
     );
   }
 
@@ -2045,6 +2094,7 @@ function PlayerList({
                       <PlayerRowActions
                         player={player}
                         onRequestMarkLeft={setLeavingPlayer}
+                        onPlayerUpdate={onPlayerUpdate}
                       />
                     </td>
                     <td>
@@ -2114,6 +2164,7 @@ function PlayerList({
                   <PlayerRowActions
                     player={player}
                     onRequestMarkLeft={setLeavingPlayer}
+                    onPlayerUpdate={onPlayerUpdate}
                   />
                 </div>
               </li>
