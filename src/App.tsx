@@ -1027,13 +1027,14 @@ function Overview({ data }: { data: AdminData }) {
       <section className="cards-grid">
         <article className="card mini-card">
           <Camera size={20} aria-hidden="true" />
-          <h3>Photo permissions</h3>
+          <h3>Session photos</h3>
           <p>{(() => {
             const n = players.filter((player) => player.photoConsent).length;
             return n === 1
-              ? "1 player currently allows session or match photos."
-              : `${n} players currently allow session or match photos.`;
+              ? "1 player allows photos during sessions."
+              : `${n} players allow photos during sessions.`;
           })()}</p>
+          <p className="kpi-foot">Match-only photo permission isn't tracked separately yet — assume the session permission above for matches.</p>
         </article>
         <article className="card mini-card">
           <Video size={20} aria-hidden="true" />
@@ -1789,7 +1790,7 @@ function Safeguarding({ players }: { players: Player[] }) {
             {limited.map((player) => {
               const allowed: string[] = [];
               const restricted: string[] = [];
-              (player.photoConsent ? allowed : restricted).push("Training and match photos");
+              (player.photoConsent ? allowed : restricted).push("Photos during sessions");
               (player.videoConsent ? allowed : restricted).push("Coaching video review");
               (player.highlightsConsent ? allowed : restricted).push("Highlight clips");
               (player.websiteConsent ? allowed : restricted).push("Club website");
