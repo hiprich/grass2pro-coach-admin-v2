@@ -582,6 +582,43 @@ function initials(name: string) {
     .join("");
 }
 
+// Airtable linked-record fields can leak through as raw record IDs (e.g.
+// "rec0faJqj2SUI6tiH"). Filter those out before rendering anything coach-facing
+// so the Players UI never shows "rectHiu...,rec6f..." in place of a name.
+const RECORD_ID_PATTERN = /^rec[a-zA-Z0-9]{14,}$/;
+
+function sanitiseHumanString(value: string | undefined | null): string {
+  if (!value) return "";
+  const trimmed = String(value).trim();
+  if (!trimmed) return "";
+  const cleaned = trimmed
+    .split(",")
+    .map((part) => part.trim())
+    .filter((part) => part && !RECORD_ID_PATTERN.test(part) && part.toUpperCase() !== "N/A")
+    .join(", ");
+  return cleaned;
+}
+
+function playerPosition(player: Player): string {
+  return sanitiseHumanString(player.position);
+}
+
+function playerGuardianLabel(player: Player): string {
+  const raw = (player.guardianName || "").trim();
+  if (!raw) return "";
+  const name = sanitiseHumanString(raw);
+  if (name) return `Guardian ${name}`;
+  // Linked-record IDs were the only thing on file — show a generic label so
+  // coaches know a guardian is linked without leaking the raw rec... ids.
+  return "Parent/guardian linked";
+}
+
+function playerMetaLine(player: Player): string {
+  const position = playerPosition(player);
+  const guardian = playerGuardianLabel(player);
+  return [position, guardian].filter(Boolean).join(" · ");
+}
+
 function formatDate(iso: string) {
   if (!iso) return "—";
   const d = new Date(iso);
@@ -1455,9 +1492,9 @@ function PlayerList({ players }: { players: Player[] }) {
                           <span className="player-name" data-testid={`text-player-name-${player.id}`}>
                             {player.name}
                           </span>
-                          <span className="player-sub">
-                            {player.position} · Guardian {player.guardianName}
-                          </span>
+                          {playerMetaLine(player) && (
+                            <span className="player-sub">{playerMetaLine(player)}</span>
+                          )}
                         </span>
                       </div>
                     </td>
@@ -1492,9 +1529,9 @@ function PlayerList({ players }: { players: Player[] }) {
                     <span className="player-name" data-testid={`text-player-name-${player.id}`}>
                       {player.name}
                     </span>
-                    <span className="player-sub">
-                      {player.position} · Guardian {player.guardianName}
-                    </span>
+                    {playerMetaLine(player) && (
+                      <span className="player-sub">{playerMetaLine(player)}</span>
+                    )}
                     <span className="player-sub">
                       <strong>{player.team}</strong> · {player.ageGroup}
                     </span>
