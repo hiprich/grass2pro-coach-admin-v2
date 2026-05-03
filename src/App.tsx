@@ -2169,123 +2169,133 @@ function ConsentForm() {
 
         <section className="form-section">
           <h2>Child and parent details</h2>
-          <div className="form-grid">
-            <label className="form-field">
-              <span>Child full name *</span>
-              <input value={form.childName} onChange={(event) => update("childName", event.target.value)} data-testid="input-child-name" />
-            </label>
-            <label className="form-field">
-              <span>Player date of birth *</span>
-              <input
-                type="date"
-                value={form.childDateOfBirth}
-                onChange={(event) => update("childDateOfBirth", event.target.value)}
-                max={todayIsoDate()}
-                aria-invalid={Boolean(errors.childDateOfBirth)}
-                data-testid="input-child-dob"
-              />
-              {errors.childDateOfBirth ? (
-                <span className="field-error" role="alert" data-testid="error-child-dob">
-                  {errors.childDateOfBirth}
-                </span>
-              ) : (
-                <span className="field-help">Used to set the child&apos;s age group automatically. Stored once on the player record.</span>
-              )}
-            </label>
-            <label className="form-field">
-              <span>Age group</span>
-              <select value={form.ageGroup} onChange={(event) => update("ageGroup", event.target.value)} data-testid="select-age-group">
-                <option value="">Select age group</option>
-                <option value="U8">U8</option>
-                <option value="U9">U9</option>
-                <option value="U10">U10</option>
-                <option value="U11">U11</option>
-                <option value="U12">U12</option>
-                <option value="U13">U13</option>
-              </select>
-            </label>
-            <label className="form-field">
-              <span>Parent or guardian name *</span>
-              <input value={form.parentName} onChange={(event) => update("parentName", event.target.value)} data-testid="input-parent-name" />
-            </label>
-            <label className="form-field">
-              <span>Relationship</span>
-              <input value={form.relationship} onChange={(event) => update("relationship", event.target.value)} data-testid="input-relationship" />
-            </label>
-            <label className="form-field">
-              <span>Email *</span>
-              <input
-                type="email"
-                value={form.parentEmail}
-                onChange={(event) => update("parentEmail", event.target.value)}
-                aria-invalid={Boolean(errors.parentEmail)}
-                data-testid="input-parent-email"
-              />
-              {errors.parentEmail && (
-                <span className="field-error" role="alert" data-testid="error-parent-email">
-                  {errors.parentEmail}
-                </span>
-              )}
-            </label>
-            <label className="form-field">
-              <span>Confirm email *</span>
-              <input
-                type="email"
-                value={parentEmailConfirm}
-                onChange={(event) => onParentEmailConfirmChange(event.target.value)}
-                onPaste={(event) => event.preventDefault()}
-                aria-invalid={Boolean(errors.parentEmailConfirm)}
-                data-valid={emailConfirmMatches && !errors.parentEmailConfirm ? "true" : undefined}
-                autoComplete="off"
-                data-testid="input-parent-email-confirm"
-              />
-              {errors.parentEmailConfirm ? (
-                <span className="field-error" role="alert" data-testid="error-parent-email-confirm">
-                  {errors.parentEmailConfirm}
-                </span>
-              ) : emailConfirmMatches ? (
-                <span className="field-success" data-testid="success-parent-email-confirm">
-                  Emails match.
-                </span>
-              ) : null}
-            </label>
-            <label className="form-field">
-              <span>Phone</span>
-              <input
-                value={form.parentPhone}
-                onChange={(event) => update("parentPhone", event.target.value)}
-                inputMode="tel"
-                aria-invalid={Boolean(errors.parentPhone)}
-                data-testid="input-parent-phone"
-              />
-              {errors.parentPhone && (
-                <span className="field-error" role="alert" data-testid="error-parent-phone">
-                  {errors.parentPhone}
-                </span>
-              )}
-            </label>
-            <label className="form-field">
-              <span>Confirm phone</span>
-              <input
-                value={parentPhoneConfirm}
-                onChange={(event) => onParentPhoneConfirmChange(event.target.value)}
-                onPaste={(event) => event.preventDefault()}
-                inputMode="tel"
-                aria-invalid={Boolean(errors.parentPhoneConfirm)}
-                data-valid={phoneConfirmMatches && !errors.parentPhoneConfirm ? "true" : undefined}
-                autoComplete="off"
-                data-testid="input-parent-phone-confirm"
-              />
-              {errors.parentPhoneConfirm ? (
-                <span className="field-error" role="alert" data-testid="error-parent-phone-confirm">
-                  {errors.parentPhoneConfirm}
-                </span>
-              ) : phoneConfirmMatches ? (
-                <span className="field-success" data-testid="success-parent-phone-confirm">
-                  Phone numbers match.
-                </span>
-              ) : null}
-            </label>
+          <div className="form-grid form-grid--paired">
+            <div className="form-pair">
+              <label className="form-field">
+                <span>Child full name *</span>
+                <input value={form.childName} onChange={(event) => update("childName", event.target.value)} data-testid="input-child-name" />
+              </label>
+              <label className="form-field">
+                <span>Player date of birth *</span>
+                <input
+                  type="date"
+                  value={form.childDateOfBirth}
+                  onChange={(event) => update("childDateOfBirth", event.target.value)}
+                  max={todayIsoDate()}
+                  aria-invalid={Boolean(errors.childDateOfBirth)}
+                  data-testid="input-child-dob"
+                />
+                {errors.childDateOfBirth ? (
+                  <span className="field-error" role="alert" data-testid="error-child-dob">
+                    {errors.childDateOfBirth}
+                  </span>
+                ) : (
+                  <span className="field-help">Used to set the child&apos;s age group automatically. Stored once on the player record.</span>
+                )}
+              </label>
+            </div>
+            <div className="form-pair">
+              <label className="form-field">
+                <span>Age group</span>
+                <select value={form.ageGroup} onChange={(event) => update("ageGroup", event.target.value)} data-testid="select-age-group">
+                  <option value="">Select age group</option>
+                  <option value="U8">U8</option>
+                  <option value="U9">U9</option>
+                  <option value="U10">U10</option>
+                  <option value="U11">U11</option>
+                  <option value="U12">U12</option>
+                  <option value="U13">U13</option>
+                </select>
+              </label>
+              <label className="form-field">
+                <span>Parent or guardian name *</span>
+                <input value={form.parentName} onChange={(event) => update("parentName", event.target.value)} data-testid="input-parent-name" />
+              </label>
+            </div>
+            <div className="form-pair">
+              <label className="form-field">
+                <span>Relationship</span>
+                <input value={form.relationship} onChange={(event) => update("relationship", event.target.value)} data-testid="input-relationship" />
+              </label>
+            </div>
+            <div className="form-pair">
+              <label className="form-field">
+                <span>Email *</span>
+                <input
+                  type="email"
+                  value={form.parentEmail}
+                  onChange={(event) => update("parentEmail", event.target.value)}
+                  aria-invalid={Boolean(errors.parentEmail)}
+                  data-testid="input-parent-email"
+                />
+                {errors.parentEmail && (
+                  <span className="field-error" role="alert" data-testid="error-parent-email">
+                    {errors.parentEmail}
+                  </span>
+                )}
+              </label>
+              <label className="form-field">
+                <span>Confirm email *</span>
+                <input
+                  type="email"
+                  value={parentEmailConfirm}
+                  onChange={(event) => onParentEmailConfirmChange(event.target.value)}
+                  onPaste={(event) => event.preventDefault()}
+                  aria-invalid={Boolean(errors.parentEmailConfirm)}
+                  data-valid={emailConfirmMatches && !errors.parentEmailConfirm ? "true" : undefined}
+                  autoComplete="off"
+                  data-testid="input-parent-email-confirm"
+                />
+                {errors.parentEmailConfirm ? (
+                  <span className="field-error" role="alert" data-testid="error-parent-email-confirm">
+                    {errors.parentEmailConfirm}
+                  </span>
+                ) : emailConfirmMatches ? (
+                  <span className="field-success" data-testid="success-parent-email-confirm">
+                    Emails match.
+                  </span>
+                ) : null}
+              </label>
+            </div>
+            <div className="form-pair">
+              <label className="form-field">
+                <span>Phone</span>
+                <input
+                  value={form.parentPhone}
+                  onChange={(event) => update("parentPhone", event.target.value)}
+                  inputMode="tel"
+                  aria-invalid={Boolean(errors.parentPhone)}
+                  data-testid="input-parent-phone"
+                />
+                {errors.parentPhone && (
+                  <span className="field-error" role="alert" data-testid="error-parent-phone">
+                    {errors.parentPhone}
+                  </span>
+                )}
+              </label>
+              <label className="form-field">
+                <span>Confirm phone</span>
+                <input
+                  value={parentPhoneConfirm}
+                  onChange={(event) => onParentPhoneConfirmChange(event.target.value)}
+                  onPaste={(event) => event.preventDefault()}
+                  inputMode="tel"
+                  aria-invalid={Boolean(errors.parentPhoneConfirm)}
+                  data-valid={phoneConfirmMatches && !errors.parentPhoneConfirm ? "true" : undefined}
+                  autoComplete="off"
+                  data-testid="input-parent-phone-confirm"
+                />
+                {errors.parentPhoneConfirm ? (
+                  <span className="field-error" role="alert" data-testid="error-parent-phone-confirm">
+                    {errors.parentPhoneConfirm}
+                  </span>
+                ) : phoneConfirmMatches ? (
+                  <span className="field-success" data-testid="success-parent-phone-confirm">
+                    Phone numbers match.
+                  </span>
+                ) : null}
+              </label>
+            </div>
           </div>
           <p className="field-help" data-testid="contact-details-note">
             We use these contact details for safeguarding, session administration and consent records. Promotional messages or app update announcements will use a separate opt-in.
