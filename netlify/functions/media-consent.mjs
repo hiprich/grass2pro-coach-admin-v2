@@ -29,6 +29,14 @@ const required = ["childName", "parentName", "parentEmail"];
 // Permission keys submitted by the UI mapped to their Airtable checkbox field
 // names. The order/membership of this map is what defines "all permissions"
 // for the Consent Status computation — see UI_PERMISSION_KEYS below.
+//
+// Match-only permissions (photoMatch, videoMatch) are intentionally absent:
+// the Airtable schema does not yet have dedicated `Match Photo Permission` /
+// `Match Video Permission` checkbox fields. Including them here would make
+// the create call fail with UNKNOWN_FIELD_NAME. They are persisted via the
+// purpose-level Consent Type chips below instead, which is enough for the
+// dashboard to render the new match-specific cards because the chip parser
+// in _airtable.mjs reads those labels back out.
 const PERMISSION_FIELD_MAP = {
   photoTraining: "Photo Permission",
   videoTraining: "Video Permission",
@@ -38,26 +46,37 @@ const PERMISSION_FIELD_MAP = {
   press: "Press/Partner Use",
 };
 
-// The set of permission keys exposed in the frontend consent form. Consent
-// Status is "Active" only when every one of these is ticked. The Airtable
-// schema also has a "Highlights/Reels Use" checkbox, but there is no
-// corresponding UI control today — including it here would make "Active"
-// unreachable from the form.
+// The set of permission keys whose grant/no-grant ratio drives Consent Status.
+// "Active" means every one of these is ticked AND every match-specific chip
+// permission is granted; "Limited" means a partial grant; see consentStatus
+// computation below.
 const UI_PERMISSION_KEYS = Object.keys(PERMISSION_FIELD_MAP);
 
 // Permission keys submitted by the UI mapped to the exact purpose-level
 // "Consent Type" multipleSelects label written into Airtable. These are the
 // labels parents see on the form (see permissionOptions in src/App.tsx), so
 // the chips in Airtable match what was actually agreed to rather than the
-// older grouped headings ("Media/photo/video", "Match reports").
+// older grouped headings ("Media/photo/video", "Match reports"). The match-
+// specific keys live ONLY in this map — they have no checkbox column today.
 const PERMISSION_TYPE_MAP = {
   photoTraining: "Photos during sessions",
+  photoMatch: "Photos during matches",
   videoTraining: "Video for coaching review",
+  videoMatch: "Video during matches",
   internalReports: "Parent progress reports",
   website: "Club website",
   social: "Social media",
   press: "Press/partner use",
 };
+
+// Permission keys that exist only as Consent Type chips (no Airtable checkbox
+// field). They still count as media permissions for status computation and
+// are written into the chip list on submit.
+const CHIP_ONLY_PERMISSION_KEYS = ["photoMatch", "videoMatch"];
+
+// Full list of UI media permission keys — checkbox-backed plus chip-only.
+// "Active" requires every one of these to be granted.
+const ALL_MEDIA_PERMISSION_KEYS = [...UI_PERMISSION_KEYS, ...CHIP_ONLY_PERMISSION_KEYS];
 
 // Information-sharing permissions submitted by the UI mapped to their exact
 // Airtable "Consent Type" multipleSelects choice labels. These are recorded on
@@ -145,7 +164,7 @@ export const handler = async (event) => {
   }
 
   const permissions = payload.permissions || {};
-  const selectedKeys = UI_PERMISSION_KEYS.filter((key) => Boolean(permissions[key]));
+  const selectedMediaKeys = ALL_MEDIA_PERMISSION_KEYS.filter((key) => Boolean(permissions[key]));
 
   const infoSharing = payload.infoSharing || {};
   const selectedInfoSharingKeys = Object.keys(INFO_SHARING_TYPE_MAP).filter(
@@ -153,20 +172,23 @@ export const handler = async (event) => {
   );
 
   // Consent Status is a singleSelect with a fixed choice list. "Active" means
-  // every permission the UI exposed was granted; "Limited" means a partial
-  // grant; "Needs Review" maps the no-consent case to a valid choice rather
-  // than inventing a new option that Airtable would reject.
+  // every media permission the UI exposed was granted (including the new
+  // match chips); "Limited" means a partial grant — including the case where
+  // session-only permissions are granted but match-only chips aren't, which
+  // is exactly what parents now have the option to express. "Needs Review"
+  // maps the no-consent case to a valid choice rather than inventing a new
+  // option that Airtable would reject.
   const consentStatus =
-    selectedKeys.length === 0
+    selectedMediaKeys.length === 0
       ? "Needs Review"
-      : selectedKeys.length < UI_PERMISSION_KEYS.length
+      : selectedMediaKeys.length < ALL_MEDIA_PERMISSION_KEYS.length
         ? "Limited"
         : "Active";
 
   const consentTypes = Array.from(
     new Set(
       [
-        ...selectedKeys.map((key) => PERMISSION_TYPE_MAP[key]),
+        ...selectedMediaKeys.map((key) => PERMISSION_TYPE_MAP[key]),
         ...selectedInfoSharingKeys.map((key) => INFO_SHARING_TYPE_MAP[key]),
       ].filter(Boolean),
     ),
@@ -213,7 +235,7 @@ export const handler = async (event) => {
     `Parent/Guardian: ${payload.parentName} <${payload.parentEmail}>`,
     payload.parentPhone ? `Phone: ${payload.parentPhone}` : null,
     payload.relationship ? `Relationship: ${payload.relationship}` : null,
-    `Selected permissions: ${selectedKeys.length > 0 ? selectedKeys.join(", ") : "none"}`,
+    `Selected permissions: ${selectedMediaKeys.length > 0 ? selectedMediaKeys.join(", ") : "none"}`,
     `Information sharing: ${
       selectedInfoSharingKeys.length > 0
         ? selectedInfoSharingKeys.map((key) => INFO_SHARING_TYPE_MAP[key]).join(", ")
@@ -330,7 +352,7 @@ export const handler = async (event) => {
       demo: Boolean(record.demo),
       consentStatus,
       consentTypes,
-      selectedPermissions: selectedKeys,
+      selectedPermissions: selectedMediaKeys,
       selectedInfoSharing: selectedInfoSharingKeys,
       linkedPlayer: Boolean(fields.Player),
       linkedParent: Boolean(fields["Parent/Guardian"]),

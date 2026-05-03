@@ -52,6 +52,8 @@ type Player = {
   consentStatus: ConsentStatus;
   photoConsent: boolean;
   videoConsent: boolean;
+  matchPhotoConsent: boolean;
+  matchVideoConsent: boolean;
   websiteConsent: boolean;
   socialConsent: boolean;
   highlightsConsent: boolean;
@@ -146,6 +148,8 @@ const demoPlayers: Player[] = [
     consentStatus: "green",
     photoConsent: true,
     videoConsent: true,
+    matchPhotoConsent: true,
+    matchVideoConsent: true,
     websiteConsent: true,
     socialConsent: false,
     highlightsConsent: true,
@@ -163,6 +167,8 @@ const demoPlayers: Player[] = [
     consentStatus: "amber",
     photoConsent: true,
     videoConsent: true,
+    matchPhotoConsent: false,
+    matchVideoConsent: false,
     websiteConsent: false,
     socialConsent: false,
     highlightsConsent: false,
@@ -180,6 +186,8 @@ const demoPlayers: Player[] = [
     consentStatus: "grey",
     photoConsent: false,
     videoConsent: false,
+    matchPhotoConsent: false,
+    matchVideoConsent: false,
     websiteConsent: false,
     socialConsent: false,
     highlightsConsent: false,
@@ -197,6 +205,8 @@ const demoPlayers: Player[] = [
     consentStatus: "red",
     photoConsent: false,
     videoConsent: false,
+    matchPhotoConsent: false,
+    matchVideoConsent: false,
     websiteConsent: false,
     socialConsent: false,
     highlightsConsent: false,
@@ -214,6 +224,8 @@ const demoPlayers: Player[] = [
     consentStatus: "green",
     photoConsent: true,
     videoConsent: true,
+    matchPhotoConsent: true,
+    matchVideoConsent: true,
     websiteConsent: false,
     socialConsent: false,
     highlightsConsent: true,
@@ -468,12 +480,22 @@ const permissionOptions = [
   {
     id: "photoTraining",
     label: "Photos during sessions",
-    help: "Still images captured at matches, training and player development sessions.",
+    help: "Still images captured during training and player development sessions only.",
+  },
+  {
+    id: "photoMatch",
+    label: "Photos during matches",
+    help: "Still images captured at matches and fixtures. Granted independently of session photos.",
   },
   {
     id: "videoTraining",
     label: "Video for coaching review",
-    help: "Match or training footage used by authorised Grass2Pro coaches for analysis.",
+    help: "Training footage used by authorised Grass2Pro coaches for private analysis.",
+  },
+  {
+    id: "videoMatch",
+    label: "Video during matches",
+    help: "Match footage used by authorised Grass2Pro coaches for private analysis. Granted independently of training video.",
   },
   {
     id: "internalReports",
@@ -1034,16 +1056,35 @@ function Overview({ data }: { data: AdminData }) {
               ? "1 player allows photos during sessions."
               : `${n} players allow photos during sessions.`;
           })()}</p>
-          <p className="kpi-foot">Match-only photo permission isn't tracked separately yet — assume the session permission above for matches.</p>
+        </article>
+        <article className="card mini-card">
+          <Camera size={20} aria-hidden="true" />
+          <h3>Match photos</h3>
+          <p>{(() => {
+            const n = players.filter((player) => player.matchPhotoConsent).length;
+            return n === 1
+              ? "1 player allows photos during matches."
+              : `${n} players allow photos during matches.`;
+          })()}</p>
         </article>
         <article className="card mini-card">
           <Video size={20} aria-hidden="true" />
-          <h3>Video review</h3>
+          <h3>Coaching video review</h3>
           <p>{(() => {
             const n = players.filter((player) => player.videoConsent).length;
             return n === 1
-              ? "1 player has permission for coach analysis footage."
-              : `${n} players have permission for coach analysis footage.`;
+              ? "1 player has permission for training analysis footage."
+              : `${n} players have permission for training analysis footage.`;
+          })()}</p>
+        </article>
+        <article className="card mini-card">
+          <Video size={20} aria-hidden="true" />
+          <h3>Match video</h3>
+          <p>{(() => {
+            const n = players.filter((player) => player.matchVideoConsent).length;
+            return n === 1
+              ? "1 player allows match footage for coach analysis."
+              : `${n} players allow match footage for coach analysis.`;
           })()}</p>
         </article>
         <article className="card mini-card">
@@ -1791,7 +1832,9 @@ function Safeguarding({ players }: { players: Player[] }) {
               const allowed: string[] = [];
               const restricted: string[] = [];
               (player.photoConsent ? allowed : restricted).push("Photos during sessions");
+              (player.matchPhotoConsent ? allowed : restricted).push("Photos during matches");
               (player.videoConsent ? allowed : restricted).push("Coaching video review");
+              (player.matchVideoConsent ? allowed : restricted).push("Match video");
               (player.highlightsConsent ? allowed : restricted).push("Highlight clips");
               (player.websiteConsent ? allowed : restricted).push("Club website");
               (player.socialConsent ? allowed : restricted).push("Social media");

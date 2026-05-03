@@ -29,6 +29,8 @@ export const demoData = {
       consentStatus: "green",
       photoConsent: true,
       videoConsent: true,
+      matchPhotoConsent: true,
+      matchVideoConsent: true,
       websiteConsent: true,
       socialConsent: false,
       highlightsConsent: true,
@@ -46,6 +48,8 @@ export const demoData = {
       consentStatus: "amber",
       photoConsent: true,
       videoConsent: true,
+      matchPhotoConsent: false,
+      matchVideoConsent: false,
       websiteConsent: false,
       socialConsent: false,
       highlightsConsent: false,
@@ -63,6 +67,8 @@ export const demoData = {
       consentStatus: "grey",
       photoConsent: false,
       videoConsent: false,
+      matchPhotoConsent: false,
+      matchVideoConsent: false,
       websiteConsent: false,
       socialConsent: false,
       highlightsConsent: false,
@@ -80,6 +86,8 @@ export const demoData = {
       consentStatus: "red",
       photoConsent: false,
       videoConsent: false,
+      matchPhotoConsent: false,
+      matchVideoConsent: false,
       websiteConsent: false,
       socialConsent: false,
       highlightsConsent: false,
@@ -97,6 +105,8 @@ export const demoData = {
       consentStatus: "green",
       photoConsent: true,
       videoConsent: true,
+      matchPhotoConsent: true,
+      matchVideoConsent: true,
       websiteConsent: false,
       socialConsent: false,
       highlightsConsent: true,
@@ -350,6 +360,12 @@ export function normalisePlayer(record) {
     consentStatus,
     photoConsent: boolValue(fields["Photo Consent"] || fields["Photo Permission"]),
     videoConsent: boolValue(fields["Video Consent"] || fields["Video Permission"]),
+    matchPhotoConsent: boolValue(
+      fields["Match Photo Consent"] || fields["Match Photo Permission"],
+    ),
+    matchVideoConsent: boolValue(
+      fields["Match Video Consent"] || fields["Match Video Permission"],
+    ),
     websiteConsent: boolValue(fields["Website Consent"] || fields["Website Permission"]),
     socialConsent: boolValue(fields["Social Consent"] || fields["Social Permission"]),
     highlightsConsent: boolValue(fields["Highlights Consent"] || fields["Highlight Permission"]),
@@ -620,23 +636,82 @@ function consentTypeChips(record) {
 // website", "Social media", "Press/partner use") used by current submissions.
 // Older records continue to read correctly while new rows store the more
 // specific labels the parent actually saw on the form.
+//
+// Match permissions are now distinct from session/coaching-review permissions
+// — "Photos during matches" must NOT imply "Photos during sessions" and vice
+// versa. The matchers below are written so the session and match chips only
+// match the chip the parent actually ticked. Legacy bundled chips (e.g.
+// "Media/photo/video") are still treated as session-only photo + coaching
+// review video grants because match was never offered as a separate option
+// when those rows were saved.
 function chipImpliesPhoto(chips) {
-  return chips.some(
-    (chip) =>
-      chip.includes("photo") ||
+  // Session photos. Match a chip ONLY when it explicitly references sessions
+  // or training, or when it is a legacy bundled chip from before the match
+  // split. "Photos during matches" must not satisfy this — that chip is
+  // captured by chipImpliesMatchPhoto below.
+  return chips.some((chip) => {
+    if (chip.includes("match")) return false;
+    return (
+      chip === "photos during sessions" ||
+      chip === "photos during training" ||
+      chip.includes("session photo") ||
+      chip.includes("training photo") ||
       chip.includes("media/") ||
       chip === "media" ||
-      chip.includes("image"),
+      chip.includes("image") ||
+      // Bare "photo" / "photos" chips predate the match split — treat them
+      // as session-only photo grants.
+      chip === "photo" ||
+      chip === "photos"
+    );
+  });
+}
+
+function chipImpliesMatchPhoto(chips) {
+  return chips.some(
+    (chip) =>
+      chip === "photos during matches" ||
+      chip === "match photos" ||
+      chip.includes("match photo") ||
+      chip.includes("photos during match") ||
+      chip.includes("photos at match") ||
+      chip.includes("matchday photo") ||
+      chip.includes("match-day photo"),
   );
 }
 
 function chipImpliesVideo(chips) {
-  return chips.some(
-    (chip) =>
-      chip.includes("video") ||
+  // Video for coaching review (training analysis). Match-only video chips
+  // ("Video during matches") must not satisfy this — that grant is captured
+  // by chipImpliesMatchVideo below.
+  return chips.some((chip) => {
+    if (chip.includes("during match") || chip.includes("match video") || chip === "match videos") {
+      return false;
+    }
+    return (
+      chip === "video for coaching review" ||
+      chip.includes("coaching review") ||
       chip.includes("media/") ||
       chip === "media" ||
-      chip.includes("coaching review"),
+      // Bare "video" / "videos" chips predate the match split — treat them
+      // as coaching-review-only video grants.
+      chip === "video" ||
+      chip === "videos"
+    );
+  });
+}
+
+function chipImpliesMatchVideo(chips) {
+  return chips.some(
+    (chip) =>
+      chip === "video during matches" ||
+      chip === "match video" ||
+      chip === "match videos" ||
+      chip.includes("match video") ||
+      chip.includes("video during match") ||
+      chip.includes("video at match") ||
+      chip.includes("matchday video") ||
+      chip.includes("match-day video"),
   );
 }
 
@@ -657,17 +732,26 @@ function chipImpliesHighlights(chips) {
   return chips.some((chip) => chip.includes("highlight") || chip.includes("reel"));
 }
 
-// Derive the five Overview booleans from a Media Consents row, preferring
-// the explicit Airtable checkboxes but falling back to the Consent Type chips
+// Derive the Overview booleans from a Media Consents row, preferring the
+// explicit Airtable checkboxes but falling back to the Consent Type chips
 // when a checkbox is blank. The chips are how partial submissions surface in
 // the Airtable grid, so treating them as authoritative keeps the dashboard
 // honest about what was granted.
+//
+// Match-only permissions (matchPhotoConsent / matchVideoConsent) are derived
+// from chips alone for now. Optional `Match Photo Permission` and
+// `Match Video Permission` Airtable checkbox fields are read when present so
+// the integration upgrades transparently if those columns are added later.
 function permissionsFromMediaConsent(record) {
   const fields = record?.fields || {};
   const chips = consentTypeChips(record);
   return {
     photoConsent: boolValue(fields["Photo Permission"]) || chipImpliesPhoto(chips),
     videoConsent: boolValue(fields["Video Permission"]) || chipImpliesVideo(chips),
+    matchPhotoConsent:
+      boolValue(fields["Match Photo Permission"]) || chipImpliesMatchPhoto(chips),
+    matchVideoConsent:
+      boolValue(fields["Match Video Permission"]) || chipImpliesMatchVideo(chips),
     websiteConsent: boolValue(fields["Website Use"]) || chipImpliesWebsite(chips),
     socialConsent: boolValue(fields["Social Media Use"]) || chipImpliesSocial(chips),
     highlightsConsent: boolValue(fields["Highlights/Reels Use"]) || chipImpliesHighlights(chips),
@@ -698,22 +782,28 @@ function consentStatusFromMediaConsent(record) {
   if (explicit === "limited") return "amber";
 
   const perms = permissionsFromMediaConsent(record);
-  const granted = [
+  const flags = [
     perms.photoConsent,
     perms.videoConsent,
+    perms.matchPhotoConsent,
+    perms.matchVideoConsent,
     perms.websiteConsent,
     perms.socialConsent,
     perms.highlightsConsent,
     perms.internalReportsConsent,
     perms.pressConsent,
-  ].filter(Boolean).length;
+  ];
+  const granted = flags.filter(Boolean).length;
 
   // A current Media Consent record exists for this player. Even when the
   // explicit status reads "Needs Review" or is blank, a row with at least one
   // granted permission is a Limited consent — not a missing record. Only fall
   // through to "grey" when nothing at all has been granted and the explicit
   // status is missing or signals "needs review".
-  if (granted >= 5) return "green";
+  //
+  // "Active" requires every media permission, including the new match-
+  // specific chips. Anything in between is Limited.
+  if (granted === flags.length) return "green";
   if (granted > 0) return "amber";
   if (explicit.includes("needs review") || explicit.includes("not")) return "grey";
   return "grey";
@@ -818,6 +908,8 @@ export function mergeMediaConsentsIntoPlayers(players, consentRecords) {
       consentStatus,
       photoConsent: perms.photoConsent,
       videoConsent: perms.videoConsent,
+      matchPhotoConsent: perms.matchPhotoConsent,
+      matchVideoConsent: perms.matchVideoConsent,
       websiteConsent: perms.websiteConsent,
       socialConsent: perms.socialConsent,
       highlightsConsent: perms.highlightsConsent,
