@@ -1906,6 +1906,15 @@ function ConsentForm() {
 
   const selectedCount = Object.values(form.permissions).filter(Boolean).length;
   const infoSharingCount = Object.values(form.infoSharing).filter(Boolean).length;
+  // Active only when every media permission the form exposes is granted. A
+  // partial grant is Limited consent; nothing ticked records no media consent.
+  // Information-sharing toggles do not influence this status.
+  const mediaStatusLabel =
+    selectedCount === 0
+      ? "No media consent"
+      : selectedCount < permissionOptions.length
+        ? "Limited consent"
+        : "Active consent";
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -2116,7 +2125,7 @@ function ConsentForm() {
           </div>
           <div className="summary-item">
             <span>Media status</span>
-            <strong>{selectedCount > 0 ? "Active consent" : "No media consent"}</strong>
+            <strong>{mediaStatusLabel}</strong>
           </div>
         </div>
         <p>

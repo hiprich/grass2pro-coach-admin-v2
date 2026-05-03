@@ -778,9 +778,16 @@ function consentStatusFromMediaConsent(record) {
 
   const explicit = stringValue(fields["Consent Status"]).toLowerCase();
   if (explicit.includes("withdraw")) return "red";
-  if (explicit === "active") return "green";
-  if (explicit === "limited") return "amber";
 
+  // Permission flags drive Active/Limited. The set mirrors the media
+  // permissions the consent form exposes today: photos during sessions,
+  // photos during matches, video for coaching review, video during matches,
+  // internal progress reports, website, social media, and press/partner.
+  // Information-sharing toggles (emergency contact / medical) are an
+  // independent grant and intentionally NOT included. "Highlights/Reels" is
+  // also excluded — it is a legacy Airtable column with no matching form
+  // option, so requiring it would make Active unreachable for current
+  // submissions.
   const perms = permissionsFromMediaConsent(record);
   const flags = [
     perms.photoConsent,
@@ -789,11 +796,20 @@ function consentStatusFromMediaConsent(record) {
     perms.matchVideoConsent,
     perms.websiteConsent,
     perms.socialConsent,
-    perms.highlightsConsent,
     perms.internalReportsConsent,
     perms.pressConsent,
   ];
   const granted = flags.filter(Boolean).length;
+  const allGranted = granted === flags.length;
+
+  // Trust the explicit status only when the underlying permissions back it
+  // up. Earlier rows in Airtable were sometimes stamped "Active" with only a
+  // partial permission set (e.g. coaching review video + internal reports),
+  // which is exactly the bug we're fixing — never promote those to green.
+  // A row stamped "Active" with the full permission set still resolves to
+  // green via the permission check below; "Limited" rows resolve to amber the
+  // same way when at least one permission is granted.
+  if (explicit === "active" && allGranted) return "green";
 
   // A current Media Consent record exists for this player. Even when the
   // explicit status reads "Needs Review" or is blank, a row with at least one
@@ -803,8 +819,9 @@ function consentStatusFromMediaConsent(record) {
   //
   // "Active" requires every media permission, including the new match-
   // specific chips. Anything in between is Limited.
-  if (granted === flags.length) return "green";
+  if (allGranted) return "green";
   if (granted > 0) return "amber";
+  if (explicit === "limited") return "amber";
   if (explicit.includes("needs review") || explicit.includes("not")) return "grey";
   return "grey";
 }
