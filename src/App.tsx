@@ -1952,7 +1952,43 @@ function ConsentForm() {
 
   const update = (key: keyof ConsentPayload, value: string | boolean | Record<string, boolean>) => {
     setForm((current) => ({ ...current, [key]: value }));
+    if (key === "parentEmail") {
+      clearErrorIf("parentEmailConfirm", normaliseEmail(value as string) === normaliseEmail(parentEmailConfirm));
+    }
+    if (key === "parentPhone") {
+      clearErrorIf("parentPhoneConfirm", normalisePhone(value as string) === normalisePhone(parentPhoneConfirm));
+    }
   };
+
+  function clearErrorIf(key: keyof ConsentFormErrors, condition: boolean) {
+    if (!condition) return;
+    setErrors((current) => {
+      if (!current[key]) return current;
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+  }
+
+  function onParentEmailConfirmChange(value: string) {
+    setParentEmailConfirm(value);
+    clearErrorIf("parentEmailConfirm", normaliseEmail(form.parentEmail) === normaliseEmail(value));
+  }
+
+  function onParentPhoneConfirmChange(value: string) {
+    setParentPhoneConfirm(value);
+    clearErrorIf("parentPhoneConfirm", normalisePhone(form.parentPhone) === normalisePhone(value));
+  }
+
+  const emailConfirmMatches =
+    parentEmailConfirm.length > 0 &&
+    isValidEmail(form.parentEmail) &&
+    normaliseEmail(form.parentEmail) === normaliseEmail(parentEmailConfirm);
+  const phoneConfirmMatches =
+    parentPhoneConfirm.length > 0 &&
+    form.parentPhone.trim().length > 0 &&
+    isValidPhone(form.parentPhone) &&
+    normalisePhone(form.parentPhone) === normalisePhone(parentPhoneConfirm);
 
   function validateContactDetails(): ConsentFormErrors {
     const next: ConsentFormErrors = {};
@@ -2077,17 +2113,22 @@ function ConsentForm() {
               <input
                 type="email"
                 value={parentEmailConfirm}
-                onChange={(event) => setParentEmailConfirm(event.target.value)}
+                onChange={(event) => onParentEmailConfirmChange(event.target.value)}
                 onPaste={(event) => event.preventDefault()}
                 aria-invalid={Boolean(errors.parentEmailConfirm)}
+                data-valid={emailConfirmMatches && !errors.parentEmailConfirm ? "true" : undefined}
                 autoComplete="off"
                 data-testid="input-parent-email-confirm"
               />
-              {errors.parentEmailConfirm && (
+              {errors.parentEmailConfirm ? (
                 <span className="field-error" role="alert" data-testid="error-parent-email-confirm">
                   {errors.parentEmailConfirm}
                 </span>
-              )}
+              ) : emailConfirmMatches ? (
+                <span className="field-success" data-testid="success-parent-email-confirm">
+                  Emails match.
+                </span>
+              ) : null}
             </label>
             <label className="form-field">
               <span>Phone</span>
@@ -2108,18 +2149,23 @@ function ConsentForm() {
               <span>Confirm phone</span>
               <input
                 value={parentPhoneConfirm}
-                onChange={(event) => setParentPhoneConfirm(event.target.value)}
+                onChange={(event) => onParentPhoneConfirmChange(event.target.value)}
                 onPaste={(event) => event.preventDefault()}
                 inputMode="tel"
                 aria-invalid={Boolean(errors.parentPhoneConfirm)}
+                data-valid={phoneConfirmMatches && !errors.parentPhoneConfirm ? "true" : undefined}
                 autoComplete="off"
                 data-testid="input-parent-phone-confirm"
               />
-              {errors.parentPhoneConfirm && (
+              {errors.parentPhoneConfirm ? (
                 <span className="field-error" role="alert" data-testid="error-parent-phone-confirm">
                   {errors.parentPhoneConfirm}
                 </span>
-              )}
+              ) : phoneConfirmMatches ? (
+                <span className="field-success" data-testid="success-parent-phone-confirm">
+                  Phone numbers match.
+                </span>
+              ) : null}
             </label>
           </div>
           <p className="field-help" data-testid="contact-details-note">
