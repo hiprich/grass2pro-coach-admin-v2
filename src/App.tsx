@@ -933,19 +933,121 @@ function ConsentBadge({ status }: { status: ConsentStatus }) {
   );
 }
 
-// Mobile-friendly consent cell: tapping the badge reveals a popover listing
-// the player's granted consent purposes. The dedicated "Consent details"
-// column is hidden on mobile (see index.css), so the popover is the only way
-// to see the chips at narrow widths. On desktop the popover stays hidden and
-// the chip list in the next column carries the information.
+// matchMedia hook used to switch between the desktop popover and the mobile
+// bottom-sheet modal for consent details. Stays in sync with viewport changes
+// (rotation, devtools resizing) without re-rendering the whole tree.
+function useMediaQuery(query: string): boolean {
+  const getMatch = () =>
+    typeof window !== "undefined" && typeof window.matchMedia === "function"
+      ? window.matchMedia(query).matches
+      : false;
+  const [matches, setMatches] = useState<boolean>(getMatch);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const mql = window.matchMedia(query);
+    const handler = (event: MediaQueryListEvent) => setMatches(event.matches);
+    mql.addEventListener("change", handler);
+    return () => mql.removeEventListener("change", handler);
+  }, [query]);
+
+  return matches;
+}
+
+// Shared consent details panel: same chip list used in the desktop popover,
+// the mobile bottom-sheet modal, and the inline mobile card row.
+function ConsentDetailsBody({
+  player,
+  variant,
+}: {
+  player: Player;
+  variant: "popover" | "modal" | "card";
+}) {
+  const purposes = consentPurposesForPlayer(player);
+  if (purposes.length === 0) {
+    return (
+      <p className="player-sub" data-testid={`text-consent-details-${variant}-${player.id}`}>
+        No consent purposes recorded.
+      </p>
+    );
+  }
+  return (
+    <ul
+      className="consent-chip-list"
+      aria-label={`Consent purposes for ${player.name}`}
+      data-testid={`list-consent-details-${variant}-${player.id}`}
+    >
+      {purposes.map((label) => (
+        <li key={label} className="consent-chip">
+          {label}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+// Bottom-sheet modal anchored to the viewport (not the row) used on mobile.
+// Closes on outside tap, the close button, and the Escape key. Body scroll is
+// locked while open so the sheet stays fully visible above the browser chrome.
+function ConsentDetailsSheet({ player, onClose }: { player: Player; onClose: () => void }) {
+  useEffect(() => {
+    function handleKey(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", handleKey);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", handleKey);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      className="consent-sheet-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Consent details for ${player.name}`}
+      data-testid={`sheet-consent-details-${player.id}`}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div className="consent-sheet">
+        <div className="consent-sheet-header">
+          <div>
+            <span className="consent-sheet-kicker">Consent details</span>
+            <h3 className="consent-sheet-title">{player.name}</h3>
+          </div>
+          <button
+            type="button"
+            className="consent-popover-close"
+            onClick={onClose}
+            aria-label="Close consent details"
+            data-testid={`button-close-consent-details-${player.id}`}
+          >
+            <X size={16} aria-hidden="true" />
+          </button>
+        </div>
+        <ConsentDetailsBody player={player} variant="modal" />
+      </div>
+    </div>
+  );
+}
+
+// On desktop the badge toggles an absolute-positioned popover anchored under
+// the row. On mobile the dedicated "Consent details" column is replaced by a
+// fixed bottom-sheet so the chip list is always fully visible regardless of
+// row position or browser chrome.
 function PlayerConsentCell({ player }: { player: Player }) {
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const purposes = consentPurposesForPlayer(player);
   const popoverId = `consent-popover-${player.id}`;
+  const isMobile = useMediaQuery("(max-width: 760px)");
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || isMobile) return;
     function handlePointerDown(event: MouseEvent | TouchEvent) {
       const node = wrapperRef.current;
       if (node && event.target instanceof Node && !node.contains(event.target)) {
@@ -963,7 +1065,7 @@ function PlayerConsentCell({ player }: { player: Player }) {
       document.removeEventListener("touchstart", handlePointerDown);
       document.removeEventListener("keydown", handleKey);
     };
-  }, [open]);
+  }, [open, isMobile]);
 
   return (
     <div className="consent-cell" ref={wrapperRef}>
@@ -973,6 +1075,7 @@ function PlayerConsentCell({ player }: { player: Player }) {
         data-testid={`badge-consent-${player.consentStatus}`}
         aria-expanded={open}
         aria-controls={popoverId}
+        aria-haspopup="dialog"
         aria-label={`${CONSENT_STATUS_LABELS[player.consentStatus]} for ${player.name}. Tap to ${open ? "hide" : "show"} consent details.`}
         onClick={() => setOpen((prev) => !prev)}
       >
@@ -980,7 +1083,7 @@ function PlayerConsentCell({ player }: { player: Player }) {
         {CONSENT_STATUS_LABELS[player.consentStatus]}
       </button>
       <div className="player-sub">{player.status}</div>
-      {open && (
+      {open && !isMobile && (
         <div
           id={popoverId}
           className="consent-popover"
@@ -1000,24 +1103,11 @@ function PlayerConsentCell({ player }: { player: Player }) {
               <X size={16} aria-hidden="true" />
             </button>
           </div>
-          {purposes.length === 0 ? (
-            <p className="player-sub" data-testid={`text-consent-details-popover-${player.id}`}>
-              No consent purposes recorded.
-            </p>
-          ) : (
-            <ul
-              className="consent-chip-list"
-              aria-label={`Consent purposes for ${player.name}`}
-              data-testid={`list-consent-details-popover-${player.id}`}
-            >
-              {purposes.map((label) => (
-                <li key={label} className="consent-chip">
-                  {label}
-                </li>
-              ))}
-            </ul>
-          )}
+          <ConsentDetailsBody player={player} variant="popover" />
         </div>
+      )}
+      {open && isMobile && (
+        <ConsentDetailsSheet player={player} onClose={() => setOpen(false)} />
       )}
     </div>
   );
@@ -1302,75 +1392,107 @@ function PlayerList({ players }: { players: Player[] }) {
           <p>Try a different search or consent filter. Players stay listed even when media consent is missing.</p>
         </div>
       ) : (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Player</th>
-                <th>Team</th>
-                <th>Consent</th>
-                <th className="consent-details-col">Consent details</th>
-                <th>Review due</th>
-                <th>Progress</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredPlayers.map((player) => {
-                const purposes = consentPurposesForPlayer(player);
-                return (
-                <tr key={player.id} data-testid={`row-player-${player.id}`}>
-                  <td>
-                    <div className="player-cell">
-                      <span className="player-avatar">{initials(player.name)}</span>
-                      <span>
-                        <span className="player-name" data-testid={`text-player-name-${player.id}`}>
-                          {player.name}
-                        </span>
-                        <span className="player-sub">
-                          {player.position} · Guardian {player.guardianName}
-                        </span>
-                      </span>
-                    </div>
-                  </td>
-                  <td>
-                    <strong>{player.team}</strong>
-                    <div className="player-sub">{player.ageGroup}</div>
-                  </td>
-                  <td>
-                    <PlayerConsentCell player={player} />
-                  </td>
-                  <td className="consent-details-col">
-                    {purposes.length === 0 ? (
-                      <div className="player-sub" data-testid={`text-consent-details-${player.id}`}>
-                        No consent purposes recorded.
-                      </div>
-                    ) : (
-                      <ul
-                        className="consent-chip-list"
-                        aria-label={`Consent purposes for ${player.name}`}
-                        data-testid={`list-consent-details-${player.id}`}
-                      >
-                        {purposes.map((label) => (
-                          <li key={label} className="consent-chip">
-                            {label}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </td>
-                  <td>{new Date(player.reviewDue).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}</td>
-                  <td>
-                    <div className="progress-track" aria-label={`${player.progressScore}% progress`}>
-                      <div className="progress-fill" style={{ width: `${player.progressScore}%` }} />
-                    </div>
-                    <div className="player-sub">{player.progressScore}%</div>
-                  </td>
+        <>
+          <div className="table-wrap player-table-desktop">
+            <table>
+              <thead>
+                <tr>
+                  <th>Player</th>
+                  <th>Team</th>
+                  <th>Consent</th>
+                  <th className="consent-details-col">Consent details</th>
+                  <th>Review due</th>
+                  <th>Progress</th>
                 </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {filteredPlayers.map((player) => (
+                  <tr key={player.id} data-testid={`row-player-${player.id}`}>
+                    <td>
+                      <div className="player-cell">
+                        <span className="player-avatar">{initials(player.name)}</span>
+                        <span>
+                          <span className="player-name" data-testid={`text-player-name-${player.id}`}>
+                            {player.name}
+                          </span>
+                          <span className="player-sub">
+                            {player.position} · Guardian {player.guardianName}
+                          </span>
+                        </span>
+                      </div>
+                    </td>
+                    <td>
+                      <strong>{player.team}</strong>
+                      <div className="player-sub">{player.ageGroup}</div>
+                    </td>
+                    <td>
+                      <PlayerConsentCell player={player} />
+                    </td>
+                    <td className="consent-details-col">
+                      <ConsentDetailsBody player={player} variant="card" />
+                    </td>
+                    <td>{new Date(player.reviewDue).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}</td>
+                    <td>
+                      <div className="progress-track" aria-label={`${player.progressScore}% progress`}>
+                        <div className="progress-fill" style={{ width: `${player.progressScore}%` }} />
+                      </div>
+                      <div className="player-sub">{player.progressScore}%</div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <ul className="player-card-list" aria-label="Players">
+            {filteredPlayers.map((player) => (
+              <li key={player.id} className="player-card" data-testid={`row-player-${player.id}`}>
+                <div className="player-card-head">
+                  <span className="player-avatar">{initials(player.name)}</span>
+                  <div className="player-card-identity">
+                    <span className="player-name" data-testid={`text-player-name-${player.id}`}>
+                      {player.name}
+                    </span>
+                    <span className="player-sub">
+                      {player.position} · Guardian {player.guardianName}
+                    </span>
+                    <span className="player-sub">
+                      <strong>{player.team}</strong> · {player.ageGroup}
+                    </span>
+                  </div>
+                </div>
+                <div className="player-card-consent">
+                  <PlayerConsentCell player={player} />
+                </div>
+                <dl className="player-card-meta">
+                  <div className="player-card-meta-row">
+                    <dt>Review due</dt>
+                    <dd>
+                      {new Date(player.reviewDue).toLocaleDateString("en-GB", {
+                        day: "2-digit",
+                        month: "short",
+                      })}
+                    </dd>
+                  </div>
+                  <div className="player-card-meta-row">
+                    <dt>Progress</dt>
+                    <dd>
+                      <div
+                        className="progress-track"
+                        aria-label={`${player.progressScore}% progress`}
+                      >
+                        <div
+                          className="progress-fill"
+                          style={{ width: `${player.progressScore}%` }}
+                        />
+                      </div>
+                      <div className="player-sub">{player.progressScore}%</div>
+                    </dd>
+                  </div>
+                </dl>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
     </section>
   );
