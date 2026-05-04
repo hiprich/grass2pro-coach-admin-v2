@@ -4041,7 +4041,7 @@ function ParentChildCard({
         open={manageOpen}
         onToggle={(event) => setManageOpen((event.target as HTMLDetailsElement).open)}
       >
-        <summary className="portal-manage-summary" data-testid={`button-portal-manage-${player.id}`}>Manage record</summary>
+        <summary className="portal-manage-summary" data-testid={`button-portal-manage-${player.id}`}>Manage your child's club membership</summary>
         <div className="portal-manage-body">
           <div className="portal-manage-section">
             <h3 className="portal-manage-title">Request to leave</h3>
