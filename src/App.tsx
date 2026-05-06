@@ -1708,7 +1708,7 @@ function Overview({
       )}
 
       <section className="cards-grid">
-        <article className="card mini-card">
+        <article className="card mini-card" data-tone="media">
           <Camera size={20} aria-hidden="true" />
           <h3>Session photos</h3>
           <p>{(() => {
@@ -1718,7 +1718,7 @@ function Overview({
               : `${n} players allow photos during sessions.`;
           })()}</p>
         </article>
-        <article className="card mini-card">
+        <article className="card mini-card" data-tone="media">
           <Camera size={20} aria-hidden="true" />
           <h3>Match photos</h3>
           <p>{(() => {
@@ -1728,7 +1728,7 @@ function Overview({
               : `${n} players allow photos during matches.`;
           })()}</p>
         </article>
-        <article className="card mini-card">
+        <article className="card mini-card" data-tone="media">
           <Video size={20} aria-hidden="true" />
           <h3>Coaching video review</h3>
           <p>{(() => {
@@ -1738,7 +1738,7 @@ function Overview({
               : `${n} players have permission for training analysis footage.`;
           })()}</p>
         </article>
-        <article className="card mini-card">
+        <article className="card mini-card" data-tone="media">
           <Video size={20} aria-hidden="true" />
           <h3>Match video</h3>
           <p>{(() => {
@@ -1748,7 +1748,7 @@ function Overview({
               : `${n} players allow match footage for coach analysis.`;
           })()}</p>
         </article>
-        <article className="card mini-card">
+        <article className="card mini-card" data-tone={needsAction === 0 ? "success" : "attention"}>
           <ShieldCheck size={20} aria-hidden="true" />
           <h3>Needs follow-up</h3>
           <p>{needsAction === 1
@@ -3392,7 +3392,7 @@ function ConsentForm() {
           </p>
         </div>
 
-        <section className="form-section">
+        <section className="form-section" data-tone="neutral">
           <h2>Child and parent details</h2>
           <div className="form-grid form-grid--paired">
             <div className="form-pair">
@@ -3542,7 +3542,7 @@ function ConsentForm() {
           </p>
         </section>
 
-        <section className="form-section">
+        <section className="form-section" data-tone="media">
           <h2>Photo and video permissions</h2>
           <p className="field-help">Select each specific media use the parent or guardian allows. Leaving all unchecked records no media permission.</p>
           <div className="checkbox-grid">
@@ -3568,7 +3568,7 @@ function ConsentForm() {
           </div>
         </section>
 
-        <section className="form-section">
+        <section className="form-section" data-tone="attention">
           <h2>Information sharing permissions</h2>
           <p className="field-help">These permissions are independent of media. They do not affect a player&apos;s media consent status, and leaving them unchecked never excludes a player from sessions.</p>
           <div className="checkbox-grid">
@@ -3594,7 +3594,7 @@ function ConsentForm() {
           </div>
         </section>
 
-        <section className="form-section">
+        <section className="form-section" data-tone="pathway-1">
           <h2>Usage, storage and withdrawal</h2>
           <label className="form-field full">
             <span>Usage details shown to parent</span>

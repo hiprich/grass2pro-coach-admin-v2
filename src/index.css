@@ -688,6 +688,100 @@
     --tone-accent: var(--tone-media-accent);
   }
 
+  /* Reuse the same tone system on form-section, checkbox-card, mini-card. */
+  .form-section[data-tone],
+  .mini-card[data-tone] {
+    position: relative;
+    overflow: hidden;
+    background: var(--tone-bg, var(--surface));
+    border-color: color-mix(in oklab, var(--tone-accent, var(--border-strong)) 22%, transparent);
+  }
+
+  .form-section[data-tone]::before,
+  .mini-card[data-tone]::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 4px;
+    background: var(--tone-accent, transparent);
+    opacity: 0.85;
+  }
+
+  .form-section[data-tone] h2,
+  .mini-card[data-tone] h3 {
+    color: color-mix(in oklab, var(--tone-accent, var(--text)) 35%, var(--text));
+  }
+
+  .form-section[data-tone="neutral"],
+  .mini-card[data-tone="neutral"] {
+    --tone-bg: var(--tone-neutral-bg);
+    --tone-accent: var(--tone-neutral-accent);
+  }
+  .form-section[data-tone="success"],
+  .mini-card[data-tone="success"] {
+    --tone-bg: var(--tone-success-bg);
+    --tone-accent: var(--tone-success-accent);
+  }
+  .form-section[data-tone="warning"],
+  .mini-card[data-tone="warning"] {
+    --tone-bg: var(--tone-warning-bg);
+    --tone-accent: var(--tone-warning-accent);
+  }
+  .form-section[data-tone="attention"],
+  .mini-card[data-tone="attention"] {
+    --tone-bg: var(--tone-attention-bg);
+    --tone-accent: var(--tone-attention-accent);
+  }
+  .form-section[data-tone="danger"],
+  .mini-card[data-tone="danger"] {
+    --tone-bg: var(--tone-danger-bg);
+    --tone-accent: var(--tone-danger-accent);
+  }
+  .form-section[data-tone="pathway-1"],
+  .mini-card[data-tone="pathway-1"] {
+    --tone-bg: var(--tone-pathway-1-bg);
+    --tone-accent: var(--tone-pathway-1-accent);
+  }
+  .form-section[data-tone="pathway-2"],
+  .mini-card[data-tone="pathway-2"] {
+    --tone-bg: var(--tone-pathway-2-bg);
+    --tone-accent: var(--tone-pathway-2-accent);
+  }
+  .form-section[data-tone="pathway-3"],
+  .mini-card[data-tone="pathway-3"] {
+    --tone-bg: var(--tone-pathway-3-bg);
+    --tone-accent: var(--tone-pathway-3-accent);
+  }
+  .form-section[data-tone="media"],
+  .mini-card[data-tone="media"] {
+    --tone-bg: var(--tone-media-bg);
+    --tone-accent: var(--tone-media-accent);
+  }
+
+  /* Inside a tinted form-section, lift the checkbox cards to white-ish */
+  /* surface so they read as crisp "choices" against the tinted background. */
+  .form-section[data-tone] .checkbox-card {
+    background: color-mix(in oklab, var(--surface) 88%, var(--tone-accent) 12%);
+    border-color: color-mix(in oklab, var(--tone-accent) 18%, var(--border));
+    transition: background var(--transition-interactive), border-color var(--transition-interactive),
+      box-shadow var(--transition-interactive);
+  }
+
+  .form-section[data-tone] .checkbox-card:hover {
+    border-color: color-mix(in oklab, var(--tone-accent) 35%, var(--border-strong));
+  }
+
+  /* When a checkbox is ticked, its card lights up in the section's tone. */
+  .form-section[data-tone] .checkbox-card:has(input:checked) {
+    background: color-mix(in oklab, var(--tone-bg) 70%, var(--surface) 30%);
+    border-color: color-mix(in oklab, var(--tone-accent) 55%, transparent);
+    box-shadow: inset 3px 0 0 var(--tone-accent);
+  }
+
+  .form-section[data-tone] .checkbox-card input {
+    accent-color: var(--tone-accent);
+  }
+
   .kpi-label {
     display: flex;
     align-items: center;
@@ -1217,64 +1311,62 @@
     letter-spacing: 0.04em;
   }
 
+  /* Small leading dot keyed to the pill’s tone for an Apple-style status chip. */
+  .status-pill::before {
+    content: "";
+    width: 0.45rem;
+    height: 0.45rem;
+    border-radius: var(--radius-full);
+    background: currentColor;
+    flex-shrink: 0;
+    opacity: 0.85;
+  }
+
   .attendance-present,
-  .payment-paid {
+  .payment-paid,
+  .session-completed,
+  .notify-yes {
     background: var(--success-soft);
     color: var(--success);
+    border-color: color-mix(in oklab, var(--success) 28%, transparent);
   }
 
   .attendance-late,
-  .payment-part-paid {
+  .payment-part-paid,
+  .attendance-injured,
+  .notify-no {
     background: var(--amber-soft);
     color: var(--warning);
+    border-color: color-mix(in oklab, var(--warning) 28%, transparent);
   }
 
   .attendance-absent,
-  .payment-overdue {
+  .payment-overdue,
+  .session-cancelled {
     background: var(--danger-soft);
     color: var(--danger);
-  }
-
-  .attendance-injured {
-    background: var(--amber-soft);
-    color: var(--warning);
+    border-color: color-mix(in oklab, var(--danger) 28%, transparent);
   }
 
   .attendance-excused,
   .payment-waived {
     background: var(--grey-soft);
     color: var(--muted);
-  }
-
-  .payment-unpaid {
-    background: var(--surface-2);
-    color: var(--text);
     border-color: var(--border-strong);
   }
 
-  .notify-yes {
-    background: var(--success-soft);
-    color: var(--success);
-  }
-
-  .notify-no {
-    background: var(--amber-soft);
-    color: var(--warning);
+  /* Unpaid is a soft warm-orange “attention” — reads as “needs you” */
+  /* without crying wolf the way danger red does. */
+  .payment-unpaid {
+    background: var(--tone-attention-bg);
+    color: var(--tone-attention-accent);
+    border-color: color-mix(in oklab, var(--tone-attention-accent) 30%, transparent);
   }
 
   .session-scheduled {
     background: var(--primary-soft);
     color: var(--primary-strong);
-  }
-
-  .session-completed {
-    background: var(--success-soft);
-    color: var(--success);
-  }
-
-  .session-cancelled {
-    background: var(--danger-soft);
-    color: var(--danger);
+    border-color: color-mix(in oklab, var(--primary) 28%, transparent);
   }
 
   .inline-meta {
