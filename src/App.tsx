@@ -2063,16 +2063,17 @@ function PlayerList({
       </div>
       <div className="filter-row" aria-label="Consent filters">
         {([
-          { value: "all", label: "All" },
-          { value: "green", label: "Full consent" },
-          { value: "amber", label: "Limited consent" },
-          { value: "red", label: "Withdrawn" },
-          { value: "grey", label: "No consent" },
-        ] as const).map(({ value, label }) => (
+          { value: "all", label: "All", tone: "neutral" },
+          { value: "green", label: "Full consent", tone: "success" },
+          { value: "amber", label: "Limited consent", tone: "warning" },
+          { value: "red", label: "Withdrawn", tone: "danger" },
+          { value: "grey", label: "No consent", tone: "muted" },
+        ] as const).map(({ value, label, tone }) => (
           <button
             key={value}
             type="button"
             className={`filter-button ${filter === value ? "active" : ""}`}
+            data-filter-tone={tone}
             onClick={() => setFilter(value)}
             data-testid={`button-filter-${value}`}
           >

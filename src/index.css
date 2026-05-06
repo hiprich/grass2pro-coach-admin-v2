@@ -919,11 +919,69 @@
     padding: var(--space-2) var(--space-4);
     text-transform: uppercase;
     letter-spacing: 0.04em;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    transition: background var(--transition-interactive), border-color var(--transition-interactive),
+      color var(--transition-interactive);
   }
 
+  /* Tone-coded leading dot — visible signpost without dominating the chip
+     when inactive. Maps to the same semantic palette used everywhere else. */
+  .filter-button[data-filter-tone]::before {
+    content: "";
+    display: inline-block;
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: var(--radius-full);
+    background: var(--filter-dot, var(--muted));
+    flex-shrink: 0;
+  }
+  .filter-button[data-filter-tone="neutral"] { --filter-dot: var(--tone-neutral-accent); }
+  .filter-button[data-filter-tone="success"] { --filter-dot: var(--tone-success-accent); }
+  .filter-button[data-filter-tone="warning"] { --filter-dot: var(--tone-warning-accent); }
+  .filter-button[data-filter-tone="danger"]  { --filter-dot: var(--tone-danger-accent); }
+  .filter-button[data-filter-tone="muted"]   { --filter-dot: var(--faint); }
+
+  .filter-button:hover {
+    border-color: color-mix(in oklab, var(--filter-dot, var(--border-strong)) 35%, var(--border-strong));
+  }
+
+  /* Active state: fill chip with tone background + accent border + accent
+     text. Each filter now reads as its own coloured pill when selected. */
   .filter-button.active {
     background: var(--primary);
     color: white;
+  }
+  .filter-button.active[data-filter-tone="neutral"] {
+    background: var(--tone-neutral-bg);
+    border-color: color-mix(in oklab, var(--tone-neutral-accent) 45%, transparent);
+    color: color-mix(in oklab, var(--tone-neutral-accent) 75%, var(--text));
+  }
+  .filter-button.active[data-filter-tone="success"] {
+    background: var(--tone-success-bg);
+    border-color: color-mix(in oklab, var(--tone-success-accent) 45%, transparent);
+    color: var(--tone-success-accent);
+  }
+  .filter-button.active[data-filter-tone="warning"] {
+    background: var(--tone-warning-bg);
+    border-color: color-mix(in oklab, var(--tone-warning-accent) 45%, transparent);
+    color: var(--tone-warning-accent);
+  }
+  .filter-button.active[data-filter-tone="danger"] {
+    background: var(--tone-danger-bg);
+    border-color: color-mix(in oklab, var(--tone-danger-accent) 50%, transparent);
+    color: var(--tone-danger-accent);
+  }
+  .filter-button.active[data-filter-tone="muted"] {
+    background: var(--grey-soft);
+    border-color: var(--border-strong);
+    color: var(--text);
+  }
+  /* Brighten the dot when active so it stays visible against the tinted fill. */
+  .filter-button.active[data-filter-tone]::before {
+    background: var(--filter-dot);
+    box-shadow: 0 0 0 2px color-mix(in oklab, var(--filter-dot) 25%, transparent);
   }
 
   .player-table-card {
