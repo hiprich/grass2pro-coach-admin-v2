@@ -192,6 +192,120 @@ export async function unsubscribeFromPush(): Promise<{ ok: boolean; detail?: str
   }
 }
 
+// ---------------------------------------------------------------------------
+// Prefs UI helpers
+// ---------------------------------------------------------------------------
+
+export type PushSubscriptionPrefs = {
+  oneHourReminder: boolean;
+  checkInOpen: boolean;
+  pickupSoon: boolean;
+};
+
+export type PushSubscriptionRow = {
+  id: string;
+  deviceLabel: string;
+  userAgent: string;
+  active: boolean;
+  prefs: PushSubscriptionPrefs;
+  endpointHash: string;
+  createdAt: string | null;
+  lastUsedAt: string | null;
+  failureCount: number;
+  isThisDevice: boolean;
+};
+
+async function sha256Hex(value: string): Promise<string> {
+  const data = new TextEncoder().encode(value);
+  const buf = await crypto.subtle.digest("SHA-256", data);
+  const bytes = new Uint8Array(buf);
+  let out = "";
+  for (let i = 0; i < bytes.length; i += 1) {
+    out += bytes[i].toString(16).padStart(2, "0");
+  }
+  return out;
+}
+
+/**
+ * Fetch every subscription belonging to the signed-in parent and tag the
+ * one matching the current browser's endpoint with `isThisDevice: true`.
+ * The match is done client-side against a SHA-256 of each row's endpoint
+ * so the function never has to hand back the raw endpoint URL.
+ */
+export async function listPushSubscriptions(): Promise<{
+  ok: true;
+  subscriptions: PushSubscriptionRow[];
+} | { ok: false; status: number; detail?: string }> {
+  let res: Response;
+  try {
+    res = await fetch("/.netlify/functions/parent-push-list", {
+      method: "GET",
+      credentials: "include",
+    });
+  } catch (error) {
+    return { ok: false, status: 0, detail: String(error) };
+  }
+  if (!res.ok) {
+    return { ok: false, status: res.status, detail: await res.text().catch(() => "") };
+  }
+  const body = (await res.json().catch(() => ({}))) as {
+    subscriptions?: Array<
+      Omit<PushSubscriptionRow, "isThisDevice">
+    >;
+  };
+  const rows = Array.isArray(body.subscriptions) ? body.subscriptions : [];
+
+  // Determine this-device hash from the live PushManager subscription, if
+  // any. We use crypto.subtle for parity with the server's node:crypto SHA.
+  let thisHash: string | null = null;
+  try {
+    if ("serviceWorker" in navigator && "PushManager" in window) {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (sub?.endpoint) thisHash = await sha256Hex(sub.endpoint);
+    }
+  } catch {
+    /* leave thisHash null — nothing will be highlighted */
+  }
+
+  return {
+    ok: true,
+    subscriptions: rows.map((row) => ({
+      ...row,
+      isThisDevice: thisHash !== null && row.endpointHash === thisHash,
+    })),
+  };
+}
+
+/**
+ * Patch one or more fields on a single subscription. Pass only the keys
+ * you want to change — omitted prefs/active stay as they were.
+ */
+export async function updatePushPrefs(
+  subscriptionId: string,
+  patch: {
+    prefs?: Partial<PushSubscriptionPrefs>;
+    active?: boolean;
+    deviceLabel?: string;
+  },
+): Promise<{ ok: boolean; status: number; detail?: string }> {
+  let res: Response;
+  try {
+    res = await fetch("/.netlify/functions/parent-push-prefs", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ subscriptionId, ...patch }),
+    });
+  } catch (error) {
+    return { ok: false, status: 0, detail: String(error) };
+  }
+  if (!res.ok) {
+    return { ok: false, status: res.status, detail: await res.text().catch(() => "") };
+  }
+  return { ok: true, status: res.status };
+}
+
 /** Friendly label for the Push Subscriptions row, used as the primary field. */
 function guessDeviceLabel(): string {
   if (typeof navigator === "undefined") return "Unknown device";

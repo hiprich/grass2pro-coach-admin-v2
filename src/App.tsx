@@ -2,6 +2,8 @@ import {
   AlertTriangle,
   Ban,
   Banknote,
+  Bell,
+  BellOff,
   CalendarClock,
   CalendarDays,
   Camera,
@@ -32,6 +34,14 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
+import type { PushCapability, PushSubscriptionRow } from "./lib/pushClient";
+import {
+  getPushCapability,
+  listPushSubscriptions,
+  subscribeToPush,
+  unsubscribeFromPush,
+  updatePushPrefs,
+} from "./lib/pushClient";
 
 type ConsentStatus = "green" | "amber" | "red" | "grey";
 
@@ -5502,6 +5512,391 @@ function ParentChildCard({
   );
 }
 
+// ----------------------------------------------------------------------
+// Notifications card on the parent portal.
+//
+// Sits just below the children list. Three states drive the rendered UI:
+//
+//   1. Push not yet enabled on this device  →  show a single "Turn on
+//      notifications" CTA. Clicking it requests permission, subscribes,
+//      and reloads the device list.
+//   2. Push enabled, this device shows up in the list  →  render the
+//      live row with three pref toggles + master mute, and any other
+//      devices the parent has below it.
+//   3. iOS Safari outside Home Screen  →  show the iOS install hint;
+//      no toggles render until the parent installs the PWA and reopens.
+//
+// The card never sets `setMessage` directly — we lift toast handling up
+// to ParentOverviewScreen so the success/error banner positioning stays
+// consistent with the rest of the portal.
+
+type PushFlash = (tone: "info" | "success" | "error", text: string) => void;
+
+function formatRelativeTime(iso: string | null): string {
+  if (!iso) return "";
+  const ts = Date.parse(iso);
+  if (!Number.isFinite(ts)) return "";
+  const diffMs = Date.now() - ts;
+  const minutes = Math.round(diffMs / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} hr ago`;
+  const days = Math.round(hours / 24);
+  if (days < 30) return `${days} day${days === 1 ? "" : "s"} ago`;
+  return new Date(ts).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+}
+
+function PushPrefRow({
+  subscription,
+  busy,
+  onTogglePref,
+  onToggleActive,
+  onUnsubscribe,
+}: {
+  subscription: PushSubscriptionRow;
+  busy: boolean;
+  onTogglePref: (
+    key: keyof PushSubscriptionRow["prefs"],
+    value: boolean,
+  ) => Promise<void>;
+  onToggleActive: (value: boolean) => Promise<void>;
+  onUnsubscribe: () => Promise<void>;
+}) {
+  const lastUsed = formatRelativeTime(subscription.lastUsedAt);
+  const prefs = subscription.prefs;
+
+  return (
+    <div
+      className={`portal-push-device${subscription.isThisDevice ? " is-this-device" : ""}`}
+      data-testid={`row-push-device-${subscription.id}`}
+    >
+      <div className="portal-push-device-head">
+        <div className="portal-push-device-title">
+          <span className="portal-push-device-name">
+            {subscription.deviceLabel}
+            {subscription.isThisDevice ? (
+              <span className="portal-push-this-pill" aria-label="This device">
+                This device
+              </span>
+            ) : null}
+          </span>
+          {lastUsed ? (
+            <span className="portal-push-device-meta">Last used {lastUsed}</span>
+          ) : null}
+        </div>
+        <label className="portal-toggle" data-testid={`toggle-push-active-${subscription.id}`}>
+          <input
+            type="checkbox"
+            checked={subscription.active}
+            disabled={busy}
+            onChange={(event) => {
+              void onToggleActive(event.target.checked);
+            }}
+          />
+          <span className="portal-toggle-track" aria-hidden="true" />
+          <span className="portal-toggle-label">{subscription.active ? "On" : "Muted"}</span>
+        </label>
+      </div>
+
+      <div className="portal-push-prefs" aria-disabled={!subscription.active}>
+        {[
+          {
+            key: "oneHourReminder" as const,
+            title: "1-hour reminder",
+            hint: "60 minutes before each session starts.",
+          },
+          {
+            key: "checkInOpen" as const,
+            title: "Check-in open",
+            hint: "30 minutes before — the QR is live.",
+          },
+          {
+            key: "pickupSoon" as const,
+            title: "Pickup soon",
+            hint: "30 minutes before the session ends.",
+          },
+        ].map((row) => (
+          <label
+            key={row.key}
+            className="portal-push-pref-row"
+            data-testid={`toggle-push-pref-${row.key}-${subscription.id}`}
+          >
+            <input
+              type="checkbox"
+              checked={prefs[row.key]}
+              disabled={busy || !subscription.active}
+              onChange={(event) => {
+                void onTogglePref(row.key, event.target.checked);
+              }}
+            />
+            <span className="portal-push-pref-text">
+              <span className="portal-push-pref-title">{row.title}</span>
+              <span className="portal-push-pref-hint">{row.hint}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+
+      {subscription.isThisDevice ? (
+        <div className="portal-push-device-actions">
+          <button
+            type="button"
+            className="portal-link-button"
+            onClick={() => {
+              void onUnsubscribe();
+            }}
+            disabled={busy}
+            data-testid={`button-push-remove-${subscription.id}`}
+          >
+            Remove this device
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ParentNotificationsCard({ flash }: { flash: PushFlash }) {
+  const [capability, setCapability] = useState<PushCapability>(() => getPushCapability());
+  const [subscriptions, setSubscriptions] = useState<PushSubscriptionRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [enabling, setEnabling] = useState(false);
+
+  // Refresh runs the GET, awaits it, then commits state. We keep this stable
+  // across renders so the visibility-change handler can reuse it without
+  // re-binding. Note: we do NOT flip `loading` to true on subsequent calls
+  // because the card already has data on screen and a brief disabled state
+  // is enough — this also keeps us off the react-hooks/set-state-in-effect
+  // rule which forbids synchronous setState before any await.
+  const refresh = async () => {
+    const result = await listPushSubscriptions();
+    if (result.ok) {
+      setSubscriptions(result.subscriptions);
+    } else {
+      // 401 (session expired) and other errors both fall through to an empty
+      // list; the parent will see a sign-in prompt on next navigation.
+      setSubscriptions([]);
+    }
+    setCapability(getPushCapability());
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const result = await listPushSubscriptions();
+      if (cancelled) return;
+      if (result.ok) setSubscriptions(result.subscriptions);
+      else setSubscriptions([]);
+      setCapability(getPushCapability());
+      setLoading(false);
+    })();
+    // Permission can change while the page is open (e.g. user revokes it
+    // in browser settings); revisit when the tab regains focus.
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") setCapability(getPushCapability());
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, []);
+
+  async function handleEnable() {
+    setEnabling(true);
+    try {
+      const result = await subscribeToPush();
+      if (result.ok) {
+        flash("success", "Notifications enabled on this device.");
+        await refresh();
+      } else if (result.reason === "permission-denied") {
+        flash("error", "Permission was denied. You can re-enable it in your browser's site settings.");
+        setCapability(getPushCapability());
+      } else if (result.reason === "ios-needs-pwa") {
+        flash("info", "On iPhone, please tap Share → Add to Home Screen, then open Grass2Pro from the home screen and try again.");
+      } else {
+        flash("error", "We couldn't turn on notifications. Please try again.");
+      }
+    } finally {
+      setEnabling(false);
+    }
+  }
+
+  async function withBusy(id: string, work: () => Promise<void>) {
+    setBusyId(id);
+    try {
+      await work();
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function handleTogglePref(
+    sub: PushSubscriptionRow,
+    key: keyof PushSubscriptionRow["prefs"],
+    value: boolean,
+  ) {
+    // Optimistic update so the toggle feels snappy.
+    setSubscriptions((rows) =>
+      rows.map((row) =>
+        row.id === sub.id ? { ...row, prefs: { ...row.prefs, [key]: value } } : row,
+      ),
+    );
+    const result = await updatePushPrefs(sub.id, { prefs: { [key]: value } });
+    if (!result.ok) {
+      flash("error", "We couldn't save that change. Please try again.");
+      // Roll back by re-fetching the truth.
+      await refresh();
+    }
+  }
+
+  async function handleToggleActive(sub: PushSubscriptionRow, value: boolean) {
+    setSubscriptions((rows) =>
+      rows.map((row) => (row.id === sub.id ? { ...row, active: value } : row)),
+    );
+    const result = await updatePushPrefs(sub.id, { active: value });
+    if (!result.ok) {
+      flash("error", "We couldn't save that change. Please try again.");
+      await refresh();
+    }
+  }
+
+  async function handleUnsubscribeThisDevice() {
+    const result = await unsubscribeFromPush();
+    if (result.ok) {
+      flash("success", "Notifications turned off on this device.");
+    } else {
+      flash("error", "We couldn't turn notifications off cleanly. Please try again.");
+    }
+    await refresh();
+  }
+
+  // ----- Render -----
+
+  // Hide the whole card until we know if the parent has any devices on
+  // file AND we know what the device can do. Avoids a flash of "Turn on"
+  // when the parent already has push enabled.
+  if (loading && subscriptions.length === 0) {
+    return (
+      <section className="portal-card portal-push-card" aria-busy="true">
+        <header className="portal-push-card-head">
+          <Bell className="portal-push-card-icon" aria-hidden="true" />
+          <div>
+            <h2>Notifications</h2>
+            <p className="portal-push-card-sub">Loading your notification settings…</p>
+          </div>
+        </header>
+      </section>
+    );
+  }
+
+  const thisDeviceSub = subscriptions.find((sub) => sub.isThisDevice) || null;
+  const otherDevices = subscriptions.filter((sub) => !sub.isThisDevice);
+  const isIosNeedsPwa = capability.kind === "ios-needs-pwa";
+  const isUnsupported = capability.kind === "unsupported";
+  const isPermissionDenied = capability.kind === "permission-denied";
+  const showEnableCta =
+    !thisDeviceSub && !isIosNeedsPwa && !isUnsupported && !isPermissionDenied;
+
+  return (
+    <section className="portal-card portal-push-card" data-testid="card-push-prefs">
+      <header className="portal-push-card-head">
+        {thisDeviceSub?.active ? (
+          <Bell className="portal-push-card-icon" aria-hidden="true" />
+        ) : (
+          <BellOff className="portal-push-card-icon" aria-hidden="true" />
+        )}
+        <div>
+          <h2>Notifications</h2>
+          <p className="portal-push-card-sub">
+            Get reminders about your child&apos;s sessions on each device you use.
+          </p>
+        </div>
+      </header>
+
+      {isIosNeedsPwa ? (
+        <div className="portal-push-hint portal-push-hint-info" data-testid="hint-push-ios">
+          <strong>One quick step on iPhone:</strong>
+          <p>
+            Tap the Share icon in Safari, choose <em>Add to Home Screen</em>, then open Grass2Pro from your home screen. Apple only allows web notifications for installed apps.
+          </p>
+        </div>
+      ) : null}
+
+      {isUnsupported ? (
+        <div className="portal-push-hint portal-push-hint-info" data-testid="hint-push-unsupported">
+          <p>This browser doesn&apos;t support push notifications. Try the latest Chrome, Edge, Firefox, or Safari (16.4+).</p>
+        </div>
+      ) : null}
+
+      {isPermissionDenied ? (
+        <div className="portal-push-hint portal-push-hint-warn" data-testid="hint-push-denied">
+          <strong>Notifications are blocked.</strong>
+          <p>
+            Open your browser&apos;s site settings for Grass2Pro and switch Notifications back to <em>Allow</em>, then refresh this page.
+          </p>
+        </div>
+      ) : null}
+
+      {showEnableCta ? (
+        <div className="portal-push-enable">
+          <p>
+            We&apos;ll only send you reminders for your own children&apos;s sessions. Three quiet alerts at most: 1 hour before, when check-in opens, and when pickup is coming up.
+          </p>
+          <button
+            type="button"
+            className="portal-primary-button"
+            onClick={() => {
+              void handleEnable();
+            }}
+            disabled={enabling}
+            data-testid="button-push-enable"
+          >
+            {enabling ? "Turning on…" : "Turn on notifications"}
+          </button>
+        </div>
+      ) : null}
+
+      {thisDeviceSub ? (
+        <PushPrefRow
+          subscription={thisDeviceSub}
+          busy={busyId === thisDeviceSub.id}
+          onTogglePref={(key, value) =>
+            withBusy(thisDeviceSub.id, () => handleTogglePref(thisDeviceSub, key, value))
+          }
+          onToggleActive={(value) =>
+            withBusy(thisDeviceSub.id, () => handleToggleActive(thisDeviceSub, value))
+          }
+          onUnsubscribe={() => withBusy(thisDeviceSub.id, handleUnsubscribeThisDevice)}
+        />
+      ) : null}
+
+      {otherDevices.length > 0 ? (
+        <div className="portal-push-other-devices">
+          <h3 className="portal-push-other-devices-title">Other devices</h3>
+          {otherDevices.map((sub) => (
+            <PushPrefRow
+              key={sub.id}
+              subscription={sub}
+              busy={busyId === sub.id}
+              onTogglePref={(key, value) =>
+                withBusy(sub.id, () => handleTogglePref(sub, key, value))
+              }
+              onToggleActive={(value) =>
+                withBusy(sub.id, () => handleToggleActive(sub, value))
+              }
+              onUnsubscribe={async () => { /* only for this-device row */ }}
+            />
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 function ParentOverviewScreen({
   summary,
   onRefresh,
@@ -5592,6 +5987,12 @@ function ParentOverviewScreen({
           ))}
         </div>
       )}
+
+      {/* Notifications card sits below the children list. Only render once
+          we know the parent has at least one linked child — otherwise the
+          subscribe call would 409 because there's no Parents/Guardians row
+          on file yet. */}
+      {summary.players.length > 0 ? <ParentNotificationsCard flash={flash} /> : null}
     </div>
   );
 }
