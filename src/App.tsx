@@ -2420,14 +2420,19 @@ function PlayerList({
 function QrCheckinDialog({
   session,
   players,
+  initialScanType = "Arrival",
   onClose,
 }: {
   session: Session;
   players: Player[];
+  // Coach can override in-dialog, but we pre-select the phase-appropriate
+  // scan type so the most likely action is one tap away. Defaults to
+  // Arrival for callers that don't pass a phase (e.g. tests).
+  initialScanType?: QrCheckinScanType;
   onClose: () => void;
 }) {
   const [playerId, setPlayerId] = useState<string>(players[0]?.id ?? "");
-  const [scanType, setScanType] = useState<QrCheckinScanType>("Arrival");
+  const [scanType, setScanType] = useState<QrCheckinScanType>(initialScanType);
   const [stage, setStage] = useState<"choose" | "confirm" | "submitting" | "result">("choose");
   const [forceConfirm, setForceConfirm] = useState(false);
   const [warning, setWarning] = useState<string | null>(null);
@@ -3341,10 +3346,25 @@ function EditSessionDialog({
 // session is treated as completed. The raw data isn’t mutated; this just
 // shapes what the dashboard shows.
 // How long after the official end time we keep the session "actionable" on
-// the coach dashboard — QR check-in + Cancel button stay visible, and the
-// QR fallback code surfaces so late-arriving parents can still mark
-// attendance. After this window the row flips to a passive Completed.
+// the coach dashboard — the Departure QR + the QR fallback code stay
+// available so coaches can still mark late pickups. After this window the
+// row flips to a passive Completed.
 const SESSION_GRACE_MS = 60 * 60 * 1000; // 1 hour
+// How long *before* the official start time we open the Arrival QR. Gives
+// parents who arrive a touch early a way to scan straight in.
+const CHECKIN_OPEN_LEAD_MS = 30 * 60 * 1000; // 30 min
+// How long *before* the official end time we flip the primary action from
+// the green Arrival QR to the blue Departure QR. A 15-min overlap with the
+// tail of the session catches parents who collect early.
+const DEPARTURE_LEAD_MS = 15 * 60 * 1000; // 15 min
+
+// Resolve the session's start timestamp from `${date}T${startTime}`. Returns
+// null when either field is missing or unparseable.
+function sessionStartsAt(session: Session): Date | null {
+  if (!session.date || !/^\d{2}:\d{2}$/.test(session.startTime || "")) return null;
+  const d = new Date(`${session.date}T${session.startTime}:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
 
 // Resolve the session's end timestamp from `${date}T${endTime}`. Returns
 // null when either field is missing or unparseable.
@@ -3354,15 +3374,25 @@ function sessionEndsAt(session: Session): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-// True while the session has officially ended but we're still inside the
-// 1-hour grace window. Cancelled sessions never enter grace.
-function isWithinGracePeriod(session: Session, now: Date): boolean {
-  if (session.state === "cancelled") return false;
+// Which check-in phase is the session in right now?
+//   "arrival"   — start−30 min ≤ now < end−15 min   (green QR)
+//   "departure" — end−15 min   ≤ now < end+60 min   (blue QR + fallback code)
+//   "none"      — outside both windows
+// Cancelled sessions never enter any phase.
+type CheckinPhase = "none" | "arrival" | "departure";
+function checkinPhase(session: Session, now: Date): CheckinPhase {
+  if (session.state === "cancelled") return "none";
+  const startsAt = sessionStartsAt(session);
   const endsAt = sessionEndsAt(session);
-  if (!endsAt) return false;
-  const ended = endsAt.getTime();
-  const nowMs = now.getTime();
-  return nowMs >= ended && nowMs < ended + SESSION_GRACE_MS;
+  if (!startsAt || !endsAt) return "none";
+  const t = now.getTime();
+  const arrivalOpens = startsAt.getTime() - CHECKIN_OPEN_LEAD_MS;
+  const departureOpens = endsAt.getTime() - DEPARTURE_LEAD_MS;
+  const departureCloses = endsAt.getTime() + SESSION_GRACE_MS;
+  if (t < arrivalOpens) return "none";
+  if (t < departureOpens) return "arrival";
+  if (t < departureCloses) return "departure";
+  return "none";
 }
 
 function derivedSessionState(session: Session, now: Date): SessionState {
@@ -3400,7 +3430,13 @@ function Sessions({
 }) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"all" | SessionState>("all");
-  const [checkinSession, setCheckinSession] = useState<Session | null>(null);
+  // The QR check-in dialog — we capture both the session and which scan type
+  // to pre-select. Phase "departure" → Departure tab pre-selected; otherwise
+  // (arrival or fall-through) Arrival is the default.
+  const [checkinSession, setCheckinSession] = useState<{
+    session: Session;
+    initialScanType: QrCheckinScanType;
+  } | null>(null);
   const [cancelTarget, setCancelTarget] = useState<Session | null>(null);
   const [rescheduleTarget, setRescheduleTarget] = useState<Session | null>(null);
   const [showCreate, setShowCreate] = useState(false);
@@ -3432,21 +3468,23 @@ function Sessions({
   }, [sessions, clockTick]);
   const stateOf = (s: Session): SessionState => stateById.get(s.id) ?? s.state;
 
-  // Set of session IDs that have officially ended but are still within the
-  // 1-hour grace window. We keep QR check-in + Cancel + the fallback code
-  // available for these so a coach can mark late arrivals or call off a
-  // session that overran. Recomputed every minute via clockTick.
-  const inGraceById = useMemo(() => {
+  // Map of sessionId → current check-in phase ("arrival" | "departure" |
+  // "none"). Drives which QR button colour and label the row shows, and which
+  // scan type the QR dialog pre-selects. Recomputed every minute.
+  const phaseById = useMemo(() => {
     const now = new Date();
-    const set = new Set<string>();
-    sessions.forEach((s) => {
-      if (isWithinGracePeriod(s, now)) set.add(s.id);
-    });
-    return set;
+    const map = new Map<string, CheckinPhase>();
+    sessions.forEach((s) => map.set(s.id, checkinPhase(s, now)));
+    return map;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessions, clockTick]);
+  const phaseOf = (s: Session): CheckinPhase => phaseById.get(s.id) ?? "none";
+
+  // The row shows action controls when either:
+  //   1. the session is still officially scheduled (cancel, edit, etc.), OR
+  //   2. it's inside an active check-in phase (arrival or departure window).
   const isActionable = (s: Session): boolean =>
-    stateOf(s) === "scheduled" || inGraceById.has(s.id);
+    stateOf(s) === "scheduled" || phaseOf(s) !== "none";
 
   const upcoming = sessions.filter((s) => stateOf(s) === "scheduled").length;
   const completed = sessions.filter((s) => stateOf(s) === "completed").length;
@@ -3601,22 +3639,31 @@ function Sessions({
                     <td data-label="Type / Status">
                       <SessionStateBadge state={stateOf(session)} />
                       <div className="player-sub">{sessionTypeLabel[session.type]}</div>
-                      {/* When a session is inside the grace window, tell the
-                          coach exactly when QR check-in disappears. The
-                          badge shows Completed (truthful) and this hint
-                          shows the actionable countdown. */}
-                      {inGraceById.has(session.id) && (() => {
+                      {/* Phase-aware countdown beneath the badge.
+                            arrival   → "Arrival QR open"   (until end−15)
+                            departure → "Departure QR open" (until end+60)
+                          The badge itself stays truthful (Completed once end
+                          time passes); this small line tells the coach how
+                          much actionable time remains. */}
+                      {(() => {
+                        const phase = phaseOf(session);
+                        if (phase === "none") return null;
                         const endsAt = sessionEndsAt(session);
                         if (!endsAt) return null;
-                        const graceUntil = new Date(endsAt.getTime() + SESSION_GRACE_MS);
-                        const hh = String(graceUntil.getHours()).padStart(2, "0");
-                        const mm = String(graceUntil.getMinutes()).padStart(2, "0");
+                        const closesAt =
+                          phase === "arrival"
+                            ? new Date(endsAt.getTime() - DEPARTURE_LEAD_MS)
+                            : new Date(endsAt.getTime() + SESSION_GRACE_MS);
+                        const hh = String(closesAt.getHours()).padStart(2, "0");
+                        const mm = String(closesAt.getMinutes()).padStart(2, "0");
+                        const label =
+                          phase === "arrival" ? "Arrival QR open" : "Departure QR open";
                         return (
                           <div
-                            className="session-grace-countdown"
+                            className={`session-grace-countdown session-grace-countdown--${phase}`}
                             data-testid={`text-grace-countdown-${session.id}`}
                           >
-                            QR open until {hh}:{mm}
+                            {label} until {hh}:{mm}
                           </div>
                         );
                       })()}
@@ -3627,17 +3674,40 @@ function Sessions({
                     <td data-label="Check-in">
                       {isActionable(session) ? (
                         <div className="session-row-actions">
-                          <button
-                            type="button"
-                            className="qr-check-button"
-                            onClick={() => setCheckinSession(session)}
-                            data-testid={`button-checkin-${session.id}`}
-                          >
-                            <QrCode size={16} aria-hidden="true" />
-                            <span>QR check-in</span>
-                          </button>
+                          {/* Phase-aware primary action.
+                                arrival   → green "Arrival check-in"
+                                departure → blue "Departure check-in"
+                                none      → no QR button (only Cancel,
+                                            for sessions that haven't reached
+                                            their arrival window yet) */}
+                          {phaseOf(session) === "arrival" && (
+                            <button
+                              type="button"
+                              className="qr-check-button qr-check-button--in"
+                              onClick={() =>
+                                setCheckinSession({ session, initialScanType: "Arrival" })
+                              }
+                              data-testid={`button-checkin-arrival-${session.id}`}
+                            >
+                              <QrCode size={16} aria-hidden="true" />
+                              <span>Arrival check-in</span>
+                            </button>
+                          )}
+                          {phaseOf(session) === "departure" && (
+                            <button
+                              type="button"
+                              className="qr-check-button qr-check-button--out"
+                              onClick={() =>
+                                setCheckinSession({ session, initialScanType: "Departure" })
+                              }
+                              data-testid={`button-checkin-departure-${session.id}`}
+                            >
+                              <QrCode size={16} aria-hidden="true" />
+                              <span>Departure check-in</span>
+                            </button>
+                          )}
                           {/* Cancel only makes sense before the session has
-                              officially ended — once we're in the grace
+                              officially ended — once we're in the departure
                               window the session has already happened, so we
                               hide it. */}
                           {stateOf(session) === "scheduled" && (
@@ -3652,23 +3722,22 @@ function Sessions({
                               <span>Cancel</span>
                             </button>
                           )}
-                          {/* Grace-window helper: surface the fallback code
-                              for late-arriving parents whose phone can't
-                              read the QR. Only shown when the session has
-                              ended but we're still inside the 1-hour buffer. */}
-                          {inGraceById.has(session.id) && (
+                          {/* Departure-window helper: surface the fallback
+                              code so a parent whose phone can't read the QR
+                              can still be checked out manually. */}
+                          {phaseOf(session) === "departure" && (
                             <div
-                              className="session-grace-hint"
+                              className="session-grace-hint session-grace-hint--out"
                               data-testid={`text-grace-${session.id}`}
                             >
-                              <span className="session-grace-kicker">Grace window</span>
+                              <span className="session-grace-kicker">Departure window</span>
                               {session.qrFallbackCode ? (
                                 <span className="session-grace-code">
-                                  Late check-in code: <strong>{session.qrFallbackCode}</strong>
+                                  Late pickup code: <strong>{session.qrFallbackCode}</strong>
                                 </span>
                               ) : (
                                 <span className="session-grace-code">
-                                  Open the QR check-in modal to mark late arrivals.
+                                  Open the QR check-in modal to mark late pickups.
                                 </span>
                               )}
                             </div>
@@ -3687,7 +3756,8 @@ function Sessions({
       </section>
       {checkinSession && (
         <QrCheckinDialog
-          session={checkinSession}
+          session={checkinSession.session}
+          initialScanType={checkinSession.initialScanType}
           players={players}
           onClose={() => setCheckinSession(null)}
         />

@@ -1610,6 +1610,36 @@
     outline-offset: 2px;
   }
 
+  /* Phase variants. The base .qr-check-button styles above stay as the
+     green Arrival default — .qr-check-button--in is a no-op alias kept
+     for clarity at the call site. .qr-check-button--out repaints the
+     button using the existing analytical-blue token so Arrival vs
+     Departure are unmistakable at a glance, while staying inside the
+     palette already used elsewhere in the app. */
+  .qr-check-button--in {
+    /* explicit alias — keeps the green default but pairs with --out */
+  }
+  .qr-check-button--out {
+    background: var(--tone-media-indigo-accent);
+    border-color: color-mix(in oklab, var(--tone-media-indigo-accent) 60%, transparent);
+    color: white;
+    box-shadow: 0 2px 0 color-mix(in oklab, var(--tone-media-indigo-accent) 35%, transparent),
+      0 8px 18px color-mix(in oklab, var(--tone-media-indigo-accent) 22%, transparent);
+  }
+  .qr-check-button--out > svg {
+    color: white;
+  }
+  .qr-check-button--out:hover {
+    background: color-mix(in oklab, var(--tone-media-indigo-accent) 88%, white);
+    transform: translateY(-1px);
+    box-shadow: 0 3px 0 color-mix(in oklab, var(--tone-media-indigo-accent) 40%, transparent),
+      0 12px 24px color-mix(in oklab, var(--tone-media-indigo-accent) 30%, transparent);
+  }
+  .qr-check-button--out:active {
+    transform: translateY(0);
+    box-shadow: 0 1px 0 color-mix(in oklab, var(--tone-media-indigo-accent) 30%, transparent);
+  }
+
   /* The check-in column can hold both QR and Reschedule. Stack them tight on */
   /* narrow widths but keep the row from wrapping into two lines on desktop. */
   .session-row-actions {
@@ -2023,6 +2053,17 @@
     font-variant-numeric: tabular-nums lining-nums;
     letter-spacing: 0.02em;
   }
+  /* Departure-window helper variant — same layout as the grace hint but
+     painted in the analytical-blue family so it visually links with the
+     blue Departure button sitting above it. */
+  .session-grace-hint--out {
+    background: color-mix(in oklab, var(--tone-media-indigo-accent) 12%, var(--surface-2));
+    border-color: color-mix(in oklab, var(--tone-media-indigo-accent) 45%, transparent);
+  }
+  .session-grace-hint--out .session-grace-kicker {
+    color: color-mix(in oklab, var(--tone-media-indigo-accent) 80%, var(--text));
+  }
+
   /* Small countdown shown next to the Completed badge so the coach knows
      exactly when the QR window will close. */
   .session-grace-countdown {
@@ -2031,6 +2072,14 @@
     font-weight: 700;
     color: var(--muted);
     letter-spacing: 0.02em;
+  }
+  /* Phase-tinted countdown text — picks up the colour of the matching
+     QR button so coach can read state at a glance. */
+  .session-grace-countdown--arrival {
+    color: color-mix(in oklab, var(--lime) 70%, var(--muted));
+  }
+  .session-grace-countdown--departure {
+    color: color-mix(in oklab, var(--tone-media-indigo-accent) 75%, var(--muted));
   }
 
   /* Danger variant of primary-button — used inside the Cancel modal for */
