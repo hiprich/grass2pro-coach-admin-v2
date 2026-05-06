@@ -670,6 +670,88 @@ export async function rescheduleSession(
   return normaliseSession(updated);
 }
 
+// Cancel a session. Flips Status to Cancelled and writes a tagged audit line
+// into Session Notes so the reason is preserved alongside any prior history.
+// We keep the reason in Notes (rather than a dedicated single-select column)
+// for now — a future schema change can promote it to its own field once we
+// know what reasons coaches actually pick most.
+export async function cancelSession(
+  sessionId,
+  { reason, detail, coach } = {},
+) {
+  if (!sessionId) throw new Error("sessionId is required");
+  const table = tableName("AIRTABLE_SESSIONS_TABLE", "Sessions", TABLE_IDS.SESSIONS);
+
+  const current = await airtableGet(table, sessionId);
+  const before = current?.fields || {};
+  const beforeNotes = stringValue(before["Session Notes"]);
+
+  const today = formatHumanDate(new Date().toISOString().slice(0, 10));
+  const who = coach ? `, by ${coach}` : "";
+  const reasonLabel = reason ? ` \u2014 ${reason}` : "";
+  const detailLabel = detail ? ` (${detail})` : "";
+  const auditLine = `[Cancelled${reasonLabel}${detailLabel} on ${today}${who}]`;
+
+  const updates = {
+    Status: "Cancelled",
+    "Session Notes": beforeNotes ? `${auditLine}\n${beforeNotes}` : auditLine,
+  };
+
+  const updated = await airtableUpdate(table, sessionId, updates);
+  return normaliseSession(updated);
+}
+
+// Create a new session. Captures only the five fields a coach naturally types
+// when scheduling (Date / Start / End / Location / Fee) and lets sensible
+// defaults handle the rest. Status is forced to "Upcoming" so the row lands in
+// the right column straight away.
+export async function createSession({
+  name,
+  date,
+  startTime,
+  endTime,
+  location,
+  sessionFee,
+  ageGroup,
+  team,
+  coach,
+} = {}) {
+  if (!date) throw new Error("date is required");
+  const table = tableName("AIRTABLE_SESSIONS_TABLE", "Sessions", TABLE_IDS.SESSIONS);
+
+  const fields = {
+    "Session Name": name || deriveDefaultSessionName(date),
+    Date: date,
+    Status: "Upcoming",
+    "Today's Session Type": "Training",
+    "Check-in Enabled": true,
+  };
+  if (startTime) fields["Start Time"] = startTime;
+  if (endTime) fields["End Time"] = endTime;
+  if (location) fields.Location = location;
+  if (typeof sessionFee === "number" && Number.isFinite(sessionFee)) {
+    fields["Session Fee"] = sessionFee;
+    fields["Charge Type"] = "Per Session";
+    fields["Payment Required"] = true;
+  }
+  if (ageGroup) fields["Age Group"] = ageGroup;
+  if (team) fields.Team = team;
+  if (coach) fields.Coach = coach;
+
+  const created = await airtableCreate(table, fields, { typecast: true });
+  return normaliseSession(created);
+}
+
+// Build a friendly default name when the coach didn't type one. Hope's actual
+// messages describe by day-of-week ("Tuesday training", "Saturday match") so
+// we mirror that shape and leave session type as Training by default.
+function deriveDefaultSessionName(dateIso) {
+  const d = new Date(`${dateIso}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return "New session";
+  const weekday = d.toLocaleDateString("en-GB", { weekday: "long" });
+  return `${weekday} training`;
+}
+
 export async function listAttendance({ sessionId } = {}) {
   const table = tableName("AIRTABLE_ATTENDANCE_TABLE", "Attendance", TABLE_IDS.ATTENDANCE);
   if (!hasAirtableConfig()) return demoAttendance();

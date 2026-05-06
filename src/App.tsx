@@ -1,5 +1,6 @@
 import {
   AlertTriangle,
+  Ban,
   Banknote,
   CalendarClock,
   CalendarDays,
@@ -15,6 +16,7 @@ import {
   MapPin,
   Menu,
   Moon,
+  Plus,
   PoundSterling,
   QrCode,
   RotateCcw,
@@ -990,6 +992,83 @@ async function rescheduleSessionRequest(payload: {
     (typeof json.message === "string" && (json.message as string)) ||
     "Reschedule failed.";
   return { ok: false, message };
+}
+
+// DELETE /sessions?id=… — backend flips Status to Cancelled and writes a
+// tagged audit line into Session Notes. We never hard-delete so attendance
+// history stays intact.
+async function cancelSessionRequest(payload: {
+  sessionId: string;
+  reason?: string;
+  detail?: string;
+  coach?: string;
+}): Promise<{ ok: true; session: Session } | { ok: false; message: string }> {
+  if (!apiAvailable) {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    return {
+      ok: false,
+      message: "Backend unavailable in demo mode — cancel was not persisted.",
+    };
+  }
+  const { sessionId, ...body } = payload;
+  const response = await fetch(
+    apiPath(`/sessions?id=${encodeURIComponent(sessionId)}`),
+    {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
+  const json = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  if (response.ok && json.session) {
+    return { ok: true, session: json.session as Session };
+  }
+  const message =
+    (typeof json.error === "string" && json.error) ||
+    (typeof json.message === "string" && (json.message as string)) ||
+    "Cancel failed.";
+  return { ok: false, message };
+}
+
+// POST /sessions — quick-five create. Mirrors how a coach types a session in
+// WhatsApp: Date / Start / End / Location / Fee. Everything else has sensible
+// defaults on the server side.
+async function createSessionRequest(payload: {
+  date: string;
+  startTime?: string;
+  endTime?: string;
+  location?: string;
+  sessionFee?: number;
+  name?: string;
+  ageGroup?: string;
+  team?: string;
+  coach?: string;
+}): Promise<{ ok: true; session: Session } | { ok: false; message: string }> {
+  if (!apiAvailable) {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    return {
+      ok: false,
+      message: "Backend unavailable in demo mode — session was not created.",
+    };
+  }
+  const response = await fetch(apiPath("/sessions"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const json = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  if (response.ok && json.session) {
+    return { ok: true, session: json.session as Session };
+  }
+  const baseMessage =
+    (typeof json.error === "string" && json.error) ||
+    (typeof json.message === "string" && (json.message as string)) ||
+    "Create session failed.";
+  const detail = typeof json.detail === "string" ? (json.detail as string) : undefined;
+  return {
+    ok: false,
+    message: detail ? `${baseMessage} (${detail})` : baseMessage,
+  };
 }
 
 async function submitConsent(payload: ConsentPayload) {
@@ -2583,6 +2662,335 @@ function RescheduleDialog({
   );
 }
 
+// Cancel modal. Step 1: pick a reason chip (or type a custom one). Step 2:
+// confirm — fires the DELETE → backend flips Status to Cancelled. Step 3: a
+// gentle "Reschedule instead?" pill appears alongside Done so the coach can
+// rescue the session without leaving the modal. The Reschedule pivot reuses
+// the same RescheduleDialog the row's old pill used to open.
+const CANCEL_REASON_CHIPS: { label: string; emoji: string }[] = [
+  { label: "Bad weather", emoji: "\u{1F326}" },
+  { label: "Not enough players", emoji: "\u{1F465}" },
+  { label: "Emergency", emoji: "\u{1F6A8}" },
+  { label: "Unforeseen circumstances", emoji: "\u{1F937}" },
+];
+
+function CancelSessionDialog({
+  session,
+  coachName,
+  onClose,
+  onCancelled,
+  onPivotToReschedule,
+}: {
+  session: Session;
+  coachName?: string;
+  onClose: () => void;
+  onCancelled: (session: Session) => void;
+  onPivotToReschedule: (session: Session) => void;
+}) {
+  const [reason, setReason] = useState<string>("");
+  const [customDetail, setCustomDetail] = useState("");
+  const [stage, setStage] = useState<"choose" | "submitting" | "done" | "error">("choose");
+  const [errorMessage, setErrorMessage] = useState("");
+  const [updatedSession, setUpdatedSession] = useState<Session | null>(null);
+
+  const canSubmit = Boolean(reason || customDetail.trim());
+
+  async function submit() {
+    setStage("submitting");
+    setErrorMessage("");
+    const result = await cancelSessionRequest({
+      sessionId: session.id,
+      reason: reason || undefined,
+      detail: customDetail.trim() || undefined,
+      coach: coachName,
+    });
+    if (result.ok) {
+      setUpdatedSession(result.session);
+      onCancelled(result.session);
+      setStage("done");
+      return;
+    }
+    setErrorMessage(result.message);
+    setStage("error");
+  }
+
+  return (
+    <div className="qr-modal-backdrop" role="dialog" aria-modal="true" aria-label="Cancel session">
+      <div className="qr-modal panel">
+        <div className="toolbar">
+          <div>
+            <div className="page-kicker">
+              {stage === "done" ? "Session cancelled" : "Cancel session"}
+            </div>
+            <h2 className="page-title" style={{ fontSize: "var(--text-lg)" }}>{session.name}</h2>
+            <div className="player-sub">
+              {formatDate(session.date)} · {session.startTime}–{session.endTime} · {session.location}
+            </div>
+          </div>
+          <button type="button" className="icon-button" onClick={onClose} aria-label="Close">
+            <X size={18} />
+          </button>
+        </div>
+
+        {(stage === "choose" || stage === "submitting" || stage === "error") && (
+          <div className="form-section">
+            <h3>What happened?</h3>
+            <div className="reason-chip-row" aria-label="Cancellation reason">
+              {CANCEL_REASON_CHIPS.map(({ label, emoji }) => (
+                <button
+                  key={label}
+                  type="button"
+                  className={`reason-chip ${reason === label ? "active" : ""}`}
+                  onClick={() => setReason(label)}
+                  data-testid={`button-cancel-reason-${label.toLowerCase().replace(/\s+/g, "-")}`}
+                >
+                  <span aria-hidden="true">{emoji}</span>
+                  <span>{label}</span>
+                </button>
+              ))}
+            </div>
+            <label className="form-field full" style={{ marginTop: "var(--space-3)" }}>
+              <span>Anything to add for parents? (optional)</span>
+              <input
+                type="text"
+                value={customDetail}
+                onChange={(e) => setCustomDetail(e.target.value)}
+                placeholder="e.g. pitch waterlogged, will reopen tomorrow"
+                data-testid="input-cancel-detail"
+              />
+            </label>
+
+            {stage === "error" && errorMessage && (
+              <div className="message error" data-testid="status-cancel-error" style={{ marginTop: "var(--space-3)" }}>
+                {errorMessage}
+              </div>
+            )}
+
+            <div style={{ display: "flex", gap: "var(--space-2)", marginTop: "var(--space-4)" }}>
+              <button
+                type="button"
+                className="primary-button danger"
+                disabled={!canSubmit || stage === "submitting"}
+                onClick={submit}
+                data-testid="button-cancel-confirm"
+              >
+                {stage === "submitting" ? "Cancelling…" : "Confirm cancellation"}
+              </button>
+              <button type="button" className="filter-button" onClick={onClose}>
+                Keep session
+              </button>
+            </div>
+          </div>
+        )}
+
+        {stage === "done" && updatedSession && (
+          <div className="form-section">
+            <div className="message success" data-testid="status-cancel-done">
+              Cancellation recorded. Parents linked to this session will see it as cancelled.
+            </div>
+            <div className="genie-row" aria-label="Reschedule instead">
+              <div>
+                <div className="page-kicker">Change of plan?</div>
+                <strong>Reschedule instead</strong>
+                <div className="player-sub">
+                  Pick a new date — the cancellation note stays in history, the
+                  session moves forward.
+                </div>
+              </div>
+              <button
+                type="button"
+                className="reschedule-button genie"
+                onClick={() => onPivotToReschedule(updatedSession)}
+                data-testid="button-pivot-to-reschedule"
+              >
+                <CalendarClock size={16} aria-hidden="true" />
+                <span>Reschedule</span>
+              </button>
+            </div>
+            <button type="button" className="filter-button" onClick={onClose} style={{ marginTop: "var(--space-3)" }}>
+              Done
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Quick-five create modal. Mirrors the shape of an actual coach scheduling
+// message in WhatsApp: Date / Start / End / Location / Fee. Name is optional;
+// if the coach leaves it blank the backend derives "<Weekday> training" so
+// the row still has a sensible label.
+function CreateSessionDialog({
+  coachName,
+  onClose,
+  onCreated,
+}: {
+  coachName?: string;
+  onClose: () => void;
+  onCreated: (session: Session) => void;
+}) {
+  // Default to next Saturday — most coaches schedule weekend matches first.
+  const defaultDate = useMemo(() => {
+    const d = new Date();
+    const offset = (6 - d.getDay() + 7) % 7 || 7; // 1–7 days forward
+    d.setDate(d.getDate() + offset);
+    return d.toISOString().slice(0, 10);
+  }, []);
+
+  const [name, setName] = useState("");
+  const [date, setDate] = useState(defaultDate);
+  const [startTime, setStartTime] = useState("17:00");
+  const [endTime, setEndTime] = useState("18:15");
+  const [location, setLocation] = useState("");
+  const [feeText, setFeeText] = useState("");
+  const [stage, setStage] = useState<"edit" | "saving" | "error">("edit");
+  const [errorMessage, setErrorMessage] = useState("");
+
+  // Show the weekday under the date so coaches can sanity-check the day they
+  // picked matches what they meant (e.g. Hope writes "Tuesday 5/5/2026").
+  const weekdayLabel = useMemo(() => {
+    if (!date) return "";
+    const d = new Date(`${date}T00:00:00`);
+    if (Number.isNaN(d.getTime())) return "";
+    return d.toLocaleDateString("en-GB", { weekday: "long" });
+  }, [date]);
+
+  async function save() {
+    setStage("saving");
+    setErrorMessage("");
+    const fee = feeText.trim() ? Number(feeText.trim()) : undefined;
+    if (fee !== undefined && (!Number.isFinite(fee) || fee < 0)) {
+      setErrorMessage("Session fee must be a positive number.");
+      setStage("error");
+      return;
+    }
+    const result = await createSessionRequest({
+      name: name.trim() || undefined,
+      date,
+      startTime: startTime || undefined,
+      endTime: endTime || undefined,
+      location: location.trim() || undefined,
+      sessionFee: fee,
+      coach: coachName,
+    });
+    if (result.ok) {
+      onCreated(result.session);
+      return;
+    }
+    setErrorMessage(result.message);
+    setStage("error");
+  }
+
+  return (
+    <div className="qr-modal-backdrop" role="dialog" aria-modal="true" aria-label="Schedule a session">
+      <div className="qr-modal panel">
+        <div className="toolbar">
+          <div>
+            <div className="page-kicker">New session</div>
+            <h2 className="page-title" style={{ fontSize: "var(--text-lg)" }}>Schedule a session</h2>
+            <div className="player-sub">
+              Quick five — just the basics. You can fine-tune later.
+            </div>
+          </div>
+          <button type="button" className="icon-button" onClick={onClose} aria-label="Close">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="form-section">
+          <div className="form-grid">
+            <label className="form-field full">
+              <span>Session name (optional)</span>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g. Tuesday training, U11 vs Riverside"
+                data-testid="input-create-name"
+              />
+            </label>
+            <label className="form-field">
+              <span>Date</span>
+              <input
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                data-testid="input-create-date"
+              />
+              {weekdayLabel && (
+                <span className="field-hint" data-testid="text-create-weekday">
+                  {weekdayLabel}
+                </span>
+              )}
+            </label>
+            <label className="form-field">
+              <span>Start time</span>
+              <input
+                type="time"
+                value={startTime}
+                onChange={(e) => setStartTime(e.target.value)}
+                data-testid="input-create-start"
+              />
+            </label>
+            <label className="form-field">
+              <span>End time</span>
+              <input
+                type="time"
+                value={endTime}
+                onChange={(e) => setEndTime(e.target.value)}
+                data-testid="input-create-end"
+              />
+            </label>
+            <label className="form-field full">
+              <span>Location</span>
+              <input
+                type="text"
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                placeholder="e.g. Colindale Football Centre, Great Strand, NW9 5PE"
+                data-testid="input-create-location"
+              />
+            </label>
+            <label className="form-field">
+              <span>Session fee (£)</span>
+              <input
+                type="number"
+                inputMode="decimal"
+                step="0.50"
+                min="0"
+                value={feeText}
+                onChange={(e) => setFeeText(e.target.value)}
+                placeholder="e.g. 20"
+                data-testid="input-create-fee"
+              />
+            </label>
+          </div>
+
+          {stage === "error" && errorMessage && (
+            <div className="message error" data-testid="status-create-error" style={{ marginTop: "var(--space-3)" }}>
+              {errorMessage}
+            </div>
+          )}
+
+          <div style={{ display: "flex", gap: "var(--space-2)", marginTop: "var(--space-4)" }}>
+            <button
+              type="button"
+              className="primary-button"
+              disabled={!date || stage === "saving"}
+              onClick={save}
+              data-testid="button-create-save"
+            >
+              {stage === "saving" ? "Creating…" : "Schedule it"}
+            </button>
+            <button type="button" className="filter-button" onClick={onClose}>Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Derive what state a session should DISPLAY as. The raw `state` field is
 // what the coach last recorded — if a session was cancelled, that always
 // wins. Otherwise, once the session date is in the past, a still-scheduled
@@ -2604,16 +3012,20 @@ function Sessions({
   players,
   coachName,
   onSessionUpdate,
+  onSessionCreated,
 }: {
   sessions: Session[];
   players: Player[];
   coachName?: string;
   onSessionUpdate: (session: Session) => void;
+  onSessionCreated: (session: Session) => void;
 }) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"all" | SessionState>("all");
   const [checkinSession, setCheckinSession] = useState<Session | null>(null);
-  const [rescheduleSession, setRescheduleSession] = useState<Session | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<Session | null>(null);
+  const [rescheduleTarget, setRescheduleTarget] = useState<Session | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
 
   // Build a map of sessionId → derived state once per render so we never
   // disagree with ourselves between KPI counts, filter chips, row pills,
@@ -2692,6 +3104,17 @@ function Sessions({
               {label}
             </button>
           ))}
+          {/* Spacer pushes the Schedule CTA to the right edge of the filter row */}
+          <div className="filter-row-spacer" aria-hidden="true" />
+          <button
+            type="button"
+            className="schedule-session-button"
+            onClick={() => setShowCreate(true)}
+            data-testid="button-schedule-session"
+          >
+            <Plus size={16} aria-hidden="true" />
+            <span>Schedule a session</span>
+          </button>
         </div>
         {filtered.length === 0 ? (
           <div className="empty-state">
@@ -2754,8 +3177,8 @@ function Sessions({
                       <span className="notes-cell">{session.notes}</span>
                     </td>
                     <td>
-                      <div className="session-row-actions">
-                        {stateOf(session) === "scheduled" ? (
+                      {stateOf(session) === "scheduled" ? (
+                        <div className="session-row-actions">
                           <button
                             type="button"
                             className="qr-check-button"
@@ -2765,18 +3188,20 @@ function Sessions({
                             <QrCode size={16} aria-hidden="true" />
                             <span>QR check-in</span>
                           </button>
-                        ) : null}
-                        <button
-                          type="button"
-                          className="reschedule-button"
-                          onClick={() => setRescheduleSession(session)}
-                          aria-label={`Reschedule ${session.name}`}
-                          data-testid={`button-reschedule-${session.id}`}
-                        >
-                          <CalendarClock size={16} aria-hidden="true" />
-                          <span>Reschedule</span>
-                        </button>
-                      </div>
+                          <button
+                            type="button"
+                            className="cancel-session-button"
+                            onClick={() => setCancelTarget(session)}
+                            aria-label={`Cancel ${session.name}`}
+                            data-testid={`button-cancel-${session.id}`}
+                          >
+                            <Ban size={16} aria-hidden="true" />
+                            <span>Cancel</span>
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="player-sub">—</span>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -2792,14 +3217,47 @@ function Sessions({
           onClose={() => setCheckinSession(null)}
         />
       )}
-      {rescheduleSession && (
-        <RescheduleDialog
-          session={rescheduleSession}
+      {cancelTarget && (
+        <CancelSessionDialog
+          session={cancelTarget}
           coachName={coachName}
-          onClose={() => setRescheduleSession(null)}
+          onClose={() => setCancelTarget(null)}
+          onCancelled={(updated) => {
+            onSessionUpdate(updated);
+            // Don't auto-close — the dialog will pivot to a "Reschedule instead?"
+            // step. The dialog will call onClose itself when the coach is done.
+          }}
+          onPivotToReschedule={(updated) => {
+            // Coach changed their mind during the cancel flow. Close the cancel
+            // modal and open the reschedule modal on the same session, with the
+            // already-applied cancellation reverted by the reschedule's own
+            // backend call (which sets a new date and audit line).
+            setCancelTarget(null);
+            setRescheduleTarget(updated);
+          }}
+        />
+      )}
+      {rescheduleTarget && (
+        <RescheduleDialog
+          session={rescheduleTarget}
+          coachName={coachName}
+          onClose={() => setRescheduleTarget(null)}
           onSaved={(updated) => {
             onSessionUpdate(updated);
-            setRescheduleSession(null);
+            setRescheduleTarget(null);
+          }}
+        />
+      )}
+      {showCreate && (
+        <CreateSessionDialog
+          coachName={coachName}
+          onClose={() => setShowCreate(false)}
+          onCreated={(created) => {
+            onSessionCreated(created);
+            setShowCreate(false);
+            // Auto-flip the filter to Upcoming so the new session is visible
+            // immediately, since coaches always create future sessions.
+            setFilter("scheduled");
           }}
         />
       )}
@@ -4699,6 +5157,16 @@ function CoachDashboard() {
     });
   }
 
+  // Add a freshly-created session to the dataset so it shows up in the table
+  // immediately. Sort isn't preserved here — the Sessions component sorts by
+  // date inside its render.
+  function applySessionCreated(created: Session) {
+    setData((prev) => {
+      if (!prev) return prev;
+      return { ...prev, sessions: [...prev.sessions, created] };
+    });
+  }
+
   if (!data) return <LoadingState />;
 
   const title = {
@@ -4763,6 +5231,7 @@ function CoachDashboard() {
               players={data.players}
               coachName={data.coach?.name}
               onSessionUpdate={applySessionUpdate}
+              onSessionCreated={applySessionCreated}
             />
           )}
           {activeView === "attendance" && <Attendance attendance={data.attendance} sessions={data.sessions} />}

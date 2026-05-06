@@ -1657,6 +1657,218 @@
     outline-offset: 2px;
   }
 
+  /* Cancel pill replaces the standalone Reschedule pill on each session row. */
+  /* Sits next to QR check-in. Tinted attention-orange (not red-red) so it */
+  /* reads as "hold on, are you sure?" without screaming. Reschedule is no */
+  /* longer surfaced here — it appears genie-style after a confirmed cancel. */
+  .cancel-session-button {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: 2.5rem;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-full);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font-size: var(--text-xs);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    transition: transform var(--transition-interactive), background var(--transition-interactive),
+      border-color var(--transition-interactive), color var(--transition-interactive);
+  }
+  .cancel-session-button > svg {
+    color: var(--muted);
+  }
+  .cancel-session-button:hover {
+    background: color-mix(in oklab, var(--tone-attention-bg) 55%, var(--surface));
+    border-color: color-mix(in oklab, var(--tone-attention-accent) 35%, var(--border));
+    color: var(--tone-attention-accent);
+    transform: translateY(-1px);
+  }
+  .cancel-session-button:hover > svg {
+    color: var(--tone-attention-accent);
+  }
+  .cancel-session-button:active {
+    transform: translateY(0);
+  }
+  .cancel-session-button:focus-visible {
+    outline: 2px solid var(--tone-attention-accent);
+    outline-offset: 2px;
+  }
+
+  /* Reason chip group inside the Cancel modal. Coach taps one — emoji + */
+  /* short label. Active state fills with attention-orange so the choice is */
+  /* unmistakable before they hit Confirm. Wraps cleanly on narrow widths. */
+  .reason-chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+  .reason-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: 2.5rem;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-full);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font-size: var(--text-xs);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    transition: transform var(--transition-interactive), background var(--transition-interactive),
+      border-color var(--transition-interactive), color var(--transition-interactive);
+  }
+  .reason-chip:hover {
+    background: color-mix(in oklab, var(--tone-attention-bg) 40%, var(--surface));
+    border-color: color-mix(in oklab, var(--tone-attention-accent) 28%, var(--border));
+    transform: translateY(-1px);
+  }
+  .reason-chip.active {
+    background: color-mix(in oklab, var(--tone-attention-bg) 85%, var(--surface));
+    border-color: var(--tone-attention-accent);
+    color: var(--tone-attention-accent);
+  }
+  .reason-chip:focus-visible {
+    outline: 2px solid var(--tone-attention-accent);
+    outline-offset: 2px;
+  }
+
+  /* Genie row — the "Reschedule instead?" panel that appears AFTER a */
+  /* confirmed cancellation. Success-tinted background says "the cancel */
+  /* worked" while the lavender Reschedule pivot says "but you can still */
+  /* save it". Two-column layout: copy on the left, action on the right. */
+  .genie-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+    padding: var(--space-4);
+    border-radius: var(--radius-lg);
+    border: 1px solid color-mix(in oklab, var(--tone-success-accent) 25%, var(--border));
+    background: color-mix(in oklab, var(--tone-success-bg) 55%, var(--surface));
+    margin-top: var(--space-3);
+  }
+  .genie-row > div {
+    display: grid;
+    gap: var(--space-1);
+    flex: 1 1 14rem;
+  }
+
+  /* The Reschedule pivot button — same shape as the row Reschedule pill */
+  /* but pulses gently to draw the eye, with a lavender glow to mark it as */
+  /* the recommended next step inside the success-tinted genie panel. */
+  .reschedule-button.genie {
+    background: var(--surface);
+    border-color: color-mix(in oklab, var(--tone-media-lavender-accent) 45%, var(--border));
+    color: var(--tone-media-lavender-accent);
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--tone-media-lavender-accent) 35%, transparent);
+    animation: genie-pulse 2.4s ease-in-out infinite;
+  }
+  .reschedule-button.genie > svg {
+    color: var(--tone-media-lavender-accent);
+  }
+  .reschedule-button.genie:hover {
+    background: color-mix(in oklab, var(--tone-media-lavender-bg) 70%, var(--surface));
+    border-color: var(--tone-media-lavender-accent);
+    animation: none;
+  }
+  @keyframes genie-pulse {
+    0%, 100% {
+      box-shadow: 0 0 0 0 color-mix(in oklab, var(--tone-media-lavender-accent) 35%, transparent);
+    }
+    50% {
+      box-shadow: 0 0 0 6px color-mix(in oklab, var(--tone-media-lavender-accent) 0%, transparent);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .reschedule-button.genie {
+      animation: none;
+    }
+  }
+
+  /* Schedule a session — primary CTA pinned to the right of the filter row. */
+  /* Uses the brand lime fill (same family as QR check-in) so coaches read it */
+  /* as the create-action. The spacer pushes it to the row's right edge. */
+  .filter-row-spacer {
+    flex: 1 1 auto;
+    min-width: var(--space-2);
+  }
+  .schedule-session-button {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: 2.5rem;
+    padding: var(--space-2) var(--space-4);
+    border-radius: var(--radius-full);
+    border: 1px solid color-mix(in oklab, var(--lime) 60%, transparent);
+    background: var(--lime);
+    color: #1a2110;
+    font-size: var(--text-xs);
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    box-shadow: 0 2px 0 color-mix(in oklab, var(--lime) 35%, transparent),
+      0 8px 18px color-mix(in oklab, var(--lime) 20%, transparent);
+    transition: transform var(--transition-interactive), box-shadow var(--transition-interactive),
+      background var(--transition-interactive);
+  }
+  .schedule-session-button > svg {
+    color: #1a2110;
+  }
+  .schedule-session-button:hover {
+    background: color-mix(in oklab, var(--lime) 88%, white);
+    transform: translateY(-1px);
+    box-shadow: 0 3px 0 color-mix(in oklab, var(--lime) 40%, transparent),
+      0 12px 24px color-mix(in oklab, var(--lime) 28%, transparent);
+  }
+  .schedule-session-button:active {
+    transform: translateY(0);
+  }
+  .schedule-session-button:focus-visible {
+    outline: 2px solid var(--text);
+    outline-offset: 2px;
+  }
+
+  /* Small muted helper line under a form input — used by the Quick 5 form */
+  /* to surface the weekday next to a chosen date ("Tuesday") so the coach */
+  /* can sanity-check it matches Hope's WhatsApp shape at a glance. */
+  .field-hint {
+    display: inline-block;
+    margin-top: var(--space-1);
+    font-size: var(--text-xs);
+    color: var(--muted);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+
+  /* Danger variant of primary-button — used inside the Cancel modal for */
+  /* the "Confirm cancellation" CTA. Reuses primary-button geometry so the */
+  /* button shape stays consistent with the rest of the app. */
+  .primary-button.danger {
+    background: var(--tone-danger-accent);
+    border-color: transparent;
+    color: white;
+  }
+  .primary-button.danger:hover {
+    background: color-mix(in oklab, var(--tone-danger-accent) 85%, black);
+    border-color: transparent;
+  }
+  .primary-button.danger:focus-visible {
+    outline: 2px solid var(--tone-danger-accent);
+    outline-offset: 2px;
+  }
+  .primary-button.danger:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
   .inline-meta {
     display: inline-flex;
     align-items: center;
