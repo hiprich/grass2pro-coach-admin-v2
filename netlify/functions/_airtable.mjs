@@ -164,6 +164,10 @@ export const TABLE_IDS = {
   // human-readable "Auth Tokens" name) takes over until the table id is
   // captured here.
   AUTH_TOKENS: "",
+  // Push Subscriptions stores Web Push endpoints (one row per parent device)
+  // plus per-notification preference toggles. Used by the scheduled fan-out
+  // function to send the T−60 / T−30 reminders.
+  PUSH_SUBSCRIPTIONS: "tbl3FDPfK1iYFvEwJ",
 };
 
 function token() {
