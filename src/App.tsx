@@ -3340,14 +3340,27 @@ function EditSessionDialog({
 // wins. Otherwise, once the session date is in the past, a still-scheduled
 // session is treated as completed. The raw data isn’t mutated; this just
 // shapes what the dashboard shows.
-function derivedSessionState(session: Session, today: Date): SessionState {
+function derivedSessionState(session: Session, now: Date): SessionState {
   if (session.state === "cancelled" || session.state === "completed") {
     return session.state;
   }
-  // Compare on calendar date only — a session scheduled for earlier today is
-  // still treated as upcoming until midnight tonight.
+  // Roll a still-scheduled session to Completed once its end time has
+  // passed. We use the actual end timestamp (not just the calendar date) so
+  // a session that finished earlier today doesn't keep showing as Upcoming
+  // until midnight. If we don't have a reliable end time, fall back to the
+  // "end of session day" cutoff so the row still flips at midnight.
+  const endIso =
+    session.date && /^\d{2}:\d{2}$/.test(session.endTime || "")
+      ? `${session.date}T${session.endTime}:00`
+      : null;
+  const endsAt = endIso ? new Date(endIso) : null;
+  if (endsAt && !Number.isNaN(endsAt.getTime())) {
+    return endsAt.getTime() <= now.getTime() ? "completed" : "scheduled";
+  }
+  // Fallback: no end time recorded — keep the date-only rule (anything
+  // dated yesterday or earlier rolls to Completed).
   const sessionDay = new Date(`${session.date}T00:00:00`);
-  const todayDay = new Date(today.toDateString());
+  const todayDay = new Date(now.toDateString());
   return sessionDay < todayDay ? "completed" : "scheduled";
 }
 
@@ -3373,17 +3386,29 @@ function Sessions({
   // Editable row — click anywhere on the session name cell opens this modal.
   const [editTarget, setEditTarget] = useState<Session | null>(null);
 
+  // Tick every minute so a session that's mid-flight rolls to Completed the
+  // moment its end time passes — without the coach having to refresh the
+  // tab. We bump a counter to force the memo below to recompute.
+  const [clockTick, setClockTick] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setClockTick((n) => n + 1), 60_000);
+    return () => window.clearInterval(id);
+  }, []);
+
   // Build a map of sessionId → derived state once per render so we never
   // disagree with ourselves between KPI counts, filter chips, row pills,
-  // and row tone echoes. The derive uses today’s calendar date so the rule
-  // is “if the session was yesterday or earlier and not cancelled, it’s
-  // completed.”
+  // and row tone echoes. A session rolls to Completed once its end time has
+  // passed (not just at midnight), so the badge stays accurate during the
+  // evening after a 17:15–19:30 training has finished.
   const stateById = useMemo(() => {
-    const today = new Date();
+    const now = new Date();
     const map = new Map<string, SessionState>();
-    sessions.forEach((s) => map.set(s.id, derivedSessionState(s, today)));
+    sessions.forEach((s) => map.set(s.id, derivedSessionState(s, now)));
     return map;
-  }, [sessions]);
+    // clockTick is intentionally a dep — it forces recompute every minute so
+    // the badge flips without needing a network refresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessions, clockTick]);
   const stateOf = (s: Session): SessionState => stateById.get(s.id) ?? s.state;
 
   const upcoming = sessions.filter((s) => stateOf(s) === "scheduled").length;
