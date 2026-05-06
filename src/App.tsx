@@ -321,7 +321,7 @@ const demoSessions: Session[] = [
   {
     id: "ses_01",
     name: "U11 West - Technical Training",
-    date: "2026-04-28",
+    date: "2026-05-08",
     startTime: "17:30",
     endTime: "19:00",
     location: "Pitch 3, Hackney Marshes",
@@ -335,7 +335,7 @@ const demoSessions: Session[] = [
   {
     id: "ses_02",
     name: "U8 Juniors - Skills Session",
-    date: "2026-04-29",
+    date: "2026-05-12",
     startTime: "16:00",
     endTime: "17:00",
     location: "Community Astro, Hackney",
@@ -349,7 +349,7 @@ const demoSessions: Session[] = [
   {
     id: "ses_03",
     name: "U11 West vs Riverside Rovers",
-    date: "2026-05-03",
+    date: "2026-05-16",
     startTime: "10:30",
     endTime: "12:00",
     location: "Home Pitch, Grass2Pro Ground",
