@@ -104,6 +104,26 @@
     --grey-soft: #e3e2db;
     --shadow-sm: 0 1px 2px rgba(32, 37, 28, 0.06);
     --shadow-md: 0 12px 30px rgba(32, 37, 28, 0.09);
+
+    /* Semantic KPI tones (light) — subtle tints over parchment */
+    --tone-neutral-bg: #ecebe1;
+    --tone-neutral-accent: #6b7568;
+    --tone-success-bg: #dde9d3;
+    --tone-success-accent: #287238;
+    --tone-warning-bg: #f3e2c0;
+    --tone-warning-accent: #b07f1e;
+    --tone-attention-bg: #f4dcc1;
+    --tone-attention-accent: #b6611c;
+    --tone-danger-bg: #f1d4d2;
+    --tone-danger-accent: #a43838;
+    --tone-pathway-1-bg: #d2e4dc;
+    --tone-pathway-1-accent: #2f7a66;
+    --tone-pathway-2-bg: #c8dcd5;
+    --tone-pathway-2-accent: #246b58;
+    --tone-pathway-3-bg: #dcebe4;
+    --tone-pathway-3-accent: #3d8a76;
+    --tone-media-bg: #e3dbef;
+    --tone-media-accent: #6e57a4;
   }
 
   html[data-theme="dark"] {
@@ -132,6 +152,26 @@
     --grey-soft: #33352f;
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.28);
     --shadow-md: 0 12px 30px rgba(0, 0, 0, 0.35);
+
+    /* Semantic KPI tones (dark) — subtle tints over forest */
+    --tone-neutral-bg: #232a22;
+    --tone-neutral-accent: #8c9587;
+    --tone-success-bg: #233a23;
+    --tone-success-accent: #93cd85;
+    --tone-warning-bg: #3f3320;
+    --tone-warning-accent: #d49b61;
+    --tone-attention-bg: #3f2c1c;
+    --tone-attention-accent: #d68a52;
+    --tone-danger-bg: #422725;
+    --tone-danger-accent: #dd7b78;
+    --tone-pathway-1-bg: #1f3530;
+    --tone-pathway-1-accent: #6cb7a0;
+    --tone-pathway-2-bg: #1c3a32;
+    --tone-pathway-2-accent: #5cab94;
+    --tone-pathway-3-bg: #243d35;
+    --tone-pathway-3-accent: #7cc6ad;
+    --tone-media-bg: #2a2440;
+    --tone-media-accent: #ad97e0;
   }
 }
 
@@ -588,6 +628,64 @@
     border-radius: var(--radius-xl);
     background: var(--surface);
     padding: var(--space-4);
+    position: relative;
+    overflow: hidden;
+    transition: transform var(--transition-interactive), box-shadow var(--transition-interactive);
+  }
+
+  .kpi-card[data-tone] {
+    background: var(--tone-bg, var(--surface));
+    border-color: color-mix(in oklab, var(--tone-accent, var(--border-strong)) 22%, transparent);
+  }
+
+  .kpi-card[data-tone]::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 4px;
+    background: var(--tone-accent, transparent);
+    opacity: 0.85;
+  }
+
+  .kpi-card[data-tone] .kpi-label {
+    color: color-mix(in oklab, var(--tone-accent, var(--muted)) 80%, var(--text));
+  }
+
+  .kpi-card[data-tone="neutral"] {
+    --tone-bg: var(--tone-neutral-bg);
+    --tone-accent: var(--tone-neutral-accent);
+  }
+  .kpi-card[data-tone="success"] {
+    --tone-bg: var(--tone-success-bg);
+    --tone-accent: var(--tone-success-accent);
+  }
+  .kpi-card[data-tone="warning"] {
+    --tone-bg: var(--tone-warning-bg);
+    --tone-accent: var(--tone-warning-accent);
+  }
+  .kpi-card[data-tone="attention"] {
+    --tone-bg: var(--tone-attention-bg);
+    --tone-accent: var(--tone-attention-accent);
+  }
+  .kpi-card[data-tone="danger"] {
+    --tone-bg: var(--tone-danger-bg);
+    --tone-accent: var(--tone-danger-accent);
+  }
+  .kpi-card[data-tone="pathway-1"] {
+    --tone-bg: var(--tone-pathway-1-bg);
+    --tone-accent: var(--tone-pathway-1-accent);
+  }
+  .kpi-card[data-tone="pathway-2"] {
+    --tone-bg: var(--tone-pathway-2-bg);
+    --tone-accent: var(--tone-pathway-2-accent);
+  }
+  .kpi-card[data-tone="pathway-3"] {
+    --tone-bg: var(--tone-pathway-3-bg);
+    --tone-accent: var(--tone-pathway-3-accent);
+  }
+  .kpi-card[data-tone="media"] {
+    --tone-bg: var(--tone-media-bg);
+    --tone-accent: var(--tone-media-accent);
   }
 
   .kpi-label {

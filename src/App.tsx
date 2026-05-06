@@ -170,6 +170,29 @@ const footballPathwayOptions = [
   { value: "Other / Unsure", label: "Other or unsure", help: "Use this if none of the above describe the player today." },
 ];
 
+// Map each pathway option to a semantic tone. Three teal shades show the
+// active pathways; "not currently with a team" gets warning amber as a soft
+// nudge to follow up; "other / unsure" stays neutral.
+function pathwayToneFor(value: string):
+  | "pathway-1"
+  | "pathway-2"
+  | "pathway-3"
+  | "warning"
+  | "neutral" {
+  switch (value) {
+    case "Grassroots Football":
+      return "pathway-1";
+    case "Academy Football":
+      return "pathway-2";
+    case "School Football":
+      return "pathway-3";
+    case "Not Currently With a Team":
+      return "warning";
+    default:
+      return "neutral";
+  }
+}
+
 const demoPlayers: Player[] = [
   {
     id: "ply_01",
@@ -1414,9 +1437,36 @@ function Sidebar({
   );
 }
 
-function KpiCard({ label, value, foot, icon: Icon }: { label: string; value: number | string; foot: string; icon: typeof Users }) {
+type KpiTone =
+  | "neutral"
+  | "success"
+  | "warning"
+  | "attention"
+  | "danger"
+  | "pathway-1"
+  | "pathway-2"
+  | "pathway-3"
+  | "media";
+
+function KpiCard({
+  label,
+  value,
+  foot,
+  icon: Icon,
+  tone,
+}: {
+  label: string;
+  value: number | string;
+  foot: string;
+  icon: typeof Users;
+  tone?: KpiTone;
+}) {
   return (
-    <article className="kpi-card" data-testid={`card-kpi-${label.toLowerCase().replace(/\s+/g, "-")}`}>
+    <article
+      className="kpi-card"
+      data-tone={tone}
+      data-testid={`card-kpi-${label.toLowerCase().replace(/\s+/g, "-")}`}
+    >
       <div className="kpi-label">
         <span>{label}</span>
         <Icon size={16} aria-hidden="true" />
@@ -1506,11 +1556,11 @@ function Overview({
   return (
     <>
       <section className="kpi-grid" aria-label="Player KPIs">
-        <KpiCard label="Players" value={players.length} foot="Squad total" icon={Users} />
-        <KpiCard label="Full consent" value={fullConsent} foot="Photo, video and review ready" icon={CheckCircle2} />
-        <KpiCard label="Limited consent" value={limited} foot="Internal-only or channel limits" icon={AlertTriangle} />
-        <KpiCard label="Not recorded" value={notRecorded} foot="Awaiting parent form" icon={ClipboardCheck} />
-        <KpiCard label="Withdrawn" value={withdrawn} foot="Media usage blocked" icon={X} />
+        <KpiCard label="Players" value={players.length} foot="Squad total" icon={Users} tone="neutral" />
+        <KpiCard label="Full consent" value={fullConsent} foot="Photo, video and review ready" icon={CheckCircle2} tone="success" />
+        <KpiCard label="Limited consent" value={limited} foot="Internal-only or channel limits" icon={AlertTriangle} tone="warning" />
+        <KpiCard label="Not recorded" value={notRecorded} foot="Awaiting parent form" icon={ClipboardCheck} tone="attention" />
+        <KpiCard label="Withdrawn" value={withdrawn} foot="Media usage blocked" icon={X} tone="danger" />
       </section>
 
       <div className="section-heading">
@@ -1528,6 +1578,7 @@ function Overview({
             value={entry.count}
             foot={entry.help}
             icon={Users}
+            tone={pathwayToneFor(entry.value)}
           />
         ))}
         {pathwayUnset > 0 && (
@@ -1536,6 +1587,7 @@ function Overview({
             value={pathwayUnset}
             foot="Existing players awaiting a pathway choice"
             icon={ClipboardList}
+            tone="neutral"
           />
         )}
       </section>
@@ -2371,10 +2423,10 @@ function Sessions({ sessions, players }: { sessions: Session[]; players: Player[
   return (
     <>
       <section className="kpi-grid" aria-label="Session KPIs">
-        <KpiCard label="Upcoming" value={upcoming} foot="Scheduled sessions to come" icon={CalendarDays} />
-        <KpiCard label="Completed" value={completed} foot="Recent sessions delivered" icon={CheckCircle2} />
-        <KpiCard label="Cancelled" value={cancelled} foot="Cancelled or rained off" icon={X} />
-        <KpiCard label="Total tracked" value={sessions.length} foot="All session records" icon={ClipboardCheck} />
+        <KpiCard label="Upcoming" value={upcoming} foot="Scheduled sessions to come" icon={CalendarDays} tone="media" />
+        <KpiCard label="Completed" value={completed} foot="Recent sessions delivered" icon={CheckCircle2} tone="success" />
+        <KpiCard label="Cancelled" value={cancelled} foot="Cancelled or rained off" icon={X} tone="attention" />
+        <KpiCard label="Total tracked" value={sessions.length} foot="All session records" icon={ClipboardCheck} tone="neutral" />
       </section>
       <section className="panel player-table-card" aria-labelledby="sessions-title">
         <div className="toolbar">
@@ -2533,10 +2585,10 @@ function Attendance({ attendance, sessions }: { attendance: AttendanceRecord[]; 
   return (
     <>
       <section className="kpi-grid" aria-label="Attendance KPIs">
-        <KpiCard label="Attendance rate" value={`${attendanceRate}%`} foot="Present or late, across tracked sessions" icon={CheckCircle2} />
-        <KpiCard label="Present" value={counts.present} foot="On time or early" icon={CheckCircle2} />
-        <KpiCard label="Late" value={counts.late} foot="Arrived after session start" icon={Clock} />
-        <KpiCard label="Absent" value={counts.absent} foot="No show, follow up with parent" icon={AlertTriangle} />
+        <KpiCard label="Attendance rate" value={`${attendanceRate}%`} foot="Present or late, across tracked sessions" icon={CheckCircle2} tone="neutral" />
+        <KpiCard label="Present" value={counts.present} foot="On time or early" icon={CheckCircle2} tone="success" />
+        <KpiCard label="Late" value={counts.late} foot="Arrived after session start" icon={Clock} tone="warning" />
+        <KpiCard label="Absent" value={counts.absent} foot="No show, follow up with parent" icon={AlertTriangle} tone="attention" />
       </section>
       <section className="panel player-table-card" aria-labelledby="attendance-title">
         <div className="toolbar">
@@ -2672,10 +2724,10 @@ function Payments({ payments }: { payments: Payment[] }) {
         </div>
       </section>
       <section className="kpi-grid" aria-label="Payments KPIs">
-        <KpiCard label="Total due" value={formatCurrency(totals.totalDue)} foot="Sum of amounts due in demo data" icon={PoundSterling} />
-        <KpiCard label="Total paid" value={formatCurrency(totals.totalPaid)} foot="Amounts marked as received" icon={Banknote} />
-        <KpiCard label="Balance" value={formatCurrency(totals.balance)} foot="Outstanding across players" icon={ClipboardCheck} />
-        <KpiCard label="Overdue" value={totals.overdue} foot={`${totals.unpaid} unpaid / part-paid`} icon={AlertTriangle} />
+        <KpiCard label="Total due" value={formatCurrency(totals.totalDue)} foot="Sum of amounts due in demo data" icon={PoundSterling} tone="neutral" />
+        <KpiCard label="Total paid" value={formatCurrency(totals.totalPaid)} foot="Amounts marked as received" icon={Banknote} tone="success" />
+        <KpiCard label="Balance" value={formatCurrency(totals.balance)} foot="Outstanding across players" icon={ClipboardCheck} tone="warning" />
+        <KpiCard label="Overdue" value={totals.overdue} foot={`${totals.unpaid} unpaid / part-paid`} icon={AlertTriangle} tone="danger" />
       </section>
       <section className="panel player-table-card" aria-labelledby="payments-title">
         <div className="toolbar">
