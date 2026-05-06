@@ -1708,7 +1708,7 @@ function Overview({
       )}
 
       <section className="cards-grid">
-        <article className="card mini-card" data-tone="media">
+        <article className="card mini-card" data-tone="media-lavender">
           <Camera size={20} aria-hidden="true" />
           <h3>Session photos</h3>
           <p>{(() => {
@@ -1718,7 +1718,7 @@ function Overview({
               : `${n} players allow photos during sessions.`;
           })()}</p>
         </article>
-        <article className="card mini-card" data-tone="media">
+        <article className="card mini-card" data-tone="media-plum">
           <Camera size={20} aria-hidden="true" />
           <h3>Match photos</h3>
           <p>{(() => {
@@ -1728,7 +1728,7 @@ function Overview({
               : `${n} players allow photos during matches.`;
           })()}</p>
         </article>
-        <article className="card mini-card" data-tone="media">
+        <article className="card mini-card" data-tone="media-indigo">
           <Video size={20} aria-hidden="true" />
           <h3>Coaching video review</h3>
           <p>{(() => {
@@ -1738,7 +1738,7 @@ function Overview({
               : `${n} players have permission for training analysis footage.`;
           })()}</p>
         </article>
-        <article className="card mini-card" data-tone="media">
+        <article className="card mini-card" data-tone="media-violet">
           <Video size={20} aria-hidden="true" />
           <h3>Match video</h3>
           <p>{(() => {
@@ -1748,7 +1748,7 @@ function Overview({
               : `${n} players allow match footage for coach analysis.`;
           })()}</p>
         </article>
-        <article className="card mini-card" data-tone={needsAction === 0 ? "success" : "attention"}>
+        <article className="card mini-card" data-tone={needsAction === 0 ? "media-rest" : "attention"}>
           <ShieldCheck size={20} aria-hidden="true" />
           <h3>Needs follow-up</h3>
           <p>{needsAction === 1

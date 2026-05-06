@@ -124,6 +124,21 @@
     --tone-pathway-3-accent: #347d6a;
     --tone-media-bg: #d8cdee;
     --tone-media-accent: #5b449a;
+
+    /* Media family — four siblings sharing purple DNA, each with its own hue
+       lean. Used by the bottom Overview cards so each capture type reads
+       distinct without breaking the family. */
+    --tone-media-lavender-bg: #dcd2ee;     /* session photos: cool blue-purple */
+    --tone-media-lavender-accent: #604aa0;
+    --tone-media-plum-bg: #e6cee3;         /* match photos: warmer magenta-purple */
+    --tone-media-plum-accent: #79407a;
+    --tone-media-indigo-bg: #cfd3ee;       /* coaching review: analytical blue-indigo */
+    --tone-media-indigo-accent: #424c98;
+    --tone-media-violet-bg: #d3c3e8;       /* match video: hero violet */
+    --tone-media-violet-accent: #5f3a96;
+    /* Quiet purple-grey for follow-up at rest — sits in the family, recedes. */
+    --tone-media-rest-bg: #d8d4e1;
+    --tone-media-rest-accent: #6c6981;
   }
 
   html[data-theme="dark"] {
@@ -172,6 +187,18 @@
     --tone-pathway-3-accent: #8cd2b9;
     --tone-media-bg: #322a4d;
     --tone-media-accent: #bda7e8;
+
+    /* Media family (dark) — same four siblings, dialled for forest base. */
+    --tone-media-lavender-bg: #2f2a4d;
+    --tone-media-lavender-accent: #c2afe8;
+    --tone-media-plum-bg: #3d2a3f;
+    --tone-media-plum-accent: #d8a8d2;
+    --tone-media-indigo-bg: #262a47;
+    --tone-media-indigo-accent: #a8b0e6;
+    --tone-media-violet-bg: #352947;
+    --tone-media-violet-accent: #c4a8e6;
+    --tone-media-rest-bg: #2c2c34;
+    --tone-media-rest-accent: #a09cb0;
   }
 }
 
@@ -763,6 +790,28 @@
   .mini-card[data-tone="media"] {
     --tone-bg: var(--tone-media-bg);
     --tone-accent: var(--tone-media-accent);
+  }
+  /* Media family siblings — same DNA, different hue lean. */
+  .mini-card[data-tone="media-lavender"] {
+    --tone-bg: var(--tone-media-lavender-bg);
+    --tone-accent: var(--tone-media-lavender-accent);
+  }
+  .mini-card[data-tone="media-plum"] {
+    --tone-bg: var(--tone-media-plum-bg);
+    --tone-accent: var(--tone-media-plum-accent);
+  }
+  .mini-card[data-tone="media-indigo"] {
+    --tone-bg: var(--tone-media-indigo-bg);
+    --tone-accent: var(--tone-media-indigo-accent);
+  }
+  .mini-card[data-tone="media-violet"] {
+    --tone-bg: var(--tone-media-violet-bg);
+    --tone-accent: var(--tone-media-violet-accent);
+  }
+  /* Quiet purple-grey: in-family but recessive. Used by follow-up at rest. */
+  .mini-card[data-tone="media-rest"] {
+    --tone-bg: var(--tone-media-rest-bg);
+    --tone-accent: var(--tone-media-rest-accent);
   }
 
   /* Inside a tinted form-section, lift the checkbox cards to white-ish */
