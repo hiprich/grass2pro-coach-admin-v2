@@ -1059,6 +1059,49 @@
     font-weight: 800;
   }
 
+  /* Consent-tone echo on player rows. Single source of truth on the wrapper
+     (.player-cell or .player-card-head) drives both avatar and name so the
+     row tells one coherent story — left edge matches right-side status pill. */
+  .player-cell[data-consent-tone],
+  .player-card-head[data-consent-tone] {
+    --row-bg: var(--primary-soft);
+    --row-accent: var(--primary-strong);
+    --row-name: var(--text);
+  }
+  .player-cell[data-consent-tone="green"],
+  .player-card-head[data-consent-tone="green"] {
+    --row-bg: var(--tone-success-bg);
+    --row-accent: var(--tone-success-accent);
+    --row-name: color-mix(in oklab, var(--tone-success-accent) 55%, var(--text));
+  }
+  .player-cell[data-consent-tone="amber"],
+  .player-card-head[data-consent-tone="amber"] {
+    --row-bg: var(--tone-warning-bg);
+    --row-accent: var(--tone-warning-accent);
+    --row-name: color-mix(in oklab, var(--tone-warning-accent) 55%, var(--text));
+  }
+  .player-cell[data-consent-tone="red"],
+  .player-card-head[data-consent-tone="red"] {
+    --row-bg: var(--tone-danger-bg);
+    --row-accent: var(--tone-danger-accent);
+    --row-name: color-mix(in oklab, var(--tone-danger-accent) 55%, var(--text));
+  }
+  .player-cell[data-consent-tone="grey"],
+  .player-card-head[data-consent-tone="grey"] {
+    --row-bg: var(--grey-soft);
+    --row-accent: var(--muted);
+    --row-name: var(--muted);
+  }
+  .player-cell[data-consent-tone] .player-avatar,
+  .player-card-head[data-consent-tone] .player-avatar {
+    background: var(--row-bg);
+    color: var(--row-accent);
+  }
+  .player-cell[data-consent-tone] .player-name,
+  .player-card-head[data-consent-tone] .player-name {
+    color: var(--row-name);
+  }
+
   .player-sub {
     color: var(--muted);
     font-size: var(--text-xs);

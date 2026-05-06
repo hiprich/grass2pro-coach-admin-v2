@@ -2119,7 +2119,7 @@ function PlayerList({
                     className={player.status === "Left" ? "row-left" : ""}
                   >
                     <td>
-                      <div className="player-cell">
+                      <div className="player-cell" data-consent-tone={player.consentStatus}>
                         <span className="player-avatar">{initials(player.name)}</span>
                         <span>
                           <span className="player-name" data-testid={`text-player-name-${player.id}`}>
@@ -2171,7 +2171,7 @@ function PlayerList({
                 className={`player-card ${player.status === "Left" ? "player-card-left" : ""}`}
                 data-testid={`row-player-${player.id}`}
               >
-                <div className="player-card-head">
+                <div className="player-card-head" data-consent-tone={player.consentStatus}>
                   <span className="player-avatar">{initials(player.name)}</span>
                   <div className="player-card-identity">
                     <span className="player-name" data-testid={`text-player-name-${player.id}`}>
