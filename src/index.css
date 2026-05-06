@@ -1570,6 +1570,46 @@
     border-color: color-mix(in oklab, var(--tone-media-lavender-accent) 30%, transparent);
   }
 
+  /* QR check-in is the primary action on each session row. Brand lime fill */
+  /* makes it pop against the forest background while staying on-brand. It */
+  /* sits outside the semantic palette so it can’t be confused with status. */
+  .qr-check-button {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: 2.5rem;
+    padding: var(--space-2) var(--space-4);
+    border-radius: var(--radius-full);
+    border: 1px solid color-mix(in oklab, var(--lime) 60%, transparent);
+    background: var(--lime);
+    color: #1a2110;
+    font-size: var(--text-xs);
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    box-shadow: 0 2px 0 color-mix(in oklab, var(--lime) 35%, transparent),
+      0 8px 18px color-mix(in oklab, var(--lime) 20%, transparent);
+    transition: transform var(--transition-interactive), box-shadow var(--transition-interactive),
+      background var(--transition-interactive);
+  }
+  .qr-check-button > svg {
+    color: #1a2110;
+  }
+  .qr-check-button:hover {
+    background: color-mix(in oklab, var(--lime) 88%, white);
+    transform: translateY(-1px);
+    box-shadow: 0 3px 0 color-mix(in oklab, var(--lime) 40%, transparent),
+      0 12px 24px color-mix(in oklab, var(--lime) 28%, transparent);
+  }
+  .qr-check-button:active {
+    transform: translateY(0);
+    box-shadow: 0 1px 0 color-mix(in oklab, var(--lime) 30%, transparent);
+  }
+  .qr-check-button:focus-visible {
+    outline: 2px solid var(--text);
+    outline-offset: 2px;
+  }
+
   .inline-meta {
     display: inline-flex;
     align-items: center;

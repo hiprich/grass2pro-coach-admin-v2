@@ -15,6 +15,7 @@ import {
   Menu,
   Moon,
   PoundSterling,
+  QrCode,
   RotateCcw,
   Search,
   ShieldCheck,
@@ -2531,11 +2532,12 @@ function Sessions({ sessions, players }: { sessions: Session[]; players: Player[
                       {session.state === "scheduled" ? (
                         <button
                           type="button"
-                          className="filter-button"
+                          className="qr-check-button"
                           onClick={() => setCheckinSession(session)}
                           data-testid={`button-checkin-${session.id}`}
                         >
-                          QR check-in
+                          <QrCode size={16} aria-hidden="true" />
+                          <span>QR check-in</span>
                         </button>
                       ) : (
                         <span className="player-sub">—</span>
