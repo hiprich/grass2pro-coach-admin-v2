@@ -152,13 +152,13 @@ export function tableName(key, fallbackName, fallbackId) {
 // hits the right tables, even when the human-readable name contains a "/" or
 // other reserved character that the Airtable API would otherwise reject.
 export const TABLE_IDS = {
-  COACHES: "",
+  COACHES: "tblb7EEVuRBz1BeA5",
   PLAYERS: "tbl4iFx39SdFcidqu",
   PARENTS: "tblC9YZ2eI0rK1KFc",
   MEDIA_CONSENTS: "tblFY37amCu9zbfHO",
-  SESSIONS: "",
-  ATTENDANCE: "",
-  QR_CHECKINS: "",
+  SESSIONS: "tblmiOGnUUil58oyw",
+  ATTENDANCE: "tblLtPoWSS1fU5pHy",
+  QR_CHECKINS: "tblZwhRy23bodjUCE",
   // Auth Tokens stores hashed magic-link tokens for parent portal sign-in.
   // The id is left blank so the AIRTABLE_AUTH_TOKENS_TABLE env var (or the
   // human-readable "Auth Tokens" name) takes over until the table id is
@@ -532,7 +532,7 @@ export function normaliseSession(record) {
     coach: stringValue(fields.Coach || fields["Lead Coach"], ""),
     type: inferSessionType(fields["Today's Session Type"] || fields["Session Type"] || fields.Type),
     state: inferSessionState(fields.Status || fields.State, date),
-    notes: stringValue(fields.Notes || fields["Coach Notes"], ""),
+    notes: stringValue(fields["Session Notes"] || fields.Notes || fields["Coach Notes"], ""),
     checkInEnabled: boolValue(fields["Check-in Enabled"]),
     qrFallbackCode: stringValue(fields["QR Fallback Code"]),
     playerIds: Array.isArray(fields.Players) ? fields.Players : [],
@@ -605,6 +605,69 @@ export async function listSessions({ scope = "upcoming" } = {}) {
     return all.filter((s) => s.date && new Date(s.date) < today);
   }
   return all.filter((s) => !s.date || new Date(s.date) >= today);
+}
+
+// Format a yyyy-mm-dd date string into a short, human-readable label like
+// "04 May 2026". Used by rescheduleSession() to write a clear audit note.
+function formatHumanDate(iso) {
+  if (!iso) return "";
+  const d = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+// Reschedule (or relocate) a session. Updates Date / Start Time / End Time /
+// Location and prepends an audit line to Session Notes so coaches and parents
+// can see the change history. Returns the normalised session.
+export async function rescheduleSession(
+  sessionId,
+  { date, startTime, endTime, location, coach } = {},
+) {
+  if (!sessionId) throw new Error("sessionId is required");
+  const table = tableName("AIRTABLE_SESSIONS_TABLE", "Sessions", TABLE_IDS.SESSIONS);
+
+  // Pull the current record so we can build the audit line and only patch
+  // fields that actually changed.
+  const current = await airtableGet(table, sessionId);
+  const before = current?.fields || {};
+  const beforeDate = stringValue(before.Date);
+  const beforeStart = stringValue(before["Start Time"]);
+  const beforeEnd = stringValue(before["End Time"]);
+  const beforeLocation = stringValue(before.Location);
+  const beforeNotes = stringValue(before["Session Notes"]);
+
+  const updates = {};
+  const changes = [];
+  if (date && date !== beforeDate) {
+    updates.Date = date;
+    changes.push(`date ${formatHumanDate(beforeDate) || "(none)"} \u2192 ${formatHumanDate(date)}`);
+  }
+  if (typeof startTime === "string" && startTime !== beforeStart) {
+    updates["Start Time"] = startTime;
+    changes.push(`start ${beforeStart || "(none)"} \u2192 ${startTime || "(cleared)"}`);
+  }
+  if (typeof endTime === "string" && endTime !== beforeEnd) {
+    updates["End Time"] = endTime;
+    changes.push(`end ${beforeEnd || "(none)"} \u2192 ${endTime || "(cleared)"}`);
+  }
+  if (typeof location === "string" && location !== beforeLocation) {
+    updates.Location = location;
+    changes.push(`location ${beforeLocation || "(none)"} \u2192 ${location || "(cleared)"}`);
+  }
+
+  if (changes.length === 0) {
+    return normaliseSession(current);
+  }
+
+  // Prepend an audit line. Keep it terse so the notes column stays readable
+  // even after several reschedules.
+  const today = formatHumanDate(new Date().toISOString().slice(0, 10));
+  const who = coach ? `, by ${coach}` : "";
+  const auditLine = `[Rescheduled ${changes.join("; ")} on ${today}${who}]`;
+  updates["Session Notes"] = beforeNotes ? `${auditLine}\n${beforeNotes}` : auditLine;
+
+  const updated = await airtableUpdate(table, sessionId, updates);
+  return normaliseSession(updated);
 }
 
 export async function listAttendance({ sessionId } = {}) {

@@ -1,6 +1,7 @@
 import {
   AlertTriangle,
   Banknote,
+  CalendarClock,
   CalendarDays,
   Camera,
   Check,
@@ -949,6 +950,46 @@ async function submitQrCheckin(payload: {
     message,
     existing: (json.existing as AttendanceRecord | null) ?? null,
   };
+}
+
+// PATCH a session row in Airtable via /sessions?id=… The backend prepends an
+// audit line to Session Notes whenever a real change is made. Returns the
+// updated session so the caller can splice it into local state.
+async function rescheduleSessionRequest(payload: {
+  sessionId: string;
+  date?: string;
+  startTime?: string;
+  endTime?: string;
+  location?: string;
+  coach?: string;
+}): Promise<{ ok: true; session: Session } | { ok: false; message: string }> {
+  if (!apiAvailable) {
+    // No backend in local preview — fake a success so the modal flow still
+    // closes. We'll never write demo notes from here.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    return {
+      ok: false,
+      message: "Backend unavailable in demo mode — reschedule was not persisted.",
+    };
+  }
+  const { sessionId, ...body } = payload;
+  const response = await fetch(
+    apiPath(`/sessions?id=${encodeURIComponent(sessionId)}`),
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
+  const json = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  if (response.ok && json.session) {
+    return { ok: true, session: json.session as Session };
+  }
+  const message =
+    (typeof json.error === "string" && json.error) ||
+    (typeof json.message === "string" && (json.message as string)) ||
+    "Reschedule failed.";
+  return { ok: false, message };
 }
 
 async function submitConsent(payload: ConsentPayload) {
@@ -2399,6 +2440,149 @@ function QrCheckinDialog({
   );
 }
 
+// Coach-side reschedule modal. Lets you change date / start / end / location
+// on a session. The backend writes an audit line to Session Notes whenever
+// something actually changes. We don’t allow editing past sessions — those
+// are historical records and editing them would corrupt the timeline.
+function RescheduleDialog({
+  session,
+  coachName,
+  onClose,
+  onSaved,
+}: {
+  session: Session;
+  coachName?: string;
+  onClose: () => void;
+  onSaved: (session: Session) => void;
+}) {
+  const [date, setDate] = useState(session.date);
+  const [startTime, setStartTime] = useState(session.startTime);
+  const [endTime, setEndTime] = useState(session.endTime);
+  const [location, setLocation] = useState(session.location);
+  const [stage, setStage] = useState<"edit" | "saving" | "error">("edit");
+  const [errorMessage, setErrorMessage] = useState("");
+
+  const dirty =
+    date !== session.date ||
+    startTime !== session.startTime ||
+    endTime !== session.endTime ||
+    location !== session.location;
+
+  // Quick-pick chips for common reschedule moves — “bump by a week” is by
+  // far the most common ask after a rained-off training session.
+  function bumpDateByDays(days: number) {
+    const base = new Date(`${date || session.date}T00:00:00`);
+    if (Number.isNaN(base.getTime())) return;
+    base.setDate(base.getDate() + days);
+    setDate(base.toISOString().slice(0, 10));
+  }
+
+  async function save() {
+    setStage("saving");
+    setErrorMessage("");
+    const result = await rescheduleSessionRequest({
+      sessionId: session.id,
+      date,
+      startTime,
+      endTime,
+      location,
+      coach: coachName,
+    });
+    if (result.ok) {
+      onSaved(result.session);
+      return;
+    }
+    setErrorMessage(result.message);
+    setStage("error");
+  }
+
+  return (
+    <div className="qr-modal-backdrop" role="dialog" aria-modal="true" aria-label="Reschedule session">
+      <div className="qr-modal panel">
+        <div className="toolbar">
+          <div>
+            <div className="page-kicker">Reschedule</div>
+            <h2 className="page-title" style={{ fontSize: "var(--text-lg)" }}>{session.name}</h2>
+            <div className="player-sub">
+              {formatDate(session.date)} · {session.startTime}–{session.endTime} · {session.location}
+            </div>
+          </div>
+          <button type="button" className="icon-button" onClick={onClose} aria-label="Close reschedule">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="form-section">
+          <div className="form-grid">
+            <label className="form-field">
+              <span>Date</span>
+              <input
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                data-testid="input-reschedule-date"
+              />
+            </label>
+            <label className="form-field">
+              <span>Start time</span>
+              <input
+                type="time"
+                value={startTime}
+                onChange={(e) => setStartTime(e.target.value)}
+                data-testid="input-reschedule-start"
+              />
+            </label>
+            <label className="form-field">
+              <span>End time</span>
+              <input
+                type="time"
+                value={endTime}
+                onChange={(e) => setEndTime(e.target.value)}
+                data-testid="input-reschedule-end"
+              />
+            </label>
+            <label className="form-field full">
+              <span>Location</span>
+              <input
+                type="text"
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                data-testid="input-reschedule-location"
+              />
+            </label>
+          </div>
+
+          <div className="filter-row" aria-label="Quick date bumps" style={{ marginTop: "var(--space-3)" }}>
+            <button type="button" className="filter-button" onClick={() => bumpDateByDays(1)}>+1 day</button>
+            <button type="button" className="filter-button" onClick={() => bumpDateByDays(2)}>+2 days</button>
+            <button type="button" className="filter-button" onClick={() => bumpDateByDays(7)}>+1 week</button>
+            <button type="button" className="filter-button" onClick={() => bumpDateByDays(14)}>+2 weeks</button>
+          </div>
+
+          {stage === "error" && errorMessage && (
+            <div className="message error" data-testid="status-reschedule-error" style={{ marginTop: "var(--space-3)" }}>
+              {errorMessage}
+            </div>
+          )}
+
+          <div style={{ display: "flex", gap: "var(--space-2)", marginTop: "var(--space-4)" }}>
+            <button
+              type="button"
+              className="primary-button"
+              disabled={!dirty || stage === "saving"}
+              onClick={save}
+              data-testid="button-reschedule-save"
+            >
+              {stage === "saving" ? "Saving…" : "Save changes"}
+            </button>
+            <button type="button" className="filter-button" onClick={onClose}>Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Derive what state a session should DISPLAY as. The raw `state` field is
 // what the coach last recorded — if a session was cancelled, that always
 // wins. Otherwise, once the session date is in the past, a still-scheduled
@@ -2415,10 +2599,21 @@ function derivedSessionState(session: Session, today: Date): SessionState {
   return sessionDay < todayDay ? "completed" : "scheduled";
 }
 
-function Sessions({ sessions, players }: { sessions: Session[]; players: Player[] }) {
+function Sessions({
+  sessions,
+  players,
+  coachName,
+  onSessionUpdate,
+}: {
+  sessions: Session[];
+  players: Player[];
+  coachName?: string;
+  onSessionUpdate: (session: Session) => void;
+}) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"all" | SessionState>("all");
   const [checkinSession, setCheckinSession] = useState<Session | null>(null);
+  const [rescheduleSession, setRescheduleSession] = useState<Session | null>(null);
 
   // Build a map of sessionId → derived state once per render so we never
   // disagree with ourselves between KPI counts, filter chips, row pills,
@@ -2559,19 +2754,29 @@ function Sessions({ sessions, players }: { sessions: Session[]; players: Player[
                       <span className="notes-cell">{session.notes}</span>
                     </td>
                     <td>
-                      {stateOf(session) === "scheduled" ? (
+                      <div className="session-row-actions">
+                        {stateOf(session) === "scheduled" ? (
+                          <button
+                            type="button"
+                            className="qr-check-button"
+                            onClick={() => setCheckinSession(session)}
+                            data-testid={`button-checkin-${session.id}`}
+                          >
+                            <QrCode size={16} aria-hidden="true" />
+                            <span>QR check-in</span>
+                          </button>
+                        ) : null}
                         <button
                           type="button"
-                          className="qr-check-button"
-                          onClick={() => setCheckinSession(session)}
-                          data-testid={`button-checkin-${session.id}`}
+                          className="reschedule-button"
+                          onClick={() => setRescheduleSession(session)}
+                          aria-label={`Reschedule ${session.name}`}
+                          data-testid={`button-reschedule-${session.id}`}
                         >
-                          <QrCode size={16} aria-hidden="true" />
-                          <span>QR check-in</span>
+                          <CalendarClock size={16} aria-hidden="true" />
+                          <span>Reschedule</span>
                         </button>
-                      ) : (
-                        <span className="player-sub">—</span>
-                      )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -2585,6 +2790,17 @@ function Sessions({ sessions, players }: { sessions: Session[]; players: Player[
           session={checkinSession}
           players={players}
           onClose={() => setCheckinSession(null)}
+        />
+      )}
+      {rescheduleSession && (
+        <RescheduleDialog
+          session={rescheduleSession}
+          coachName={coachName}
+          onClose={() => setRescheduleSession(null)}
+          onSaved={(updated) => {
+            onSessionUpdate(updated);
+            setRescheduleSession(null);
+          }}
         />
       )}
     </>
@@ -4472,6 +4688,17 @@ function CoachDashboard() {
     });
   }
 
+  // Splice an updated session back into the dataset after a successful
+  // reschedule so KPIs, filter chips and the row state all refresh without
+  // a full reload.
+  function applySessionUpdate(updated: Session) {
+    setData((prev) => {
+      if (!prev) return prev;
+      const sessions = prev.sessions.map((s) => (s.id === updated.id ? updated : s));
+      return { ...prev, sessions };
+    });
+  }
+
   if (!data) return <LoadingState />;
 
   const title = {
@@ -4530,7 +4757,14 @@ function CoachDashboard() {
           {activeView === "players" && (
             <PlayerList players={data.players} onPlayerUpdate={applyPlayerUpdate} />
           )}
-          {activeView === "sessions" && <Sessions sessions={data.sessions} players={data.players} />}
+          {activeView === "sessions" && (
+            <Sessions
+              sessions={data.sessions}
+              players={data.players}
+              coachName={data.coach?.name}
+              onSessionUpdate={applySessionUpdate}
+            />
+          )}
           {activeView === "attendance" && <Attendance attendance={data.attendance} sessions={data.sessions} />}
           {activeView === "safeguarding" && <Safeguarding players={data.players} />}
           {activeView === "payments" && <Payments payments={data.payments} />}
