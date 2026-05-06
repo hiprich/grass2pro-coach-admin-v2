@@ -3,6 +3,7 @@ import {
   rescheduleSession,
   cancelSession,
   createSession,
+  editSession,
   json,
   hasAirtableConfig,
 } from "./_airtable.mjs";
@@ -120,14 +121,26 @@ async function handleCreate(event) {
   }
 }
 
-// PATCH /sessions?id=recXXXX with body { date, startTime, endTime, location, coach? }
-// Reschedule. All body fields are optional; we only update the ones present
-// and write an audit line into Session Notes whenever something changed.
+// PATCH /sessions?id=recXXXX
+//
+// Two ops share this endpoint, discriminated by body.op:
+//   - op="edit"        → full-row edit (all fields, audit only on significant
+//                       changes — date/start/end/location/pitchType)
+//   - op="reschedule"  → narrow reschedule (date/start/end/location only,
+//                       always writes a [Rescheduled …] audit line)
+//   - omitted          → defaults to reschedule for backwards compatibility
 async function handlePatch(event) {
   const id = sessionIdFrom(event);
   if (!id) return json(400, { error: "Missing session id." });
 
   const payload = safeParse(event.body) || {};
+  const op = typeof payload.op === "string" ? payload.op : "reschedule";
+  if (op === "edit") return handleEdit(id, payload);
+  if (op === "reschedule") return handleReschedule(id, payload);
+  return json(400, { error: 'op must be "edit" or "reschedule".' });
+}
+
+async function handleReschedule(id, payload) {
   const date = trimString(payload.date);
   const startTime = trimString(payload.startTime);
   const endTime = trimString(payload.endTime);
@@ -165,6 +178,94 @@ async function handlePatch(event) {
   } catch (error) {
     console.error("Sessions reschedule error:", error);
     return json(502, { error: "Reschedule failed." });
+  }
+}
+
+// Edit handler. Validates the same primitive shapes as create + reschedule
+// (date/time/pitchType/fee allow-lists) and forwards everything to editSession,
+// which decides what's an audit-worthy change vs a silent save.
+async function handleEdit(id, payload) {
+  const name = trimString(payload.name);
+  const date = trimString(payload.date);
+  const startTime = trimString(payload.startTime);
+  const endTime = trimString(payload.endTime);
+  const location =
+    typeof payload.location === "string" ? payload.location.trim() : undefined;
+  const ageGroup =
+    typeof payload.ageGroup === "string" ? payload.ageGroup.trim() : undefined;
+  const team = typeof payload.team === "string" ? payload.team.trim() : undefined;
+  const coach = typeof payload.coach === "string" ? payload.coach.trim() : undefined;
+  const notes = typeof payload.notes === "string" ? payload.notes : undefined;
+  const coachActor = trimString(payload.coachActor) || undefined;
+
+  if (date && !DATE_RE.test(date)) {
+    return json(400, { error: "date must be in yyyy-mm-dd format." });
+  }
+  if (startTime && !TIME_RE.test(startTime)) {
+    return json(400, { error: "startTime must be in HH:mm format." });
+  }
+  if (endTime && !TIME_RE.test(endTime)) {
+    return json(400, { error: "endTime must be in HH:mm format." });
+  }
+
+  let sessionFee;
+  if (
+    payload.sessionFee !== "" &&
+    payload.sessionFee !== null &&
+    payload.sessionFee !== undefined
+  ) {
+    const parsed = Number(payload.sessionFee);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      return json(400, { error: "sessionFee must be a positive number." });
+    }
+    sessionFee = parsed;
+  }
+
+  // Pitch type is allowed to be cleared (empty string) on edit — useful when
+  // a coach picked the wrong surface and wants to wipe the field rather than
+  // swap it. An explicit non-empty value must still match the allow-list.
+  let pitchType;
+  if (typeof payload.pitchType === "string") {
+    const trimmed = payload.pitchType.trim();
+    if (trimmed === "") {
+      pitchType = "";
+    } else if (PITCH_TYPES.has(trimmed)) {
+      pitchType = trimmed;
+    } else {
+      return json(400, { error: "pitchType must be one of: Astro 4G, Grass." });
+    }
+  }
+
+  if (!hasAirtableConfig()) {
+    return json(200, {
+      session: null,
+      warning: "Airtable not configured; edit was a no-op.",
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  try {
+    const session = await editSession(id, {
+      name: name || undefined,
+      date: date || undefined,
+      startTime: typeof payload.startTime === "string" ? startTime : undefined,
+      endTime: typeof payload.endTime === "string" ? endTime : undefined,
+      location,
+      pitchType,
+      sessionFee,
+      ageGroup,
+      team,
+      coach,
+      notes,
+      coachActor,
+    });
+    return json(200, { session, updatedAt: new Date().toISOString() });
+  } catch (error) {
+    console.error("Sessions edit error:", error);
+    return json(502, {
+      error: "Edit session failed.",
+      detail: error?.message || String(error),
+    });
   }
 }
 

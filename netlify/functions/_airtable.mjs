@@ -461,22 +461,23 @@ export async function airtableGet(table, recordId) {
   return response.json();
 }
 
-export async function airtableUpdate(table, recordId, fields) {
+export async function airtableUpdate(table, recordId, fields, { typecast = false } = {}) {
   if (!hasAirtableConfig()) {
     return { id: recordId || `demo_${Date.now()}`, fields, demo: true };
   }
   const url = `${AIRTABLE_API}/${process.env.AIRTABLE_BASE_ID}/${encodeTable(table)}/${encodeURIComponent(recordId)}`;
+  const body = typecast ? { fields, typecast: true } : { fields };
   const response = await fetch(url, {
     method: "PATCH",
     headers: {
       Authorization: `Bearer ${token()}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ fields }),
+    body: JSON.stringify(body),
   });
   if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`Airtable update failed for ${table}/${recordId}: ${body}`);
+    const text = await response.text();
+    throw new Error(`Airtable update failed for ${table}/${recordId}: ${text}`);
   }
   return response.json();
 }
@@ -540,6 +541,10 @@ export function normaliseSession(record) {
     // Empty string when the field hasn't been populated (e.g. legacy rows or
     // bases where the singleSelect hasn't been added in Airtable yet).
     pitchType: stringValue(fields["Pitch Type"], ""),
+    // Session fee in £. Surfaced so the Edit dialog can pre-fill the input;
+    // null when not set so the input shows as empty rather than "0".
+    sessionFee:
+      typeof fields["Session Fee"] === "number" ? fields["Session Fee"] : null,
   };
 }
 
@@ -702,6 +707,137 @@ export async function cancelSession(
   };
 
   const updated = await airtableUpdate(table, sessionId, updates);
+  return normaliseSession(updated);
+}
+
+// Edit an existing session. Mirrors the shape of createSession but takes a
+// session ID and only patches fields that actually changed. Significant edits
+// (date, start, end, location, pitch type) prepend an audit line into Session
+// Notes — silent edits (name, team, age group, coach, fee, notes) save without
+// noise, mirroring the user's preference for a quiet log on small tweaks.
+//
+// `notes` is treated specially: when present, it REPLACES the body of Session
+// Notes (audit lines preserved at the top), because notes is a free-text field
+// the coach is expected to author directly. If the audit history matters more
+// than the new note text, callers can simply omit `notes` from the payload.
+export async function editSession(
+  sessionId,
+  {
+    name,
+    date,
+    startTime,
+    endTime,
+    location,
+    pitchType,
+    sessionFee,
+    ageGroup,
+    team,
+    coach,
+    notes,
+    coachActor,
+  } = {},
+) {
+  if (!sessionId) throw new Error("sessionId is required");
+  const table = tableName("AIRTABLE_SESSIONS_TABLE", "Sessions", TABLE_IDS.SESSIONS);
+
+  const current = await airtableGet(table, sessionId);
+  const before = current?.fields || {};
+  const beforeName = stringValue(before["Session Name"] || before.Name);
+  const beforeDate = stringValue(before.Date);
+  const beforeStart = stringValue(before["Start Time"]);
+  const beforeEnd = stringValue(before["End Time"]);
+  const beforeLocation = stringValue(before.Location);
+  const beforePitchType = stringValue(before["Pitch Type"]);
+  const beforeFee = typeof before["Session Fee"] === "number" ? before["Session Fee"] : null;
+  const beforeAgeGroup = stringValue(before["Age Group"]);
+  const beforeTeam = stringValue(before.Team);
+  const beforeCoach = stringValue(before.Coach);
+  const beforeNotes = stringValue(before["Session Notes"]);
+
+  const updates = {};
+  const significantChanges = [];
+
+  // ---- Significant fields (logged) ----
+  if (typeof date === "string" && date && date !== beforeDate) {
+    updates.Date = date;
+    significantChanges.push(
+      `date ${formatHumanDate(beforeDate) || "(none)"} \u2192 ${formatHumanDate(date)}`,
+    );
+  }
+  if (typeof startTime === "string" && startTime !== beforeStart) {
+    updates["Start Time"] = startTime;
+    significantChanges.push(`start ${beforeStart || "(none)"} \u2192 ${startTime || "(cleared)"}`);
+  }
+  if (typeof endTime === "string" && endTime !== beforeEnd) {
+    updates["End Time"] = endTime;
+    significantChanges.push(`end ${beforeEnd || "(none)"} \u2192 ${endTime || "(cleared)"}`);
+  }
+  if (typeof location === "string" && location !== beforeLocation) {
+    updates.Location = location;
+    significantChanges.push(`location ${beforeLocation || "(none)"} \u2192 ${location || "(cleared)"}`);
+  }
+  if (typeof pitchType === "string" && pitchType !== beforePitchType) {
+    updates["Pitch Type"] = pitchType;
+    significantChanges.push(`pitch ${beforePitchType || "(none)"} \u2192 ${pitchType || "(cleared)"}`);
+  }
+
+  // ---- Silent fields (saved but not logged) ----
+  if (typeof name === "string" && name && name !== beforeName) {
+    updates["Session Name"] = name;
+  }
+  if (typeof sessionFee === "number" && Number.isFinite(sessionFee) && sessionFee !== beforeFee) {
+    updates["Session Fee"] = sessionFee;
+    // Mirror createSession's behaviour: a non-zero fee implies Per Session +
+    // Payment Required so attendance/payments stay coherent.
+    if (sessionFee > 0) {
+      updates["Charge Type"] = "Per Session";
+      updates["Payment Required"] = true;
+    }
+  }
+  if (typeof ageGroup === "string" && ageGroup !== beforeAgeGroup) {
+    updates["Age Group"] = ageGroup;
+  }
+  if (typeof team === "string" && team !== beforeTeam) {
+    updates.Team = team;
+  }
+  if (typeof coach === "string" && coach !== beforeCoach) {
+    updates.Coach = coach;
+  }
+
+  // Build notes: existing audit history + new audit line (if any) + body.
+  // We split beforeNotes into bracketed audit lines (kept) and free body
+  // (replaced when `notes` is supplied) so editing the note doesn't wipe the
+  // reschedule/cancel/edit trail.
+  const auditMatch = beforeNotes.match(/^((?:\[[^\]]+\]\n?)*)([\s\S]*)$/);
+  const existingAudit = auditMatch ? auditMatch[1].trimEnd() : "";
+  const existingBody = auditMatch ? auditMatch[2].trimStart() : beforeNotes;
+
+  let newAuditLine = "";
+  if (significantChanges.length > 0) {
+    const today = formatHumanDate(new Date().toISOString().slice(0, 10));
+    const who = coachActor ? `, by ${coachActor}` : "";
+    newAuditLine = `[Edited ${significantChanges.join("; ")} on ${today}${who}]`;
+  }
+
+  const nextBody =
+    typeof notes === "string" ? notes.trim() : existingBody;
+
+  const auditBlock = [existingAudit, newAuditLine].filter(Boolean).join("\n");
+  const composedNotes = [auditBlock, nextBody].filter(Boolean).join("\n\n");
+
+  const notesChanged = composedNotes !== beforeNotes;
+  if (notesChanged) {
+    updates["Session Notes"] = composedNotes;
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return normaliseSession(current);
+  }
+
+  // typecast=true so a fresh Pitch Type option (e.g. if Airtable singleSelect
+  // is missing one of the two values) gets auto-created server-side instead
+  // of failing the whole patch.
+  const updated = await airtableUpdate(table, sessionId, updates, { typecast: true });
   return normaliseSession(updated);
 }
 

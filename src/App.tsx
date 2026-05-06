@@ -16,6 +16,7 @@ import {
   MapPin,
   Menu,
   Moon,
+  Pencil,
   Plus,
   PoundSterling,
   QrCode,
@@ -104,7 +105,8 @@ type Session = {
   checkInEnabled?: boolean;
   qrFallbackCode?: string;
   playerIds?: string[];
-  pitchType?: string;
+  pitchType?: PitchType | "";
+  sessionFee?: number | null;
 };
 
 type AttendanceRecord = {
@@ -985,7 +987,9 @@ async function rescheduleSessionRequest(payload: {
     {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      // Explicitly tag the op so the backend routes to handleReschedule even
+      // after the edit op was added — belt-and-braces over the legacy default.
+      body: JSON.stringify({ ...body, op: "reschedule" }),
     },
   );
   const json = (await response.json().catch(() => ({}))) as Record<string, unknown>;
@@ -1033,6 +1037,56 @@ async function cancelSessionRequest(payload: {
     (typeof json.message === "string" && (json.message as string)) ||
     "Cancel failed.";
   return { ok: false, message };
+}
+
+// PATCH /sessions — full-row edit. Sends every editable field; the backend
+// only patches what changed and logs an audit line if a significant field
+// (date/start/end/location/pitch type) was touched. Silent edits (name, team,
+// age group, coach, fee, notes) save without a Notes line.
+async function editSessionRequest(payload: {
+  sessionId: string;
+  name?: string;
+  date?: string;
+  startTime?: string;
+  endTime?: string;
+  location?: string;
+  pitchType?: PitchType | "";
+  sessionFee?: number | "";
+  ageGroup?: string;
+  team?: string;
+  coach?: string;
+  notes?: string;
+  coachActor?: string;
+}): Promise<{ ok: true; session: Session } | { ok: false; message: string }> {
+  if (!apiAvailable) {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    return {
+      ok: false,
+      message: "Backend unavailable in demo mode — edit was not persisted.",
+    };
+  }
+  const { sessionId, ...rest } = payload;
+  const response = await fetch(
+    apiPath(`/sessions?id=${encodeURIComponent(sessionId)}`),
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...rest, op: "edit" }),
+    },
+  );
+  const json = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  if (response.ok && json.session) {
+    return { ok: true, session: json.session as Session };
+  }
+  const baseMessage =
+    (typeof json.error === "string" && json.error) ||
+    (typeof json.message === "string" && (json.message as string)) ||
+    "Edit failed.";
+  const detail = typeof json.detail === "string" ? (json.detail as string) : undefined;
+  return {
+    ok: false,
+    message: detail ? `${baseMessage} (${detail})` : baseMessage,
+  };
 }
 
 // POST /sessions — quick-five create. Mirrors how a coach types a session in
@@ -3022,6 +3076,265 @@ function CreateSessionDialog({
   );
 }
 
+// EditSessionDialog — full-shape edit modal. Mirrors CreateSessionDialog's
+// form-grid but pre-populated, and includes Team/AgeGroup/Coach/Notes which
+// the quick-five creator omits. The backend (editSession in _airtable.mjs)
+// only logs an audit line for *significant* fields (Date, Start, End,
+// Location, Pitch Type) — silent for everything else. Notes here replace
+// only the body of the notes field; existing audit lines are preserved by
+// the backend so the audit trail is never wiped.
+function EditSessionDialog({
+  session,
+  coachName,
+  onClose,
+  onSaved,
+}: {
+  session: Session;
+  coachName?: string;
+  onClose: () => void;
+  onSaved: (session: Session) => void;
+}) {
+  const [name, setName] = useState(session.name ?? "");
+  const [date, setDate] = useState(session.date);
+  const [startTime, setStartTime] = useState(session.startTime);
+  const [endTime, setEndTime] = useState(session.endTime);
+  const [location, setLocation] = useState(session.location ?? "");
+  const [pitchType, setPitchType] = useState<PitchType | "">(session.pitchType ?? "");
+  const [feeText, setFeeText] = useState(
+    typeof session.sessionFee === "number" ? String(session.sessionFee) : "",
+  );
+  const [team, setTeam] = useState(session.team ?? "");
+  const [ageGroup, setAgeGroup] = useState(session.ageGroup ?? "");
+  const [coach, setCoach] = useState(session.coach ?? "");
+  // Strip any leading audit lines from the editable notes body — those are
+  // managed by the backend. The coach should only see / edit the prose part.
+  const initialNotesBody = useMemo(() => {
+    const raw = session.notes ?? "";
+    const match = raw.match(/^((?:\[[^\]]+\]\n?)*)([\s\S]*)$/);
+    return (match?.[2] ?? raw).replace(/^\n+/, "");
+  }, [session.notes]);
+  const [notes, setNotes] = useState(initialNotesBody);
+  const [stage, setStage] = useState<"edit" | "saving" | "error">("edit");
+  const [errorMessage, setErrorMessage] = useState("");
+
+  const weekdayLabel = useMemo(() => {
+    if (!date) return "";
+    const d = new Date(`${date}T00:00:00`);
+    if (Number.isNaN(d.getTime())) return "";
+    return d.toLocaleDateString("en-GB", { weekday: "long" });
+  }, [date]);
+
+  async function save() {
+    setStage("saving");
+    setErrorMessage("");
+    const trimmedFee = feeText.trim();
+    let feeForPayload: number | "" | undefined;
+    if (trimmedFee === "") {
+      feeForPayload = "";
+    } else {
+      const parsed = Number(trimmedFee);
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        setErrorMessage("Session fee must be a positive number.");
+        setStage("error");
+        return;
+      }
+      feeForPayload = parsed;
+    }
+    const result = await editSessionRequest({
+      sessionId: session.id,
+      name: name.trim(),
+      date,
+      startTime,
+      endTime,
+      location: location.trim(),
+      pitchType,
+      sessionFee: feeForPayload,
+      team: team.trim(),
+      ageGroup: ageGroup.trim(),
+      coach: coach.trim(),
+      notes,
+      coachActor: coachName,
+    });
+    if (result.ok) {
+      onSaved(result.session);
+      return;
+    }
+    setErrorMessage(result.message);
+    setStage("error");
+  }
+
+  return (
+    <div className="qr-modal-backdrop" role="dialog" aria-modal="true" aria-label="Edit session">
+      <div className="qr-modal panel">
+        <div className="toolbar">
+          <div>
+            <div className="page-kicker">Edit session</div>
+            <h2 className="page-title" style={{ fontSize: "var(--text-lg)" }}>{session.name}</h2>
+            <div className="player-sub">
+              {formatDate(session.date)} · {session.startTime}–{session.endTime} · {session.location}
+            </div>
+          </div>
+          <button type="button" className="icon-button" onClick={onClose} aria-label="Close edit session">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="form-section">
+          <div className="form-grid">
+            <label className="form-field full">
+              <span>Session name</span>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g. Tuesday training, U11 vs Riverside"
+                data-testid="input-edit-name"
+              />
+            </label>
+            <label className="form-field">
+              <span>Date</span>
+              <input
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                data-testid="input-edit-date"
+              />
+              {weekdayLabel && (
+                <span className="field-hint" data-testid="text-edit-weekday">
+                  {weekdayLabel}
+                </span>
+              )}
+            </label>
+            <label className="form-field">
+              <span>Start time</span>
+              <input
+                type="time"
+                value={startTime}
+                onChange={(e) => setStartTime(e.target.value)}
+                data-testid="input-edit-start"
+              />
+            </label>
+            <label className="form-field">
+              <span>End time</span>
+              <input
+                type="time"
+                value={endTime}
+                onChange={(e) => setEndTime(e.target.value)}
+                data-testid="input-edit-end"
+              />
+            </label>
+            <label className="form-field full">
+              <span>Location</span>
+              <input
+                type="text"
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                placeholder="e.g. Colindale Football Centre, Great Strand, NW9 5PE"
+                data-testid="input-edit-location"
+              />
+            </label>
+            <div className="form-field full">
+              <span>Pitch type</span>
+              <div className="pitch-type-row" role="radiogroup" aria-label="Pitch type">
+                {PITCH_TYPES.map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    role="radio"
+                    aria-checked={pitchType === option}
+                    className={`pitch-type-chip ${pitchType === option ? "active" : ""}`}
+                    data-pitch={option === "Astro 4G" ? "astro" : "grass"}
+                    onClick={() => setPitchType(pitchType === option ? "" : option)}
+                    data-testid={`button-edit-pitch-${option === "Astro 4G" ? "astro-4g" : "grass"}`}
+                  >
+                    <span aria-hidden="true" className="pitch-type-dot" />
+                    <span>{option}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <label className="form-field">
+              <span>Session fee (£)</span>
+              <input
+                type="number"
+                inputMode="decimal"
+                step="0.50"
+                min="0"
+                value={feeText}
+                onChange={(e) => setFeeText(e.target.value)}
+                placeholder="e.g. 20"
+                data-testid="input-edit-fee"
+              />
+            </label>
+            <label className="form-field">
+              <span>Team</span>
+              <input
+                type="text"
+                value={team}
+                onChange={(e) => setTeam(e.target.value)}
+                placeholder="e.g. Hounslow Lions"
+                data-testid="input-edit-team"
+              />
+            </label>
+            <label className="form-field">
+              <span>Age group</span>
+              <input
+                type="text"
+                value={ageGroup}
+                onChange={(e) => setAgeGroup(e.target.value)}
+                placeholder="e.g. U11"
+                data-testid="input-edit-age"
+              />
+            </label>
+            <label className="form-field full">
+              <span>Coach</span>
+              <input
+                type="text"
+                value={coach}
+                onChange={(e) => setCoach(e.target.value)}
+                placeholder="e.g. Hope Bouhe"
+                data-testid="input-edit-coach"
+              />
+            </label>
+            <label className="form-field full">
+              <span>Notes</span>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                rows={3}
+                placeholder="Optional — kit reminders, parking notes, etc."
+                data-testid="input-edit-notes"
+              />
+              <span className="field-hint">
+                Existing audit history (rescheduled / cancelled / edited tags) is kept automatically.
+              </span>
+            </label>
+          </div>
+
+          {stage === "error" && errorMessage && (
+            <div className="message error" data-testid="status-edit-error" style={{ marginTop: "var(--space-3)" }}>
+              {errorMessage}
+            </div>
+          )}
+
+          <div style={{ display: "flex", gap: "var(--space-2)", marginTop: "var(--space-4)" }}>
+            <button
+              type="button"
+              className="primary-button"
+              disabled={!date || stage === "saving"}
+              onClick={save}
+              data-testid="button-edit-save"
+            >
+              {stage === "saving" ? "Saving…" : "Save changes"}
+            </button>
+            <button type="button" className="filter-button" onClick={onClose}>Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Derive what state a session should DISPLAY as. The raw `state` field is
 // what the coach last recorded — if a session was cancelled, that always
 // wins. Otherwise, once the session date is in the past, a still-scheduled
@@ -3057,6 +3370,8 @@ function Sessions({
   const [cancelTarget, setCancelTarget] = useState<Session | null>(null);
   const [rescheduleTarget, setRescheduleTarget] = useState<Session | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  // Editable row — click anywhere on the session name cell opens this modal.
+  const [editTarget, setEditTarget] = useState<Session | null>(null);
 
   // Build a map of sessionId → derived state once per render so we never
   // disagree with ourselves between KPI counts, filter chips, row pills,
@@ -3171,11 +3486,22 @@ function Sessions({
               <tbody>
                 {filtered.map((session) => (
                   <tr key={session.id} data-testid={`row-session-${session.id}`}>
-                    <td data-session-tone={stateOf(session)}>
-                      <span className="player-name" data-testid={`text-session-name-${session.id}`}>
-                        {session.name}
-                      </span>
-                      <div className="player-sub">{session.ageGroup}</div>
+                    <td data-session-tone={stateOf(session)} className="session-name-cell">
+                      <button
+                        type="button"
+                        className="session-row-name-button"
+                        onClick={() => setEditTarget(session)}
+                        aria-label={`Edit ${session.name}`}
+                        data-testid={`button-edit-${session.id}`}
+                      >
+                        <span className="session-row-name-stack">
+                          <span className="player-name" data-testid={`text-session-name-${session.id}`}>
+                            {session.name}
+                          </span>
+                          <span className="player-sub">{session.ageGroup}</span>
+                        </span>
+                        <Pencil size={14} aria-hidden="true" className="session-row-name-pencil" />
+                      </button>
                     </td>
                     <td>
                       <div className="inline-meta">
@@ -3286,6 +3612,17 @@ function Sessions({
           onSaved={(updated) => {
             onSessionUpdate(updated);
             setRescheduleTarget(null);
+          }}
+        />
+      )}
+      {editTarget && (
+        <EditSessionDialog
+          session={editTarget}
+          coachName={coachName}
+          onClose={() => setEditTarget(null)}
+          onSaved={(updated) => {
+            onSessionUpdate(updated);
+            setEditTarget(null);
           }}
         />
       )}
