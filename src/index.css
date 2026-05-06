@@ -940,8 +940,10 @@
   .filter-button[data-filter-tone="neutral"] { --filter-dot: var(--tone-neutral-accent); }
   .filter-button[data-filter-tone="success"] { --filter-dot: var(--tone-success-accent); }
   .filter-button[data-filter-tone="warning"] { --filter-dot: var(--tone-warning-accent); }
+  .filter-button[data-filter-tone="attention"] { --filter-dot: var(--tone-attention-accent); }
   .filter-button[data-filter-tone="danger"]  { --filter-dot: var(--tone-danger-accent); }
   .filter-button[data-filter-tone="muted"]   { --filter-dot: var(--faint); }
+  .filter-button[data-filter-tone="media-lavender"] { --filter-dot: var(--tone-media-lavender-accent); }
 
   .filter-button:hover {
     border-color: color-mix(in oklab, var(--filter-dot, var(--border-strong)) 35%, var(--border-strong));
@@ -973,10 +975,20 @@
     border-color: color-mix(in oklab, var(--tone-danger-accent) 50%, transparent);
     color: var(--tone-danger-accent);
   }
+  .filter-button.active[data-filter-tone="attention"] {
+    background: var(--tone-attention-bg);
+    border-color: color-mix(in oklab, var(--tone-attention-accent) 45%, transparent);
+    color: var(--tone-attention-accent);
+  }
   .filter-button.active[data-filter-tone="muted"] {
     background: var(--grey-soft);
     border-color: var(--border-strong);
     color: var(--text);
+  }
+  .filter-button.active[data-filter-tone="media-lavender"] {
+    background: var(--tone-media-lavender-bg);
+    border-color: color-mix(in oklab, var(--tone-media-lavender-accent) 45%, transparent);
+    color: var(--tone-media-lavender-accent);
   }
   /* Brighten the dot when active so it stays visible against the tinted fill. */
   .filter-button.active[data-filter-tone]::before {
@@ -1498,11 +1510,18 @@
   }
 
   .attendance-absent,
-  .payment-overdue,
-  .session-cancelled {
+  .payment-overdue {
     background: var(--danger-soft);
     color: var(--danger);
     border-color: color-mix(in oklab, var(--danger) 28%, transparent);
+  }
+
+  /* Cancelled session is a soft warm-orange — matches its KPI card and reads */
+  /* as “didn’t happen” without the alarm of a true danger red. */
+  .session-cancelled {
+    background: var(--tone-attention-bg);
+    color: var(--tone-attention-accent);
+    border-color: color-mix(in oklab, var(--tone-attention-accent) 30%, transparent);
   }
 
   .attendance-excused,
@@ -1520,10 +1539,13 @@
     border-color: color-mix(in oklab, var(--tone-attention-accent) 30%, transparent);
   }
 
+  /* Upcoming session pill — lavender purple to match its KPI card and the */
+  /* matching filter chip. The label says “Upcoming” (mapped via */
+  /* sessionStateLabel) even though the underlying state value is “scheduled”. */
   .session-scheduled {
-    background: var(--primary-soft);
-    color: var(--primary-strong);
-    border-color: color-mix(in oklab, var(--primary) 28%, transparent);
+    background: var(--tone-media-lavender-bg);
+    color: var(--tone-media-lavender-accent);
+    border-color: color-mix(in oklab, var(--tone-media-lavender-accent) 30%, transparent);
   }
 
   .inline-meta {

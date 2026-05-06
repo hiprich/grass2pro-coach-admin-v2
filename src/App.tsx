@@ -1334,7 +1334,7 @@ function PaymentBadge({ status }: { status: PaymentStatus }) {
 }
 
 const sessionStateLabel: Record<SessionState, string> = {
-  scheduled: "Scheduled",
+  scheduled: "Upcoming",
   completed: "Completed",
   cancelled: "Cancelled",
 };
@@ -2424,7 +2424,7 @@ function Sessions({ sessions, players }: { sessions: Session[]; players: Player[
   return (
     <>
       <section className="kpi-grid" aria-label="Session KPIs">
-        <KpiCard label="Upcoming" value={upcoming} foot="Scheduled sessions to come" icon={CalendarDays} tone="media" />
+        <KpiCard label="Upcoming" value={upcoming} foot="Sessions still to come" icon={CalendarDays} tone="media" />
         <KpiCard label="Completed" value={completed} foot="Recent sessions delivered" icon={CheckCircle2} tone="success" />
         <KpiCard label="Cancelled" value={cancelled} foot="Cancelled or rained off" icon={X} tone="attention" />
         <KpiCard label="Total tracked" value={sessions.length} foot="All session records" icon={ClipboardCheck} tone="neutral" />
@@ -2449,15 +2449,21 @@ function Sessions({ sessions, players }: { sessions: Session[]; players: Player[
           </label>
         </div>
         <div className="filter-row" aria-label="Session filters">
-          {(["all", "scheduled", "completed", "cancelled"] as const).map((status) => (
+          {([
+            { value: "all", label: "All", tone: "neutral" },
+            { value: "scheduled", label: "Upcoming", tone: "media-lavender" },
+            { value: "completed", label: "Completed", tone: "success" },
+            { value: "cancelled", label: "Cancelled", tone: "attention" },
+          ] as const).map(({ value, label, tone }) => (
             <button
-              key={status}
+              key={value}
               type="button"
-              className={`filter-button ${filter === status ? "active" : ""}`}
-              onClick={() => setFilter(status)}
-              data-testid={`button-session-filter-${status}`}
+              className={`filter-button ${filter === value ? "active" : ""}`}
+              data-filter-tone={tone}
+              onClick={() => setFilter(value)}
+              data-testid={`button-session-filter-${value}`}
             >
-              {status === "all" ? "All" : status}
+              {label}
             </button>
           ))}
         </div>
