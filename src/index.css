@@ -1114,6 +1114,28 @@
     color: var(--row-name);
   }
 
+  /* Session-state echo on the session table. The session name and its
+     ageGroup subtext both inherit the state's tone so each row tells one
+     story — same family as the row's status pill and the KPI card above. */
+  td[data-session-tone="scheduled"] .player-name {
+    color: color-mix(in oklab, var(--tone-media-lavender-accent) 55%, var(--text));
+  }
+  td[data-session-tone="scheduled"] .player-sub {
+    color: color-mix(in oklab, var(--tone-media-lavender-accent) 45%, var(--muted));
+  }
+  td[data-session-tone="completed"] .player-name {
+    color: color-mix(in oklab, var(--tone-success-accent) 55%, var(--text));
+  }
+  td[data-session-tone="completed"] .player-sub {
+    color: color-mix(in oklab, var(--tone-success-accent) 45%, var(--muted));
+  }
+  td[data-session-tone="cancelled"] .player-name {
+    color: color-mix(in oklab, var(--tone-attention-accent) 55%, var(--text));
+  }
+  td[data-session-tone="cancelled"] .player-sub {
+    color: color-mix(in oklab, var(--tone-attention-accent) 45%, var(--muted));
+  }
+
   .player-sub {
     color: var(--muted);
     font-size: var(--text-xs);

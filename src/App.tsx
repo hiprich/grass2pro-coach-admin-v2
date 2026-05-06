@@ -2491,7 +2491,7 @@ function Sessions({ sessions, players }: { sessions: Session[]; players: Player[
               <tbody>
                 {filtered.map((session) => (
                   <tr key={session.id} data-testid={`row-session-${session.id}`}>
-                    <td>
+                    <td data-session-tone={session.state}>
                       <span className="player-name" data-testid={`text-session-name-${session.id}`}>
                         {session.name}
                       </span>
