@@ -12,6 +12,7 @@ import {
   Clock,
   FileText,
   Home,
+  Lock,
   LogOut,
   MapPin,
   Menu,
@@ -3091,11 +3092,16 @@ function CreateSessionDialog({
 function EditSessionDialog({
   session,
   coachName,
+  readOnly = false,
   onClose,
   onSaved,
 }: {
   session: Session;
   coachName?: string;
+  // When true the dialog opens in view-only mode — inputs disabled, no Save
+  // button, header copy reframed as "Session details". Used for completed
+  // and cancelled sessions so the audit trail stays intact.
+  readOnly?: boolean;
   onClose: () => void;
   onSaved: (session: Session) => void;
 }) {
@@ -3169,22 +3175,45 @@ function EditSessionDialog({
   }
 
   return (
-    <div className="qr-modal-backdrop" role="dialog" aria-modal="true" aria-label="Edit session">
+    <div
+      className="qr-modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-label={readOnly ? "View session details" : "Edit session"}
+    >
       <div className="qr-modal panel">
         <div className="toolbar">
           <div>
-            <div className="page-kicker">Edit session</div>
+            <div className="page-kicker">{readOnly ? "Session details" : "Edit session"}</div>
             <h2 className="page-title" style={{ fontSize: "var(--text-lg)" }}>{session.name}</h2>
             <div className="player-sub">
               {formatDate(session.date)} · {session.startTime}–{session.endTime} · {session.location}
             </div>
+            {readOnly && (
+              <div className="session-readonly-banner" data-testid="text-edit-readonly">
+                Read-only — this session has {session.state === "cancelled" ? "been cancelled" : "ended"}.
+                Audit trail is locked.
+              </div>
+            )}
           </div>
-          <button type="button" className="icon-button" onClick={onClose} aria-label="Close edit session">
+          <button
+            type="button"
+            className="icon-button"
+            onClick={onClose}
+            aria-label={readOnly ? "Close session details" : "Close edit session"}
+          >
             <X size={18} />
           </button>
         </div>
 
         <div className="form-section">
+          {/* fieldset disables every input/textarea/button inside in one go
+              when the session is read-only — keeps the markup clean and
+              guarantees we can't forget a field. */}
+          <fieldset
+            disabled={readOnly}
+            style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}
+          >
           <div className="form-grid">
             <label className="form-field full">
               <span>Session name</span>
@@ -3316,6 +3345,8 @@ function EditSessionDialog({
             </label>
           </div>
 
+          </fieldset>
+
           {stage === "error" && errorMessage && (
             <div className="message error" data-testid="status-edit-error" style={{ marginTop: "var(--space-3)" }}>
               {errorMessage}
@@ -3323,16 +3354,29 @@ function EditSessionDialog({
           )}
 
           <div style={{ display: "flex", gap: "var(--space-2)", marginTop: "var(--space-4)" }}>
-            <button
-              type="button"
-              className="primary-button"
-              disabled={!date || stage === "saving"}
-              onClick={save}
-              data-testid="button-edit-save"
-            >
-              {stage === "saving" ? "Saving…" : "Save changes"}
-            </button>
-            <button type="button" className="filter-button" onClick={onClose}>Cancel</button>
+            {readOnly ? (
+              <button
+                type="button"
+                className="primary-button"
+                onClick={onClose}
+                data-testid="button-edit-close"
+              >
+                Close
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className="primary-button"
+                  disabled={!date || stage === "saving"}
+                  onClick={save}
+                  data-testid="button-edit-save"
+                >
+                  {stage === "saving" ? "Saving…" : "Save changes"}
+                </button>
+                <button type="button" className="filter-button" onClick={onClose}>Cancel</button>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -3584,14 +3628,22 @@ function Sessions({
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((session) => (
+                {filtered.map((session) => {
+                  // A session is locked once it has officially ended
+                  // (badge = Completed) or has been cancelled. The row
+                  // becomes view-only — the pencil swaps to a padlock and
+                  // tapping the name opens the dialog in read-only mode so
+                  // the audit trail stays intact.
+                  const rowState = stateOf(session);
+                  const isLocked = rowState === "completed" || rowState === "cancelled";
+                  return (
                   <tr key={session.id} data-testid={`row-session-${session.id}`}>
-                    <td data-session-tone={stateOf(session)} className="session-name-cell" data-label="Session details">
+                    <td data-session-tone={rowState} className="session-name-cell" data-label="Session details">
                       <button
                         type="button"
-                        className="session-row-name-button"
+                        className={`session-row-name-button ${isLocked ? "is-locked" : ""}`}
                         onClick={() => setEditTarget(session)}
-                        aria-label={`Edit ${session.name}`}
+                        aria-label={isLocked ? `View details for ${session.name}` : `Edit ${session.name}`}
                         data-testid={`button-edit-${session.id}`}
                       >
                         <span className="session-row-name-stack">
@@ -3600,7 +3652,11 @@ function Sessions({
                           </span>
                           <span className="player-sub">{session.ageGroup}</span>
                         </span>
-                        <Pencil size={14} aria-hidden="true" className="session-row-name-pencil" />
+                        {isLocked ? (
+                          <Lock size={14} aria-hidden="true" className="session-row-name-pencil session-row-name-lock" />
+                        ) : (
+                          <Pencil size={14} aria-hidden="true" className="session-row-name-pencil" />
+                        )}
                       </button>
                     </td>
                     <td data-label="Date & time">
@@ -3748,7 +3804,8 @@ function Sessions({
                       )}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -3793,17 +3850,26 @@ function Sessions({
           }}
         />
       )}
-      {editTarget && (
-        <EditSessionDialog
-          session={editTarget}
-          coachName={coachName}
-          onClose={() => setEditTarget(null)}
-          onSaved={(updated) => {
-            onSessionUpdate(updated);
-            setEditTarget(null);
-          }}
-        />
-      )}
+      {editTarget && (() => {
+        // Open the dialog read-only when the session is locked (completed or
+        // cancelled). Coach can still see all the details and the audit
+        // trail, but nothing can be amended.
+        const targetState = stateOf(editTarget);
+        const targetReadOnly =
+          targetState === "completed" || targetState === "cancelled";
+        return (
+          <EditSessionDialog
+            session={editTarget}
+            coachName={coachName}
+            readOnly={targetReadOnly}
+            onClose={() => setEditTarget(null)}
+            onSaved={(updated) => {
+              onSessionUpdate(updated);
+              setEditTarget(null);
+            }}
+          />
+        );
+      })()}
       {showCreate && (
         <CreateSessionDialog
           coachName={coachName}
