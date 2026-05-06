@@ -3470,7 +3470,7 @@ function Sessions({
           </div>
         ) : (
           <div className="table-wrap">
-            <table>
+            <table className="sessions-table">
               <thead>
                 <tr>
                   <th>Session</th>
@@ -3486,7 +3486,7 @@ function Sessions({
               <tbody>
                 {filtered.map((session) => (
                   <tr key={session.id} data-testid={`row-session-${session.id}`}>
-                    <td data-session-tone={stateOf(session)} className="session-name-cell">
+                    <td data-session-tone={stateOf(session)} className="session-name-cell" data-label="Session">
                       <button
                         type="button"
                         className="session-row-name-button"
@@ -3503,7 +3503,7 @@ function Sessions({
                         <Pencil size={14} aria-hidden="true" className="session-row-name-pencil" />
                       </button>
                     </td>
-                    <td>
+                    <td data-label="Date & time">
                       <div className="inline-meta">
                         <CalendarDays size={14} aria-hidden="true" />
                         <span>{formatDate(session.date)}</span>
@@ -3515,7 +3515,7 @@ function Sessions({
                         </span>
                       </div>
                     </td>
-                    <td>
+                    <td data-label="Location">
                       <div className="inline-meta">
                         <MapPin size={14} aria-hidden="true" />
                         <span>{session.location}</span>
@@ -3531,19 +3531,19 @@ function Sessions({
                         </span>
                       ) : null}
                     </td>
-                    <td>
+                    <td data-label="Team">
                       <strong>{session.team}</strong>
                       <div className="player-sub">{session.ageGroup}</div>
                     </td>
-                    <td>{session.coach}</td>
-                    <td>
+                    <td data-label="Coach">{session.coach}</td>
+                    <td data-label="Type / Status">
                       <SessionStateBadge state={stateOf(session)} />
                       <div className="player-sub">{sessionTypeLabel[session.type]}</div>
                     </td>
-                    <td>
+                    <td data-label="Notes">
                       <span className="notes-cell">{session.notes}</span>
                     </td>
-                    <td>
+                    <td data-label="Check-in">
                       {stateOf(session) === "scheduled" ? (
                         <div className="session-row-actions">
                           <button

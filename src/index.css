@@ -2331,6 +2331,108 @@
   .consent-popover {
     display: none;
   }
+
+  /* Sessions table → stacked cards on mobile. The desktop layout has 8 wide
+     columns (Coach / Type / Notes / Check-in) which would otherwise scroll
+     off-screen on a phone, so we collapse each row into a self-contained card
+     and surface every column under its label. */
+  .sessions-table,
+  .sessions-table thead,
+  .sessions-table tbody,
+  .sessions-table tr,
+  .sessions-table td {
+    display: block;
+    width: 100%;
+  }
+  /* Visually hide the table head but keep it accessible for screen readers. */
+  .sessions-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .sessions-table tr {
+    margin-bottom: var(--space-3);
+    padding: var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg, 0.875rem);
+    background: var(--surface);
+    box-shadow: 0 1px 0 color-mix(in oklab, var(--border) 50%, transparent);
+  }
+  .sessions-table tr + tr {
+    margin-top: var(--space-2);
+  }
+  .sessions-table td {
+    padding: var(--space-2) 0;
+    border: none;
+    border-bottom: 1px dashed color-mix(in oklab, var(--border) 70%, transparent);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+  .sessions-table tr td:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+  }
+  /* Render the column header (e.g. "Coach", "Check-in") as a small label
+     above the cell value, sourced from data-label so we don't duplicate it
+     in JSX. */
+  .sessions-table td::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 0.6875rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 0.125rem;
+  }
+  /* The session-name cell is itself a button — give it a label too, but let
+     the button fill the cell normally so the click target stays generous. */
+  .sessions-table .session-name-cell {
+    padding: 0;
+  }
+  .sessions-table .session-name-cell::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 0.6875rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: var(--space-2) 0 0.125rem;
+  }
+  .sessions-table .session-row-name-button {
+    padding: var(--space-2) 0 var(--space-2);
+  }
+  .sessions-table .session-row-name-pencil {
+    /* On touch devices hover-to-reveal doesn't fire, so keep the affordance
+       always visible at a low opacity. */
+    opacity: 0.6;
+    transform: none;
+  }
+  /* Action buttons stack neatly inside the card. */
+  .sessions-table .session-row-actions {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-2);
+  }
+  .sessions-table .session-row-actions > button {
+    width: 100%;
+    justify-content: center;
+  }
+  /* Notes can be long — let them wrap rather than truncate. */
+  .sessions-table .notes-cell {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    -webkit-line-clamp: unset;
+  }
 }
 
 /* Bottom-sheet modal used on mobile to show consent details. Lives outside
