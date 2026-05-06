@@ -1995,6 +1995,44 @@
     background: color-mix(in oklab, var(--primary-strong) 16%, transparent);
   }
 
+  /* Grace-window UI — sits underneath the QR check-in button when a
+     session has officially ended but is still actionable for an hour. */
+  .session-grace-hint {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    margin-top: var(--space-1);
+    padding: var(--space-2);
+    border-radius: var(--radius-md, 0.625rem);
+    background: color-mix(in oklab, var(--surface-2) 70%, transparent);
+    border: 1px dashed var(--border);
+  }
+  .session-grace-kicker {
+    font-size: 0.6875rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .session-grace-code {
+    font-size: var(--text-sm);
+    color: var(--text);
+    line-height: 1.4;
+  }
+  .session-grace-code strong {
+    font-variant-numeric: tabular-nums lining-nums;
+    letter-spacing: 0.02em;
+  }
+  /* Small countdown shown next to the Completed badge so the coach knows
+     exactly when the QR window will close. */
+  .session-grace-countdown {
+    margin-top: var(--space-1);
+    font-size: var(--text-xs);
+    font-weight: 700;
+    color: var(--muted);
+    letter-spacing: 0.02em;
+  }
+
   /* Danger variant of primary-button — used inside the Cancel modal for */
   /* the "Confirm cancellation" CTA. Reuses primary-button geometry so the */
   /* button shape stays consistent with the rest of the app. */

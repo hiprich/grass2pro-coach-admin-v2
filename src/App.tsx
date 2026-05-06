@@ -3340,6 +3340,31 @@ function EditSessionDialog({
 // wins. Otherwise, once the session date is in the past, a still-scheduled
 // session is treated as completed. The raw data isn’t mutated; this just
 // shapes what the dashboard shows.
+// How long after the official end time we keep the session "actionable" on
+// the coach dashboard — QR check-in + Cancel button stay visible, and the
+// QR fallback code surfaces so late-arriving parents can still mark
+// attendance. After this window the row flips to a passive Completed.
+const SESSION_GRACE_MS = 60 * 60 * 1000; // 1 hour
+
+// Resolve the session's end timestamp from `${date}T${endTime}`. Returns
+// null when either field is missing or unparseable.
+function sessionEndsAt(session: Session): Date | null {
+  if (!session.date || !/^\d{2}:\d{2}$/.test(session.endTime || "")) return null;
+  const d = new Date(`${session.date}T${session.endTime}:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+// True while the session has officially ended but we're still inside the
+// 1-hour grace window. Cancelled sessions never enter grace.
+function isWithinGracePeriod(session: Session, now: Date): boolean {
+  if (session.state === "cancelled") return false;
+  const endsAt = sessionEndsAt(session);
+  if (!endsAt) return false;
+  const ended = endsAt.getTime();
+  const nowMs = now.getTime();
+  return nowMs >= ended && nowMs < ended + SESSION_GRACE_MS;
+}
+
 function derivedSessionState(session: Session, now: Date): SessionState {
   if (session.state === "cancelled" || session.state === "completed") {
     return session.state;
@@ -3349,12 +3374,8 @@ function derivedSessionState(session: Session, now: Date): SessionState {
   // a session that finished earlier today doesn't keep showing as Upcoming
   // until midnight. If we don't have a reliable end time, fall back to the
   // "end of session day" cutoff so the row still flips at midnight.
-  const endIso =
-    session.date && /^\d{2}:\d{2}$/.test(session.endTime || "")
-      ? `${session.date}T${session.endTime}:00`
-      : null;
-  const endsAt = endIso ? new Date(endIso) : null;
-  if (endsAt && !Number.isNaN(endsAt.getTime())) {
+  const endsAt = sessionEndsAt(session);
+  if (endsAt) {
     return endsAt.getTime() <= now.getTime() ? "completed" : "scheduled";
   }
   // Fallback: no end time recorded — keep the date-only rule (anything
@@ -3410,6 +3431,22 @@ function Sessions({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessions, clockTick]);
   const stateOf = (s: Session): SessionState => stateById.get(s.id) ?? s.state;
+
+  // Set of session IDs that have officially ended but are still within the
+  // 1-hour grace window. We keep QR check-in + Cancel + the fallback code
+  // available for these so a coach can mark late arrivals or call off a
+  // session that overran. Recomputed every minute via clockTick.
+  const inGraceById = useMemo(() => {
+    const now = new Date();
+    const set = new Set<string>();
+    sessions.forEach((s) => {
+      if (isWithinGracePeriod(s, now)) set.add(s.id);
+    });
+    return set;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessions, clockTick]);
+  const isActionable = (s: Session): boolean =>
+    stateOf(s) === "scheduled" || inGraceById.has(s.id);
 
   const upcoming = sessions.filter((s) => stateOf(s) === "scheduled").length;
   const completed = sessions.filter((s) => stateOf(s) === "completed").length;
@@ -3564,12 +3601,31 @@ function Sessions({
                     <td data-label="Type / Status">
                       <SessionStateBadge state={stateOf(session)} />
                       <div className="player-sub">{sessionTypeLabel[session.type]}</div>
+                      {/* When a session is inside the grace window, tell the
+                          coach exactly when QR check-in disappears. The
+                          badge shows Completed (truthful) and this hint
+                          shows the actionable countdown. */}
+                      {inGraceById.has(session.id) && (() => {
+                        const endsAt = sessionEndsAt(session);
+                        if (!endsAt) return null;
+                        const graceUntil = new Date(endsAt.getTime() + SESSION_GRACE_MS);
+                        const hh = String(graceUntil.getHours()).padStart(2, "0");
+                        const mm = String(graceUntil.getMinutes()).padStart(2, "0");
+                        return (
+                          <div
+                            className="session-grace-countdown"
+                            data-testid={`text-grace-countdown-${session.id}`}
+                          >
+                            QR open until {hh}:{mm}
+                          </div>
+                        );
+                      })()}
                     </td>
                     <td data-label="Notes">
                       <span className="notes-cell">{session.notes}</span>
                     </td>
                     <td data-label="Check-in">
-                      {stateOf(session) === "scheduled" ? (
+                      {isActionable(session) ? (
                         <div className="session-row-actions">
                           <button
                             type="button"
@@ -3580,16 +3636,43 @@ function Sessions({
                             <QrCode size={16} aria-hidden="true" />
                             <span>QR check-in</span>
                           </button>
-                          <button
-                            type="button"
-                            className="cancel-session-button"
-                            onClick={() => setCancelTarget(session)}
-                            aria-label={`Cancel ${session.name}`}
-                            data-testid={`button-cancel-${session.id}`}
-                          >
-                            <Ban size={16} aria-hidden="true" />
-                            <span>Cancel</span>
-                          </button>
+                          {/* Cancel only makes sense before the session has
+                              officially ended — once we're in the grace
+                              window the session has already happened, so we
+                              hide it. */}
+                          {stateOf(session) === "scheduled" && (
+                            <button
+                              type="button"
+                              className="cancel-session-button"
+                              onClick={() => setCancelTarget(session)}
+                              aria-label={`Cancel ${session.name}`}
+                              data-testid={`button-cancel-${session.id}`}
+                            >
+                              <Ban size={16} aria-hidden="true" />
+                              <span>Cancel</span>
+                            </button>
+                          )}
+                          {/* Grace-window helper: surface the fallback code
+                              for late-arriving parents whose phone can't
+                              read the QR. Only shown when the session has
+                              ended but we're still inside the 1-hour buffer. */}
+                          {inGraceById.has(session.id) && (
+                            <div
+                              className="session-grace-hint"
+                              data-testid={`text-grace-${session.id}`}
+                            >
+                              <span className="session-grace-kicker">Grace window</span>
+                              {session.qrFallbackCode ? (
+                                <span className="session-grace-code">
+                                  Late check-in code: <strong>{session.qrFallbackCode}</strong>
+                                </span>
+                              ) : (
+                                <span className="session-grace-code">
+                                  Open the QR check-in modal to mark late arrivals.
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </div>
                       ) : (
                         <span className="player-sub">—</span>
