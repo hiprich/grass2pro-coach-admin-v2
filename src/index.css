@@ -2433,6 +2433,17 @@
     text-overflow: clip;
     -webkit-line-clamp: unset;
   }
+
+  /* Override the global table min-width: 48rem (set for desktop scrolling)
+     because we've collapsed the sessions table into stacked cards — we want
+     the layout to flex with the viewport, not push the document past the
+     phone's width and break the rest of the page. */
+  .table-wrap {
+    overflow-x: visible;
+  }
+  .table-wrap .sessions-table {
+    min-width: 0;
+  }
 }
 
 /* Bottom-sheet modal used on mobile to show consent details. Lives outside
