@@ -3473,7 +3473,7 @@ function Sessions({
             <table className="sessions-table">
               <thead>
                 <tr>
-                  <th>Session</th>
+                  <th>Session details</th>
                   <th>Date &amp; time</th>
                   <th>Location</th>
                   <th>Team</th>
@@ -3486,7 +3486,7 @@ function Sessions({
               <tbody>
                 {filtered.map((session) => (
                   <tr key={session.id} data-testid={`row-session-${session.id}`}>
-                    <td data-session-tone={stateOf(session)} className="session-name-cell" data-label="Session">
+                    <td data-session-tone={stateOf(session)} className="session-name-cell" data-label="Session details">
                       <button
                         type="button"
                         className="session-row-name-button"
