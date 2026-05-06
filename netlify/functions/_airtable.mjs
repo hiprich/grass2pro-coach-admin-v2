@@ -536,6 +536,10 @@ export function normaliseSession(record) {
     checkInEnabled: boolValue(fields["Check-in Enabled"]),
     qrFallbackCode: stringValue(fields["QR Fallback Code"]),
     playerIds: Array.isArray(fields.Players) ? fields.Players : [],
+    // Pitch surface — drives kit, ball-pressure and weather-call decisions.
+    // Empty string when the field hasn't been populated (e.g. legacy rows or
+    // bases where the singleSelect hasn't been added in Airtable yet).
+    pitchType: stringValue(fields["Pitch Type"], ""),
   };
 }
 
@@ -711,6 +715,7 @@ export async function createSession({
   startTime,
   endTime,
   location,
+  pitchType,
   sessionFee,
   ageGroup,
   team,
@@ -729,6 +734,11 @@ export async function createSession({
   if (startTime) fields["Start Time"] = startTime;
   if (endTime) fields["End Time"] = endTime;
   if (location) fields.Location = location;
+  // Pitch Type is an Airtable singleSelect (Title Case): "Astro 4G" or "Grass".
+  // typecast is already on for this create call so a brand-new option name will
+  // be auto-created server-side if the field exists; the field itself still has
+  // to be added to the Sessions table once — see the README for the manual step.
+  if (pitchType) fields["Pitch Type"] = pitchType;
   if (typeof sessionFee === "number" && Number.isFinite(sessionFee)) {
     fields["Session Fee"] = sessionFee;
     fields["Charge Type"] = "Per Session";

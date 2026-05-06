@@ -84,6 +84,10 @@ type Player = {
   progressScore: number;
 };
 
+// Pitch surface options. Title Case to match the Airtable singleSelect.
+type PitchType = "Astro 4G" | "Grass";
+const PITCH_TYPES: readonly PitchType[] = ["Astro 4G", "Grass"];
+
 type Session = {
   id: string;
   name: string;
@@ -100,6 +104,7 @@ type Session = {
   checkInEnabled?: boolean;
   qrFallbackCode?: string;
   playerIds?: string[];
+  pitchType?: string;
 };
 
 type AttendanceRecord = {
@@ -1038,6 +1043,7 @@ async function createSessionRequest(payload: {
   startTime?: string;
   endTime?: string;
   location?: string;
+  pitchType?: PitchType;
   sessionFee?: number;
   name?: string;
   ageGroup?: string;
@@ -2843,6 +2849,7 @@ function CreateSessionDialog({
   const [startTime, setStartTime] = useState("17:00");
   const [endTime, setEndTime] = useState("18:15");
   const [location, setLocation] = useState("");
+  const [pitchType, setPitchType] = useState<PitchType | "">("");
   const [feeText, setFeeText] = useState("");
   const [stage, setStage] = useState<"edit" | "saving" | "error">("edit");
   const [errorMessage, setErrorMessage] = useState("");
@@ -2871,6 +2878,7 @@ function CreateSessionDialog({
       startTime: startTime || undefined,
       endTime: endTime || undefined,
       location: location.trim() || undefined,
+      pitchType: pitchType || undefined,
       sessionFee: fee,
       coach: coachName,
     });
@@ -2952,6 +2960,29 @@ function CreateSessionDialog({
                 data-testid="input-create-location"
               />
             </label>
+            {/* Pitch surface — surfaces directly under Location because the */}
+            {/* venue and the surface are usually decided together. Two-button */}
+            {/* segmented control reads faster than a dropdown for two options. */}
+            <div className="form-field full">
+              <span>Pitch type</span>
+              <div className="pitch-type-row" role="radiogroup" aria-label="Pitch type">
+                {PITCH_TYPES.map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    role="radio"
+                    aria-checked={pitchType === option}
+                    className={`pitch-type-chip ${pitchType === option ? "active" : ""}`}
+                    data-pitch={option === "Astro 4G" ? "astro" : "grass"}
+                    onClick={() => setPitchType(pitchType === option ? "" : option)}
+                    data-testid={`button-create-pitch-${option === "Astro 4G" ? "astro-4g" : "grass"}`}
+                  >
+                    <span aria-hidden="true" className="pitch-type-dot" />
+                    <span>{option}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
             <label className="form-field">
               <span>Session fee (£)</span>
               <input
@@ -3163,6 +3194,16 @@ function Sessions({
                         <MapPin size={14} aria-hidden="true" />
                         <span>{session.location}</span>
                       </div>
+                      {session.pitchType ? (
+                        <span
+                          className="pitch-type-tag"
+                          data-pitch={session.pitchType === "Astro 4G" ? "astro" : "grass"}
+                          data-testid={`tag-pitch-${session.id}`}
+                        >
+                          <span aria-hidden="true" className="pitch-type-dot" />
+                          {session.pitchType}
+                        </span>
+                      ) : null}
                     </td>
                     <td>
                       <strong>{session.team}</strong>

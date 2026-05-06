@@ -22,6 +22,10 @@ const CANCEL_REASONS = new Set([
   "Unforeseen circumstances",
 ]);
 
+// Pitch surface allow-list. Title Case to match Airtable singleSelect convention.
+// Anything outside the list is rejected so the Airtable field stays clean.
+const PITCH_TYPES = new Set(["Astro 4G", "Grass"]);
+
 export const handler = async (event) => {
   if (event.httpMethod === "GET") return handleList(event);
   if (event.httpMethod === "POST") return handleCreate(event);
@@ -79,6 +83,12 @@ async function handleCreate(event) {
     return json(400, { error: "sessionFee must be a positive number." });
   }
 
+  const rawPitchType = trimString(payload.pitchType);
+  const pitchType = rawPitchType ? (PITCH_TYPES.has(rawPitchType) ? rawPitchType : null) : undefined;
+  if (pitchType === null) {
+    return json(400, { error: "pitchType must be one of: Astro 4G, Grass." });
+  }
+
   if (!hasAirtableConfig()) {
     return json(200, {
       session: null,
@@ -94,6 +104,7 @@ async function handleCreate(event) {
       startTime: startTime || undefined,
       endTime: endTime || undefined,
       location: trimString(payload.location) || undefined,
+      pitchType: pitchType || undefined,
       sessionFee,
       ageGroup: trimString(payload.ageGroup) || undefined,
       team: trimString(payload.team) || undefined,
