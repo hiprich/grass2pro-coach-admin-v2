@@ -2399,20 +2399,48 @@ function QrCheckinDialog({
   );
 }
 
+// Derive what state a session should DISPLAY as. The raw `state` field is
+// what the coach last recorded — if a session was cancelled, that always
+// wins. Otherwise, once the session date is in the past, a still-scheduled
+// session is treated as completed. The raw data isn’t mutated; this just
+// shapes what the dashboard shows.
+function derivedSessionState(session: Session, today: Date): SessionState {
+  if (session.state === "cancelled" || session.state === "completed") {
+    return session.state;
+  }
+  // Compare on calendar date only — a session scheduled for earlier today is
+  // still treated as upcoming until midnight tonight.
+  const sessionDay = new Date(`${session.date}T00:00:00`);
+  const todayDay = new Date(today.toDateString());
+  return sessionDay < todayDay ? "completed" : "scheduled";
+}
+
 function Sessions({ sessions, players }: { sessions: Session[]; players: Player[] }) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"all" | SessionState>("all");
   const [checkinSession, setCheckinSession] = useState<Session | null>(null);
 
-  const now = new Date();
-  const upcoming = sessions.filter((s) => s.state === "scheduled" && new Date(s.date) >= new Date(now.toDateString())).length;
-  const completed = sessions.filter((s) => s.state === "completed").length;
-  const cancelled = sessions.filter((s) => s.state === "cancelled").length;
+  // Build a map of sessionId → derived state once per render so we never
+  // disagree with ourselves between KPI counts, filter chips, row pills,
+  // and row tone echoes. The derive uses today’s calendar date so the rule
+  // is “if the session was yesterday or earlier and not cancelled, it’s
+  // completed.”
+  const stateById = useMemo(() => {
+    const today = new Date();
+    const map = new Map<string, SessionState>();
+    sessions.forEach((s) => map.set(s.id, derivedSessionState(s, today)));
+    return map;
+  }, [sessions]);
+  const stateOf = (s: Session): SessionState => stateById.get(s.id) ?? s.state;
+
+  const upcoming = sessions.filter((s) => stateOf(s) === "scheduled").length;
+  const completed = sessions.filter((s) => stateOf(s) === "completed").length;
+  const cancelled = sessions.filter((s) => stateOf(s) === "cancelled").length;
 
   const filtered = useMemo(() => {
     return sessions
       .filter((s) => {
-        const matchesFilter = filter === "all" || s.state === filter;
+        const matchesFilter = filter === "all" || stateOf(s) === filter;
         const matchesQuery = `${s.name} ${s.team} ${s.ageGroup} ${s.location} ${s.coach}`
           .toLowerCase()
           .includes(query.toLowerCase());
@@ -2420,7 +2448,9 @@ function Sessions({ sessions, players }: { sessions: Session[]; players: Player[
       })
       .slice()
       .sort((a, b) => a.date.localeCompare(b.date));
-  }, [filter, query, sessions]);
+    // stateOf is derived from stateById; including stateById in deps keeps it stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filter, query, sessions, stateById]);
 
   return (
     <>
@@ -2492,7 +2522,7 @@ function Sessions({ sessions, players }: { sessions: Session[]; players: Player[
               <tbody>
                 {filtered.map((session) => (
                   <tr key={session.id} data-testid={`row-session-${session.id}`}>
-                    <td data-session-tone={session.state}>
+                    <td data-session-tone={stateOf(session)}>
                       <span className="player-name" data-testid={`text-session-name-${session.id}`}>
                         {session.name}
                       </span>
@@ -2522,14 +2552,14 @@ function Sessions({ sessions, players }: { sessions: Session[]; players: Player[
                     </td>
                     <td>{session.coach}</td>
                     <td>
-                      <SessionStateBadge state={session.state} />
+                      <SessionStateBadge state={stateOf(session)} />
                       <div className="player-sub">{sessionTypeLabel[session.type]}</div>
                     </td>
                     <td>
                       <span className="notes-cell">{session.notes}</span>
                     </td>
                     <td>
-                      {session.state === "scheduled" ? (
+                      {stateOf(session) === "scheduled" ? (
                         <button
                           type="button"
                           className="qr-check-button"
