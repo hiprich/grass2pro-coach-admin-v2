@@ -5,7 +5,9 @@
 //    Pages deploy is picked up immediately and offline still works.
 //  - Bumping CACHE_VERSION invalidates everything from prior deploys.
 
-const CACHE_VERSION = 'v4'
+// Bump on every change to this file so the new SW activates promptly. v5
+// adds Web Push (`push` + `notificationclick`) on top of the v4 app shell.
+const CACHE_VERSION = 'v5'
 const CACHE_NAME = `g2p-coach-${CACHE_VERSION}`
 
 // Paths the SW must NEVER cache and must always send straight to the network.
@@ -60,6 +62,182 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('message', (event) => {
   if (event.data === 'SKIP_WAITING') self.skipWaiting()
+})
+
+// ---------------------------------------------------------------------------
+// Web Push
+// ---------------------------------------------------------------------------
+//
+// The server (Netlify scheduled function) sends payloads shaped like:
+//   {
+//     title: string,         // e.g. "Hope Bouhe — U8s Strikers"
+//     body: string,          // e.g. "Pickup soon — session ends in 30 min"
+//     tag?: string,          // dedupe key, e.g. `session-${sessionId}-pickup`
+//     url?: string,          // deep-link to open on click, defaults to /portal
+//     icon?: string,         // icon URL, defaults to brand icon
+//     badge?: string,        // monochrome badge for Android status bar
+//     data?: Record<string, unknown>, // forwarded to notificationclick
+//   }
+//
+// We never trust the payload to be valid JSON — `event.data?.json()` throws
+// on bad input, so we fall back to text() and a safe default. Showing *some*
+// notification is required: Chrome will warn the user if a push wakes the SW
+// without showing one.
+self.addEventListener('push', (event) => {
+  /** @type {any} */
+  let payload = {}
+  if (event.data) {
+    try {
+      payload = event.data.json()
+    } catch {
+      try {
+        payload = { body: event.data.text() }
+      } catch {
+        payload = {}
+      }
+    }
+  }
+
+  const title =
+    typeof payload.title === 'string' && payload.title.trim()
+      ? payload.title
+      : 'Grass2Pro'
+  const body =
+    typeof payload.body === 'string' && payload.body.trim()
+      ? payload.body
+      : 'You have a new update.'
+
+  const options = {
+    body,
+    tag: typeof payload.tag === 'string' ? payload.tag : undefined,
+    // renotify only meaningful when tag is set; harmless otherwise.
+    renotify: typeof payload.tag === 'string',
+    icon:
+      typeof payload.icon === 'string'
+        ? payload.icon
+        : '/icons/icon-192.png',
+    badge:
+      typeof payload.badge === 'string'
+        ? payload.badge
+        : '/icons/icon-192.png',
+    data: {
+      url: typeof payload.url === 'string' ? payload.url : '/portal',
+      ...(payload.data && typeof payload.data === 'object' ? payload.data : {}),
+    },
+  }
+
+  event.waitUntil(self.registration.showNotification(title, options))
+})
+
+// On click: focus an existing client at the deep-link URL if one is open,
+// otherwise open a new window. Same-origin only — we never navigate to an
+// external URL even if the payload tries to inject one.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+
+  const data = event.notification.data || {}
+  const rawUrl = typeof data.url === 'string' ? data.url : '/portal'
+
+  /** @type {URL} */
+  let target
+  try {
+    target = new URL(rawUrl, self.location.origin)
+  } catch {
+    target = new URL('/portal', self.location.origin)
+  }
+  // Hard-block cross-origin — the SW must never be a redirect oracle.
+  if (target.origin !== self.location.origin) {
+    target = new URL('/portal', self.location.origin)
+  }
+
+  event.waitUntil(
+    (async () => {
+      const all = await self.clients.matchAll({
+        type: 'window',
+        includeUncontrolled: true,
+      })
+      for (const client of all) {
+        try {
+          const clientUrl = new URL(client.url)
+          if (
+            clientUrl.origin === target.origin &&
+            clientUrl.pathname.toLowerCase() === target.pathname.toLowerCase()
+          ) {
+            await client.focus()
+            return
+          }
+        } catch {
+          /* skip unparseable client URLs */
+        }
+      }
+      // Fall back: any same-origin client → focus + navigate.
+      for (const client of all) {
+        try {
+          if (new URL(client.url).origin === target.origin) {
+            await client.focus()
+            if ('navigate' in client) {
+              try {
+                await client.navigate(target.href)
+              } catch {
+                /* navigate not always allowed; the focus alone is fine */
+              }
+            }
+            return
+          }
+        } catch {
+          /* skip */
+        }
+      }
+      // Nothing open → new window.
+      if (self.clients.openWindow) {
+        await self.clients.openWindow(target.href)
+      }
+    })(),
+  )
+})
+
+// pushsubscriptionchange: browsers can rotate subscriptions silently. When
+// that happens we resubscribe with the same VAPID key and POST the new
+// endpoint to the server so notifications keep flowing. The applicationServerKey
+// is hard-coded here because the SW can't import from the app bundle and
+// we already commit the public key to source.
+const VAPID_PUBLIC_KEY_B64URL =
+  'BKRxsMY8W_99iZW2ysx-K20CPqw8AHf8xs8svJ9iOnbII1xODY7jSyK95T8DwO9lMpNP0rN-WBjxRu_Y2H-0Wy4'
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
+  const raw = atob(base64)
+  const out = new Uint8Array(raw.length)
+  for (let i = 0; i < raw.length; i += 1) out[i] = raw.charCodeAt(i)
+  return out
+}
+
+self.addEventListener('pushsubscriptionchange', (event) => {
+  event.waitUntil(
+    (async () => {
+      try {
+        const sub = await self.registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY_B64URL),
+        })
+        const json = sub.toJSON()
+        await fetch('/.netlify/functions/parent-push-subscribe', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            reason: 'pushsubscriptionchange',
+            endpoint: json.endpoint,
+            keys: json.keys,
+            userAgent: self.navigator?.userAgent || '',
+          }),
+        })
+      } catch {
+        /* swallow — we'll resubscribe lazily on next page load */
+      }
+    })(),
+  )
 })
 
 function isHtmlRequest(request) {
