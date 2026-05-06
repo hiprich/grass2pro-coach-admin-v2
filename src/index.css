@@ -105,25 +105,25 @@
     --shadow-sm: 0 1px 2px rgba(32, 37, 28, 0.06);
     --shadow-md: 0 12px 30px rgba(32, 37, 28, 0.09);
 
-    /* Semantic KPI tones (light) — subtle tints over parchment */
-    --tone-neutral-bg: #ecebe1;
-    --tone-neutral-accent: #6b7568;
-    --tone-success-bg: #dde9d3;
-    --tone-success-accent: #287238;
-    --tone-warning-bg: #f3e2c0;
-    --tone-warning-accent: #b07f1e;
-    --tone-attention-bg: #f4dcc1;
-    --tone-attention-accent: #b6611c;
-    --tone-danger-bg: #f1d4d2;
-    --tone-danger-accent: #a43838;
-    --tone-pathway-1-bg: #d2e4dc;
-    --tone-pathway-1-accent: #2f7a66;
-    --tone-pathway-2-bg: #c8dcd5;
-    --tone-pathway-2-accent: #246b58;
-    --tone-pathway-3-bg: #dcebe4;
-    --tone-pathway-3-accent: #3d8a76;
-    --tone-media-bg: #e3dbef;
-    --tone-media-accent: #6e57a4;
+    /* Semantic KPI tones (light) — confident tints over parchment */
+    --tone-neutral-bg: #e8e6da;
+    --tone-neutral-accent: #5d6759;
+    --tone-success-bg: #d6e6cb;
+    --tone-success-accent: #246b34;
+    --tone-warning-bg: #f1deb4;
+    --tone-warning-accent: #a3741a;
+    --tone-attention-bg: #f4d4b1;
+    --tone-attention-accent: #ab571a;
+    --tone-danger-bg: #efcdcb;
+    --tone-danger-accent: #983333;
+    --tone-pathway-1-bg: #c5dfd5;
+    --tone-pathway-1-accent: #226e5b;
+    --tone-pathway-2-bg: #b9d3cb;
+    --tone-pathway-2-accent: #1c604f;
+    --tone-pathway-3-bg: #d2e7df;
+    --tone-pathway-3-accent: #347d6a;
+    --tone-media-bg: #d8cdee;
+    --tone-media-accent: #5b449a;
   }
 
   html[data-theme="dark"] {
@@ -153,25 +153,25 @@
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.28);
     --shadow-md: 0 12px 30px rgba(0, 0, 0, 0.35);
 
-    /* Semantic KPI tones (dark) — subtle tints over forest */
-    --tone-neutral-bg: #232a22;
-    --tone-neutral-accent: #8c9587;
-    --tone-success-bg: #233a23;
-    --tone-success-accent: #93cd85;
-    --tone-warning-bg: #3f3320;
-    --tone-warning-accent: #d49b61;
-    --tone-attention-bg: #3f2c1c;
-    --tone-attention-accent: #d68a52;
-    --tone-danger-bg: #422725;
-    --tone-danger-accent: #dd7b78;
-    --tone-pathway-1-bg: #1f3530;
-    --tone-pathway-1-accent: #6cb7a0;
-    --tone-pathway-2-bg: #1c3a32;
-    --tone-pathway-2-accent: #5cab94;
-    --tone-pathway-3-bg: #243d35;
-    --tone-pathway-3-accent: #7cc6ad;
-    --tone-media-bg: #2a2440;
-    --tone-media-accent: #ad97e0;
+    /* Semantic KPI tones (dark) — confident tints over forest */
+    --tone-neutral-bg: #272f26;
+    --tone-neutral-accent: #a4ad9e;
+    --tone-success-bg: #294629;
+    --tone-success-accent: #a4d896;
+    --tone-warning-bg: #4a3d23;
+    --tone-warning-accent: #e2a96b;
+    --tone-attention-bg: #4a3320;
+    --tone-attention-accent: #e29565;
+    --tone-danger-bg: #4f2c2a;
+    --tone-danger-accent: #ea8c89;
+    --tone-pathway-1-bg: #233e38;
+    --tone-pathway-1-accent: #7cc4ac;
+    --tone-pathway-2-bg: #20453a;
+    --tone-pathway-2-accent: #6cb89f;
+    --tone-pathway-3-bg: #2a4940;
+    --tone-pathway-3-accent: #8cd2b9;
+    --tone-media-bg: #322a4d;
+    --tone-media-accent: #bda7e8;
   }
 }
 
@@ -709,7 +709,14 @@
 
   .form-section[data-tone] h2,
   .mini-card[data-tone] h3 {
-    color: color-mix(in oklab, var(--tone-accent, var(--text)) 35%, var(--text));
+    color: color-mix(in oklab, var(--tone-accent, var(--text)) 45%, var(--text));
+  }
+
+  /* Mini-card icons inherit the section accent so the whole tile reads */
+  /* like a single coloured object, not a card with a grey badge on it. */
+  .mini-card[data-tone] > svg {
+    color: var(--tone-accent);
+    opacity: 0.9;
   }
 
   .form-section[data-tone="neutral"],
