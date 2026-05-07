@@ -168,6 +168,11 @@ export const TABLE_IDS = {
   // plus per-notification preference toggles. Used by the scheduled fan-out
   // function to send the T−60 / T−30 reminders.
   PUSH_SUBSCRIPTIONS: "tbl3FDPfK1iYFvEwJ",
+  // Notifications Sent is the dedupe + audit rail for the scheduled push
+  // fan-out. One row per (session, kind, parent) tuple. The cron writes the
+  // row BEFORE attempting the web-push send so a duplicate tick within the
+  // same 5-minute window cannot trigger a second notification.
+  NOTIFICATIONS_SENT: "tblqUnGbvAHgxjsm7",
 };
 
 function token() {
