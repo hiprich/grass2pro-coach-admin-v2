@@ -37,9 +37,11 @@ import {
   airtableCreate,
   airtableGet,
   airtableList,
+  airtableUpdate,
   hasAirtableConfig,
   tableName,
 } from "./_airtable.mjs";
+import { sendNoShowCheckInEmail } from "./_noshow-mailer.mjs";
 
 // ----- Constants -----
 
@@ -55,6 +57,12 @@ const KIND_PICKUP = "Pickup Soon";
 // the coach can tap-out as a backup.
 const KIND_PICKUP_REMINDER = "Pickup Confirm Reminder";
 const KIND_PICKUP_FINAL = "Pickup Confirm Final";
+// No-show check-in: fires 30 min after end for parents who RSVP'd "Coming"
+// but whose child has no Arrival Time. Tone is a warm check-in, not a chase
+// — "hey, didn't see you at training, everything okay?". Channel is push +
+// Resend email fallback so we still reach parents who haven't subscribed to
+// push yet.
+const KIND_NO_SHOW = "No Show Check-In";
 
 // Pref-field name on the Push Subscriptions table for each kind. Used to
 // filter which subscriptions should receive a given kind.
@@ -64,6 +72,7 @@ const PREF_FIELD_BY_KIND = {
   [KIND_PICKUP]: "Pref Pickup Soon",
   [KIND_PICKUP_REMINDER]: "Pref Pickup Confirm Reminder",
   [KIND_PICKUP_FINAL]: "Pref Pickup Confirm Final",
+  [KIND_NO_SHOW]: "Pref No Show Check-In",
 };
 
 // Window definitions: how many minutes before (positive) or AFTER (negative)
@@ -92,6 +101,20 @@ const WINDOWS = [
     offsetMin: -30,
     toleranceMin: 5,
     requiresOpenAttendance: true,
+  },
+  // No-show check-in: end + 30 min. Filter is RSVP="Coming" AND no
+  // Arrival Time. We REUSE the same target window as PICKUP_FINAL
+  // (offsetMin: -30) because a kid is either still on the pitch (handled
+  // by PICKUP_FINAL via requiresOpenAttendance) or never showed up
+  // (handled here via requiresRsvpComingNoArrival). The two filters are
+  // mutually exclusive on a given attendance row, so a parent can't get
+  // both pings for the same child + session.
+  {
+    kind: KIND_NO_SHOW,
+    edge: "end",
+    offsetMin: -30,
+    toleranceMin: 5,
+    requiresRsvpComingNoArrival: true,
   },
 ];
 
@@ -225,26 +248,40 @@ async function findCandidateSessions(nowMs) {
         kind: window.kind,
         targetAt: new Date(targetMs).toISOString(),
         requiresOpenAttendance: !!window.requiresOpenAttendance,
+        requiresRsvpComingNoArrival: !!window.requiresRsvpComingNoArrival,
       });
     }
   }
   return candidates;
 }
 
-// Find player record ids attending a given session. We use the Attendance
-// table when present (most reliable), otherwise fall back to the Players[]
-// link directly on the Session row.
+// Find player record ids (and their attendance row ids when known) attending
+// a given session. We use the Attendance table when present (most reliable),
+// otherwise fall back to the Players[] link directly on the Session row.
 //
 // When `requireOpen` is true (Phase A4 pickup-confirm), we narrow further to
 // only attendance rows that have an arrivalTime AND no departureTime — i.e.
 // the child is still on the pitch. In that mode we DO NOT fall back to the
 // Session.Players link, because that fallback can't tell us which players
 // have an open attendance row.
-async function findPlayerIdsForSession(sessionId, sessionFields, { requireOpen = false } = {}) {
+//
+// When `requireRsvpComingNoArrival` is true (No Show Check-In), we narrow to
+// rows where RSVP Status = "Coming" AND Arrival Time is empty. Same fallback
+// rule as requireOpen — we never go to the Session.Players list because that
+// can't tell us who RSVP'd.
+//
+// Returns an array of { playerId, attendanceId|null }. Callers that only
+// need playerIds can map over .playerId.
+async function findPlayerIdsForSession(
+  sessionId,
+  sessionFields,
+  { requireOpen = false, requireRsvpComingNoArrival = false } = {},
+) {
   // Prefer attendance rows for this session.
   try {
     const attendance = await airtableList(attendanceTable(), { pageSize: PAGE_SIZE });
-    const ids = new Set();
+    const out = [];
+    const seen = new Set();
     for (const row of attendance) {
       const link = Array.isArray(row?.fields?.Session) ? row.fields.Session : [];
       if (!link.includes(sessionId)) continue;
@@ -253,37 +290,93 @@ async function findPlayerIdsForSession(sessionId, sessionFields, { requireOpen =
         const departure = row?.fields?.["Departure Time"];
         if (!arrival || departure) continue;
       }
+      if (requireRsvpComingNoArrival) {
+        const rsvp = String(row?.fields?.["RSVP Status"] || "");
+        const arrival = row?.fields?.["Arrival Time"];
+        if (rsvp !== "Coming") continue;
+        if (arrival) continue;
+        // Don't re-message a parent we've already nagged for this row.
+        if (row?.fields?.["Parent Notified"]) continue;
+      }
       const playerLink = Array.isArray(row?.fields?.Player) ? row.fields.Player : [];
-      for (const id of playerLink) ids.add(id);
+      for (const id of playerLink) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+        out.push({ playerId: id, attendanceId: row.id, attendanceFields: row.fields || {} });
+      }
     }
-    if (ids.size > 0) return [...ids];
-    // No matches — for requireOpen this means everyone's already been picked
-    // up (or nobody scanned in), so we explicitly return empty rather than
-    // falling back to a broader list that could re-surface departed kids.
-    if (requireOpen) return [];
+    if (out.length > 0) return out;
+    // No matches — for the constrained modes, return empty rather than
+    // falling back to a broader list that could re-surface departed kids
+    // or kids who never RSVP'd.
+    if (requireOpen || requireRsvpComingNoArrival) return [];
   } catch (error) {
     console.warn("[scheduled-push-fanout] Attendance lookup failed; falling back to Session.Players:", error);
-    if (requireOpen) return [];
+    if (requireOpen || requireRsvpComingNoArrival) return [];
   }
   // Fallback: the Session row's Players link field.
   const fallback = Array.isArray(sessionFields?.Players) ? sessionFields.Players : [];
-  return fallback;
+  return fallback.map((id) => ({ playerId: id, attendanceId: null, attendanceFields: {} }));
 }
 
 // Resolve player ids \u2192 unique parent record ids. Players can have multiple
-// linked parents; we union them all.
+// linked parents; we union them all. Returns a Map<parentId, Set<playerId>>
+// so callers (e.g. no-show email) can name the right child for each parent.
 async function findParentIdsForPlayers(playerIds) {
-  if (playerIds.length === 0) return [];
+  if (playerIds.length === 0) return new Map();
   const players = await airtableList(playersTable(), { pageSize: PAGE_SIZE });
   const wanted = new Set(playerIds);
-  const parentIds = new Set();
+  const parentToPlayers = new Map();
   for (const record of players) {
     if (!wanted.has(record.id)) continue;
     const fields = record.fields || {};
     const links = fields["Parent/Guardian"] || fields.Parent;
-    if (Array.isArray(links)) for (const id of links) parentIds.add(id);
+    if (!Array.isArray(links)) continue;
+    for (const parentId of links) {
+      if (!parentToPlayers.has(parentId)) parentToPlayers.set(parentId, new Set());
+      parentToPlayers.get(parentId).add(record.id);
+    }
   }
-  return [...parentIds];
+  return parentToPlayers;
+}
+
+// Lookup helpers for the no-show email body. Both load the relevant table
+// once and cache the results inside the closure so the per-tick caller can
+// share state across candidates.
+async function findParentEmailsByIds(parentIds) {
+  if (parentIds.length === 0) return new Map();
+  const records = await airtableList(parentsTable(), { pageSize: PAGE_SIZE });
+  const wanted = new Set(parentIds);
+  const emails = new Map();
+  for (const record of records) {
+    if (!wanted.has(record.id)) continue;
+    const email = String(record.fields?.Email || "").trim();
+    if (email) emails.set(record.id, email);
+  }
+  return emails;
+}
+
+async function findPlayerNamesByIds(playerIds) {
+  if (playerIds.length === 0) return new Map();
+  const records = await airtableList(playersTable(), { pageSize: PAGE_SIZE });
+  const wanted = new Set(playerIds);
+  const names = new Map();
+  for (const record of records) {
+    if (!wanted.has(record.id)) continue;
+    const name = String(
+      record.fields?.["Player Name"] ||
+        record.fields?.["Full Name"] ||
+        record.fields?.Name ||
+        "",
+    ).trim();
+    if (name) names.set(record.id, name);
+  }
+  return names;
+}
+
+function firstName(fullName) {
+  if (!fullName) return "";
+  return String(fullName).trim().split(/\s+/)[0] || "";
 }
 
 // Active subscriptions for a given parent that have the relevant pref
@@ -337,7 +430,7 @@ function buildTitle(sessionFields) {
   return "Grass2Pro";
 }
 
-function buildBody(kind, sessionFields) {
+function buildBody(kind, sessionFields, { childFirstName = "" } = {}) {
   const location = String(sessionFields.Location || sessionFields.Venue || "").trim();
   const start = String(sessionFields["Start Time"] || sessionFields.Start || "").slice(0, 5);
   switch (kind) {
@@ -353,15 +446,19 @@ function buildBody(kind, sessionFields) {
       return "Session has ended. Tap to confirm pickup.";
     case KIND_PICKUP_FINAL:
       return "Your child is still marked as on the pitch. Please confirm pickup or contact your coach.";
+    case KIND_NO_SHOW: {
+      const child = childFirstName || "your child";
+      return `Didn't see ${child} at training tonight \u2014 everything okay?`;
+    }
     default:
       return "Session reminder.";
   }
 }
 
-function buildPayload(kind, sessionFields, sessionId) {
+function buildPayload(kind, sessionFields, sessionId, { childFirstName = "" } = {}) {
   return JSON.stringify({
     title: buildTitle(sessionFields),
-    body: buildBody(kind, sessionFields),
+    body: buildBody(kind, sessionFields, { childFirstName }),
     tag: `session-${sessionId}-${kind.toLowerCase().replace(/\s+/g, "-")}`,
     url: "/portal",
     data: { sessionId, kind },
@@ -438,48 +535,80 @@ export default async (req) => {
   let failed = 0;
 
   for (const candidate of candidates) {
-    const { sessionId, sessionFields, kind, requiresOpenAttendance } = candidate;
-    let playerIds;
+    const { sessionId, sessionFields, kind, requiresOpenAttendance, requiresRsvpComingNoArrival } = candidate;
+    let playerHits;
     try {
-      playerIds = await findPlayerIdsForSession(sessionId, sessionFields, {
+      playerHits = await findPlayerIdsForSession(sessionId, sessionFields, {
         requireOpen: requiresOpenAttendance,
+        requireRsvpComingNoArrival,
       });
     } catch (error) {
       console.error("[scheduled-push-fanout] Player lookup failed:", { sessionId, error });
       continue;
     }
-    if (playerIds.length === 0) continue;
+    if (playerHits.length === 0) continue;
 
-    let parentIds;
+    const playerIds = playerHits.map((h) => h.playerId);
+    // Map<playerId, attendanceId|null> so the no-show branch can flip the
+    // Parent Notified flag on the right row after sending.
+    const playerToAttendance = new Map(
+      playerHits.map((h) => [h.playerId, h.attendanceId]),
+    );
+
+    let parentToPlayers; // Map<parentId, Set<playerId>>
     try {
-      parentIds = await findParentIdsForPlayers(playerIds);
+      parentToPlayers = await findParentIdsForPlayers(playerIds);
     } catch (error) {
       console.error("[scheduled-push-fanout] Parent lookup failed:", { sessionId, error });
       continue;
     }
-    if (parentIds.length === 0) continue;
+    if (parentToPlayers.size === 0) continue;
 
-    const payload = buildPayload(kind, sessionFields, sessionId);
-
-    for (const parentId of parentIds) {
-      const key = dedupeKey(sessionId, kind, parentId);
-      if (await alreadySent(key, sentRecords)) {
-        continue;
+    // For the no-show kind we also need parent emails and player names so the
+    // email fallback can address the parent and name the right child.
+    let parentEmails = new Map();
+    let playerNames = new Map();
+    if (kind === KIND_NO_SHOW) {
+      try {
+        [parentEmails, playerNames] = await Promise.all([
+          findParentEmailsByIds([...parentToPlayers.keys()]),
+          findPlayerNamesByIds(playerIds),
+        ]);
+      } catch (error) {
+        console.warn("[scheduled-push-fanout] No-show lookup helpers failed:", error);
       }
+    }
 
-      let subscriptions;
+    for (const [parentId, linkedPlayerIds] of parentToPlayers.entries()) {
+      const key = dedupeKey(sessionId, kind, parentId);
+      if (await alreadySent(key, sentRecords)) continue;
+
+      // Pick the first matching player for this parent so we can name the
+      // child in the message body. Multi-child households at the same
+      // session are rare; if it happens we just name the first one we hit.
+      const firstPlayerId = [...linkedPlayerIds][0];
+      const childFullName = playerNames.get(firstPlayerId) || "";
+      const childFirst = firstName(childFullName);
+      const attendanceIdForFlag = playerToAttendance.get(firstPlayerId) || null;
+
+      let subscriptions = [];
       try {
         subscriptions = await findEligibleSubscriptions(parentId, kind);
       } catch (error) {
         console.error("[scheduled-push-fanout] Subscription lookup failed:", { parentId, error });
-        continue;
+        // For no-show we still attempt the email fallback below; for other
+        // kinds we skip the parent.
+        if (kind !== KIND_NO_SHOW) continue;
       }
-      if (subscriptions.length === 0) continue;
+
+      // Non-noshow kinds keep their old behaviour: skip when there are no
+      // eligible subscriptions. The no-show kind continues so we can fall
+      // back to email even when the parent never subscribed to push.
+      if (subscriptions.length === 0 && kind !== KIND_NO_SHOW) continue;
 
       // Write the dedupe row FIRST so a re-tick within the window cannot
       // double-send. Status starts as "Skipped" and is upgraded after the
-      // send completes; if we crash between the create and send we err on
-      // the safe side (the parent gets no notification rather than two).
+      // send completes.
       let dedupeRow;
       try {
         dedupeRow = await airtableCreate(notificationsSentTable(), {
@@ -494,15 +623,11 @@ export default async (req) => {
         console.error("[scheduled-push-fanout] Dedupe row create failed:", { key, error });
         continue;
       }
-      // Add it to the in-memory list so the next iteration in this tick
-      // dedupes correctly even if we somehow reach the same key twice.
       sentRecords.push(dedupeRow);
 
-      // Send to every active subscription for this parent. We only update
-      // the dedupe row once with the FIRST subscription's outcome \u2014 if a
-      // parent has 3 devices and 1 fails, we still log success because at
-      // least one device was reached. Per-device error visibility lives in
-      // function logs.
+      const payload = buildPayload(kind, sessionFields, sessionId, { childFirstName: childFirst });
+
+      // ----- Push send -----
       let firstStatus = null;
       let firstHttp = null;
       let firstError = null;
@@ -523,11 +648,9 @@ export default async (req) => {
             firstError = String(error?.message || error);
           }
           // 404 / 410 mean the subscription is gone \u2014 deactivate it so we
-          // stop trying next tick. web-push throws an error with the
-          // statusCode set when the push service rejects.
+          // stop trying next tick.
           if (httpStatus === 404 || httpStatus === 410) {
             try {
-              const { airtableUpdate } = await import("./_airtable.mjs");
               await airtableUpdate(pushSubsTable(), sub.id, {
                 Active: false,
                 "Failure Count": Number(sub.fields?.["Failure Count"] || 0) + 1,
@@ -540,12 +663,72 @@ export default async (req) => {
         }
       }
 
+      // ----- Email fallback (no-show only) -----
+      // Always send the email for no-show, regardless of push outcome. This
+      // is the spec's check-in tone \u2014 a parent who's already seen the push
+      // and replied to the coach won't mind a follow-up email saying the
+      // same thing, but a parent on iOS without PWA install would otherwise
+      // get nothing at all.
+      let emailStatus = null;
+      let emailError = null;
+      if (kind === KIND_NO_SHOW) {
+        const to = parentEmails.get(parentId);
+        if (to) {
+          attempted += 1;
+          const result = await sendNoShowCheckInEmail({
+            to,
+            childFirstName: childFirst,
+            coachName: String(sessionFields.Coach || sessionFields["Lead Coach"] || "").trim(),
+            sessionName: String(sessionFields["Session Name"] || sessionFields.Name || "").trim(),
+            sessionDate: String(sessionFields.Date || sessionFields["Session Date"] || "").trim(),
+          });
+          if (result.ok) {
+            emailStatus = "Sent";
+            sent += 1;
+            if (firstStatus === null) {
+              firstStatus = "Sent";
+              firstHttp = 201;
+            }
+          } else {
+            emailStatus = "Failed";
+            emailError = result.reason || "send-failed";
+            failed += 1;
+            if (firstStatus === null) {
+              firstStatus = "Failed";
+              firstError = `email: ${emailError}`;
+            }
+          }
+        } else {
+          emailStatus = "Skipped";
+          emailError = "no-parent-email";
+        }
+
+        // Flip Parent Notified on the attendance row so the same row never
+        // gets re-nagged. Only flip on Sent so a transient failure can
+        // be retried by the next scheduled tick (caveat: the Notifications
+        // Sent dedupe row already prevents that today, but the flag is
+        // still useful as a UI indicator for the coach dashboard).
+        if (attendanceIdForFlag && emailStatus === "Sent") {
+          try {
+            await airtableUpdate(attendanceTable(), attendanceIdForFlag, {
+              "Parent Notified": true,
+            });
+          } catch (flagError) {
+            console.warn("[scheduled-push-fanout] Parent Notified flag flip failed:", flagError);
+          }
+        }
+      }
+
+      // ----- Finalise audit row -----
       try {
-        const { airtableUpdate } = await import("./_airtable.mjs");
+        const finalStatus = firstStatus || "Skipped";
+        const errorBits = [firstError, emailError ? `email: ${emailError}` : null]
+          .filter(Boolean)
+          .join(" | ");
         await airtableUpdate(notificationsSentTable(), dedupeRow.id, {
-          Status: firstStatus || "Skipped",
+          Status: finalStatus,
           "HTTP Status": firstHttp || 0,
-          Error: firstError || "",
+          Error: errorBits,
           Subscription: subscriptions.map((s) => s.id),
         });
       } catch (error) {
