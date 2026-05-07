@@ -2,6 +2,7 @@ import {
   AirtableHttpError,
   TABLE_IDS,
   airtableCreate,
+  airtableUpdate,
   findAttendance,
   hasAirtableConfig,
   json,
@@ -18,10 +19,16 @@ import {
 // can re-submit with `forceConfirm: true` only after a coach explicitly
 // overrides.
 //
-// Airtable automations downstream are responsible for writing arrival/departure
-// times back onto the Attendance row when Confirmation Result = Confirmed and
-// Attendance Record ID Text is non-empty. We therefore include the resolved
-// Attendance Record ID Text in the QR record we create.
+// We write the Attendance row directly server-side instead of relying on an
+// Airtable automation: Arrival creates a new Attendance row (or updates an
+// existing one's Arrival Time), Departure updates the existing row's Departure
+// Time. The QR Check-ins record is then created as an audit trail and linked
+// back to the Attendance row.
+
+const CHECKIN_METHOD_BY_INPUT = {
+  "Fallback Code": "Fallback Code",
+  "QR Code": "QR Code",
+};
 
 const VALID_SCAN_TYPES = new Set(["Arrival", "Departure"]);
 
@@ -131,15 +138,83 @@ export const handler = async (event) => {
   // The downstream Airtable automation resolves the Attendance row from the
   // linked record (Attendance Record) or from (Session, Player) when no link
   // exists yet, so we only need to pass the link itself when known.
+  const checkinMethod = CHECKIN_METHOD_BY_INPUT[method] || "QR Code";
+  const nowIso = new Date().toISOString();
+  const attendanceTable = tableName(
+    "AIRTABLE_ATTENDANCE_TABLE",
+    "Attendance",
+    TABLE_IDS.ATTENDANCE,
+  );
+
+  // ---- Step 1: write Attendance row (create on Arrival if missing, else update). ----
+  let attendanceId = existing?.id || null;
+  try {
+    if (scanType === "Arrival") {
+      if (!attendanceId) {
+        const attendanceFields = {
+          Session: [sessionId],
+          Player: [playerId],
+          "Arrival Time": nowIso,
+          "Attendance Status": "Present",
+          "Confirmation Status": "Pending Parent Confirmation",
+          "Check-in Method": checkinMethod,
+        };
+        if (parentId) attendanceFields["Parent/Guardian"] = [parentId];
+        const created = await airtableCreate(attendanceTable, attendanceFields);
+        attendanceId = created.id;
+      } else {
+        const updates = {
+          "Arrival Time": nowIso,
+          "Check-in Method": checkinMethod,
+        };
+        if (!existing.status) updates["Attendance Status"] = "Present";
+        if (!existing.confirmationStatus) updates["Confirmation Status"] = "Pending Parent Confirmation";
+        await airtableUpdate(attendanceTable, attendanceId, updates);
+      }
+    } else {
+      // Departure
+      if (attendanceId) {
+        await airtableUpdate(attendanceTable, attendanceId, {
+          "Departure Time": nowIso,
+        });
+      } else if (forceConfirm) {
+        // forceConfirm Departure with no row: create a row with both times equal so
+        // downstream views still consider it a complete attendance.
+        const created = await airtableCreate(attendanceTable, {
+          Session: [sessionId],
+          Player: [playerId],
+          "Arrival Time": nowIso,
+          "Departure Time": nowIso,
+          "Attendance Status": "Present",
+          "Confirmation Status": "Pending Parent Confirmation",
+          "Check-in Method": checkinMethod,
+        });
+        attendanceId = created.id;
+      }
+    }
+  } catch (error) {
+    console.error("Attendance write failed:", error);
+    if (error instanceof AirtableHttpError) {
+      const detail = extractAirtableErrorDetail(error.body);
+      return json(error.status === 422 ? 422 : 502, {
+        error: "Airtable rejected the attendance record.",
+        detail,
+        status: error.status,
+      });
+    }
+    return json(500, { error: "Unable to write attendance record." });
+  }
+
+  // ---- Step 2: create QR Check-ins audit row. ----
   const fields = {
     Session: [sessionId],
     Player: [playerId],
     "Scan Type": scanType,
-    Method: method === "Fallback Code" ? "Fallback Code" : "QR Code",
+    Method: checkinMethod,
     "Confirmation Result": "Confirmed",
   };
   if (parentId) fields["Parent/Guardian"] = [parentId];
-  if (existing?.id) fields["Attendance Record"] = [existing.id];
+  if (attendanceId) fields["Attendance Record"] = [attendanceId];
   if (paymentResult) fields["Payment Result"] = paymentResult;
   if (notes) fields.Notes = notes;
 
@@ -154,6 +229,7 @@ export const handler = async (event) => {
       scanType,
       sessionId,
       playerId,
+      attendanceId,
       existingAttendanceId: existing?.id || null,
       forceConfirm: Boolean(forceConfirm),
     });
@@ -165,9 +241,10 @@ export const handler = async (event) => {
         error: "Airtable rejected the QR check-in record.",
         detail,
         status: error.status,
+        attendanceId,
       });
     }
-    return json(500, { error: "Unable to create QR check-in record." });
+    return json(500, { error: "Unable to create QR check-in record.", attendanceId });
   }
 };
 
