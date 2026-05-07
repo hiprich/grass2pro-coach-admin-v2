@@ -4000,6 +4000,10 @@ function Sessions({
 }) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"all" | SessionState>("all");
+  // "recent" hides aged-out sessions (anything that ended more than 7 days
+  // ago). "all" shows everything ever scheduled. Default "recent" so coaches
+  // landing on the Sessions tab see today + a rolling week, not months.
+  const [dateScope, setDateScope] = useState<"recent" | "all">("recent");
   // The QR check-in dialog — we capture both the session and which scan type
   // to pre-select. Phase "departure" → Departure tab pre-selected; otherwise
   // (arrival or fall-through) Arrival is the default.
@@ -4064,19 +4068,31 @@ function Sessions({
   const cancelled = sessions.filter((s) => stateOf(s) === "cancelled").length;
 
   const filtered = useMemo(() => {
+    // "recent" cutoff: include any session whose date is on or after 7 days
+    // ago. Future sessions always pass. Older completed/cancelled sessions are
+    // hidden behind the All time toggle.
+    const cutoff = new Date();
+    cutoff.setHours(0, 0, 0, 0);
+    cutoff.setDate(cutoff.getDate() - 7);
+    const cutoffMs = cutoff.getTime();
     return sessions
       .filter((s) => {
         const matchesFilter = filter === "all" || stateOf(s) === filter;
         const matchesQuery = `${s.name} ${s.team} ${s.ageGroup} ${s.location} ${s.coach}`
           .toLowerCase()
           .includes(query.toLowerCase());
-        return matchesFilter && matchesQuery;
+        let matchesScope = true;
+        if (dateScope === "recent") {
+          const sessionMs = new Date(s.date).getTime();
+          matchesScope = Number.isFinite(sessionMs) && sessionMs >= cutoffMs;
+        }
+        return matchesFilter && matchesQuery && matchesScope;
       })
       .slice()
       .sort((a, b) => a.date.localeCompare(b.date));
     // stateOf is derived from stateById; including stateById in deps keeps it stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filter, query, sessions, stateById]);
+  }, [filter, query, sessions, stateById, dateScope]);
 
   return (
     <>
@@ -4106,6 +4122,22 @@ function Sessions({
           </label>
         </div>
         <div className="filter-row" aria-label="Session filters">
+          {([
+            { value: "recent", label: "Recent" },
+            { value: "all", label: "All time" },
+          ] as const).map(({ value, label }) => (
+            <button
+              key={`scope-${value}`}
+              type="button"
+              className={`filter-button ${dateScope === value ? "active" : ""}`}
+              data-filter-tone="neutral"
+              onClick={() => setDateScope(value)}
+              data-testid={`button-session-scope-${value}`}
+            >
+              {label}
+            </button>
+          ))}
+          <span className="filter-row-divider" aria-hidden="true" />
           {([
             { value: "all", label: "All", tone: "neutral" },
             { value: "scheduled", label: "Upcoming", tone: "media-lavender" },
@@ -4447,17 +4479,27 @@ function Sessions({
 
 function Attendance({ attendance, sessions }: { attendance: AttendanceRecord[]; sessions: Session[] }) {
   const [filter, setFilter] = useState<"all" | AttendanceStatus>("all");
-  const [sessionId, setSessionId] = useState<string>("all");
+  // Default to "today" so coaches landing on the tab don't see months of
+  // history. They can switch to a specific session or All sessions via the
+  // dropdown.
+  const [sessionId, setSessionId] = useState<string>("today");
 
   const sessionLookup = useMemo(() => Object.fromEntries(sessions.map((s) => [s.id, s])), [sessions]);
 
   const filtered = useMemo(() => {
+    const today = todayIsoDate();
     return attendance.filter((record) => {
       const matchesStatus = filter === "all" || record.status === filter;
-      const matchesSession = sessionId === "all" || record.sessionId === sessionId;
+      let matchesSession = true;
+      if (sessionId === "today") {
+        const session = sessionLookup[record.sessionId];
+        matchesSession = !!session && session.date === today;
+      } else if (sessionId !== "all") {
+        matchesSession = record.sessionId === sessionId;
+      }
       return matchesStatus && matchesSession;
     });
-  }, [attendance, filter, sessionId]);
+  }, [attendance, filter, sessionId, sessionLookup]);
 
   const counts = useMemo(() => {
     const base: Record<AttendanceStatus, number> = {
@@ -4498,6 +4540,7 @@ function Attendance({ attendance, sessions }: { attendance: AttendanceRecord[]; 
               value={sessionId}
               onChange={(event) => setSessionId(event.target.value)}
             >
+              <option value="today">Today</option>
               <option value="all">All sessions</option>
               {sessions.map((session) => (
                 <option key={session.id} value={session.id}>
