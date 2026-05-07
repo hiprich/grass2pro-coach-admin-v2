@@ -775,6 +775,75 @@
     padding: var(--space-1) 0;
   }
 
+  /* Phase A4 — forgotten-departure amber state. When a session has been over
+     for 30+ minutes and there are still children showing as on the pitch,
+     the card flips amber and each chip exposes a "Mark collected" backup
+     button. The colour-shift makes the unresolved roster impossible to miss
+     in peripheral vision while the coach packs up. */
+  .on-pitch-card[data-overdue="true"] {
+    /* Slightly louder background so the card itself reads as an alert,
+       independent of the chips. */
+    background: var(--tone-warning-bg);
+    border-color: color-mix(in oklab, var(--tone-warning-accent) 35%, transparent);
+  }
+
+  /* Amber chip variant. Inline-flex with a small gap so the label and the
+     button sit side-by-side. The button is intentionally not a full chip-
+     wide tap target — the parent's first-name pill stays readable on its
+     own and the action is a deliberate second tap. */
+  .on-pitch-chip[data-overdue="true"] {
+    background: color-mix(in oklab, var(--tone-warning-accent) 14%, var(--surface));
+    color: color-mix(in oklab, var(--tone-warning-accent) 70%, var(--text));
+    border-color: color-mix(in oklab, var(--tone-warning-accent) 40%, transparent);
+    gap: var(--space-2);
+    padding-right: 4px; /* tighten so the inner button isn't double-padded */
+  }
+
+  .on-pitch-chip-label {
+    /* Without this the label would inherit the chip's flex centring, which
+       is fine, but giving it its own selector lets us tweak weight
+       independently in future without re-styling the whole chip. */
+    line-height: 1.2;
+  }
+
+  .on-pitch-chip-action {
+    /* Compact pill-inside-pill: borderless secondary on the amber chip. We
+       use the warning accent at full strength so the action remains the
+       most-pressable element on the card. */
+    appearance: none;
+    border: none;
+    background: var(--tone-warning-accent);
+    color: var(--surface);
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: calc(var(--text-xs, 0.75rem) * 0.95);
+    font-weight: 600;
+    line-height: 1.4;
+    cursor: pointer;
+    transition: opacity var(--transition-interactive, 0.18s ease);
+  }
+
+  .on-pitch-chip-action:hover:not(:disabled) {
+    opacity: 0.9;
+  }
+
+  .on-pitch-chip-action:disabled {
+    opacity: 0.6;
+    cursor: progress;
+  }
+
+  .on-pitch-error {
+    /* One-line error banner under the chip cloud. Uses the danger tone so a
+       failed mark-collected attempt is visually distinct from the amber
+       "this is overdue" state of the card itself. */
+    color: var(--tone-danger-accent);
+    background: var(--tone-danger-bg);
+    border-radius: var(--radius-sm);
+    padding: 4px 8px;
+    font-size: var(--text-xs, 0.75rem);
+    margin-top: var(--space-1);
+  }
+
   /* Reuse the same tone system on form-section, checkbox-card, mini-card. */
   .form-section[data-tone],
   .mini-card[data-tone] {

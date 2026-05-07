@@ -883,6 +883,31 @@ async function loadAttendance(): Promise<AttendanceRecord[] | null> {
   }
 }
 
+// Coach "Mark collected" backup (Phase A4). Closes the attendance row for
+// (sessionId, playerId) by stamping Departure Time. Only used as a fallback
+// when a parent forgets to scan/confirm pickup themselves — the OnPitchCard
+// surfaces this button only after the session has been over for 30+ minutes.
+async function markCollected(sessionId: string, playerId: string): Promise<void> {
+  if (!apiAvailable) {
+    throw new Error("Mark-collected is not available in demo mode.");
+  }
+  const response = await fetch(apiPath("/coach-mark-collected"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessionId, playerId }),
+  });
+  if (!response.ok) {
+    let detail = "";
+    try {
+      const body = (await response.json()) as { error?: string; message?: string };
+      detail = body?.error || body?.message || "";
+    } catch {
+      /* fall through */
+    }
+    throw new Error(detail || "We couldn't mark this player collected. Please try again.");
+  }
+}
+
 // Coach-side player mutations. Each call hits PATCH /api/players with a small
 // action verb. The endpoint always returns the freshly normalised player so
 // the UI can splice it back into state without reloading the whole dataset.
@@ -1716,6 +1741,11 @@ function KpiCard({
 // non-match days. We use a separate /attendance endpoint (not admin-data)
 // because attendance is the only thing that changes during the window.
 // ──────────────────────────────────────────────────────────────────────────────
+// Phase A4 amber threshold: a child still on the pitch this many minutes
+// after end-of-session triggers the amber UI + per-chip "Mark collected"
+// backup button.
+const FORGOTTEN_DEPARTURE_MS = 30 * 60 * 1000; // 30 min
+
 function OnPitchCard({
   sessions,
   attendance,
@@ -1730,8 +1760,10 @@ function OnPitchCard({
   // Tick once a minute so the active-session detection re-evaluates as time
   // crosses session boundaries (e.g. arrival window opens, departure window
   // closes). Independent of the attendance poll so the two cadences don't
-  // need to share a clock.
-  const [, setMinuteTick] = useState(0);
+  // need to share a clock. Phase A4 also depends on this tick to flip the
+  // amber state once the session has been over for 30+ minutes — we read
+  // the tick value into the dep arrays of the memos that need it.
+  const [minuteTick, setMinuteTick] = useState(0);
   useEffect(() => {
     const id = window.setInterval(() => setMinuteTick((n) => n + 1), 60_000);
     return () => window.clearInterval(id);
@@ -1747,7 +1779,12 @@ function OnPitchCard({
     return (
       sessions.find((s) => checkinPhase(s, now) !== "none" && s.state !== "cancelled") || null
     );
-  }, [sessions]);
+    // minuteTick is intentionally part of the dep set so the active-session
+    // detection re-runs as time advances, even when sessions[] hasn't
+    // changed. ESLint can't see the dep being read inside (we read the wall
+    // clock instead), so we silence the exhaustive-deps warning.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessions, minuteTick]);
 
   // Build the list of players currently on the pitch. A player is "on the
   // pitch" when their attendance row for the active session has an
@@ -1815,19 +1852,70 @@ function OnPitchCard({
     };
   }, [activeSession, onAttendanceUpdate]);
 
+  // Phase A4 amber state. The card flips amber once the active session
+  // ended more than 30 minutes ago AND there's still at least one chip
+  // showing (someone hasn't been collected). Coach can tap each amber chip
+  // to mark that child collected as a backup when the parent forgets.
+  const isOverdue = useMemo(() => {
+    if (!activeSession) return false;
+    const endsAt = sessionEndsAt(activeSession);
+    if (!endsAt) return false;
+    // We use `new Date()` rather than `Date.now()` deliberately — the React
+    // Hooks purity rule treats `Date.now()` as a flagged impure function in
+    // useMemo, while `new Date()` (which the activeSession memo above also
+    // uses) is permitted. The minute-tick dep keeps the comparison fresh as
+    // time crosses end+30 even when activeSession itself hasn't changed.
+    return new Date().getTime() - endsAt.getTime() > FORGOTTEN_DEPARTURE_MS;
+    // Same rationale as activeSession: minuteTick drives the re-evaluation
+    // even though it isn't read directly.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSession, minuteTick]);
+
+  // Per-chip mark-collected state. We track which chip is in flight by
+  // playerId so a coach can hit two amber chips back-to-back without one
+  // disabling the other. Errors are surfaced as a single banner under the
+  // chip cloud rather than per-chip so the layout stays compact on phones.
+  const [markBusyId, setMarkBusyId] = useState<string | null>(null);
+  const [markError, setMarkError] = useState("");
+
+  async function handleMarkCollected(playerId: string) {
+    if (!activeSession || !onAttendanceUpdate) return;
+    setMarkBusyId(playerId);
+    setMarkError("");
+    try {
+      await markCollected(activeSession.id, playerId);
+      // Re-fetch the canonical attendance list so the chip falls off and
+      // the amber state re-evaluates without a full admin-data refresh.
+      const fresh = await loadAttendance();
+      if (fresh) onAttendanceUpdate(fresh);
+    } catch (err) {
+      setMarkError(err instanceof Error ? err.message : "Could not mark collected.");
+    } finally {
+      setMarkBusyId(null);
+    }
+  }
+
   // Determine the card's visual state:
   //   no active session    → muted "No active session" placeholder
   //   active, nobody yet   → "Waiting for first check-in…"
-  //   active, names list   → chips, count in the corner
+  //   active, names list   → chips, count in the corner (amber when overdue)
   const hasActive = !!activeSession;
   const sessionLabel = activeSession
     ? activeSession.team || activeSession.name || activeSession.ageGroup || "Active session"
     : "";
+  // Tone: success while everything's nominal; warning once we cross the
+  // forgotten-departure threshold and there are still chips on the card.
+  const cardTone = !hasActive
+    ? "neutral"
+    : isOverdue && displayNames.length > 0
+      ? "warning"
+      : "success";
 
   return (
     <article
       className="kpi-card on-pitch-card"
-      data-tone={hasActive ? "success" : "neutral"}
+      data-tone={cardTone}
+      data-overdue={isOverdue && displayNames.length > 0 ? "true" : undefined}
       data-testid="card-kpi-on-the-pitch"
       aria-live="polite"
     >
@@ -1861,14 +1949,34 @@ function OnPitchCard({
                 key={p.id}
                 role="listitem"
                 className="on-pitch-chip"
+                data-overdue={isOverdue ? "true" : undefined}
                 data-testid={`chip-on-pitch-${p.id}`}
               >
-                {p.label}
+                <span className="on-pitch-chip-label">{p.label}</span>
+                {isOverdue ? (
+                  <button
+                    type="button"
+                    className="on-pitch-chip-action"
+                    onClick={() => handleMarkCollected(p.id)}
+                    disabled={markBusyId === p.id}
+                    data-testid={`button-mark-collected-${p.id}`}
+                    aria-label={`Mark ${p.label} collected`}
+                  >
+                    {markBusyId === p.id ? "Marking…" : "Mark collected"}
+                  </button>
+                ) : null}
               </span>
             ))}
           </div>
+          {markError ? (
+            <div className="on-pitch-error" role="alert" data-testid="text-on-pitch-error">
+              {markError}
+            </div>
+          ) : null}
           <div className="kpi-foot">
-            {displayNames.length} on pitch · {sessionLabel}
+            {isOverdue
+              ? `${displayNames.length} still to collect · ${sessionLabel}`
+              : `${displayNames.length} on pitch · ${sessionLabel}`}
           </div>
         </>
       )}

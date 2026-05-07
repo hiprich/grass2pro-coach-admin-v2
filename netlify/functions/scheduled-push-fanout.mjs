@@ -1,11 +1,15 @@
 // Scheduled Web Push fan-out for parent reminders.
 //
 // Runs every 5 minutes (see netlify.toml). On each tick we:
-//   1. List Sessions whose start- or end-time is approaching one of three
+//   1. List Sessions whose start- or end-time is approaching one of five
 //      windows:
-//        - One Hour Reminder: now in [start - 65min, start - 55min]
-//        - Check In Open:     now in [start - 35min, start - 25min]
-//        - Pickup Soon:       now in [end   - 35min, end   - 25min]
+//        - One Hour Reminder:        now in [start - 65min, start - 55min]
+//        - Check In Open:            now in [start - 35min, start - 25min]
+//        - Pickup Soon:              now in [end   - 35min, end   - 25min]
+//        - Pickup Confirm Reminder:  now in [end   + 10min, end   + 20min]
+//                                    (only parents with open attendance row)
+//        - Pickup Confirm Final:     now in [end   + 25min, end   + 35min]
+//                                    (only parents with open attendance row)
 //      The 10-min window (\u00b15 min) absorbs cron jitter and handles a
 //      missed/late tick without sending duplicates.
 //   2. For each candidate (session, kind), find the parents of children
@@ -44,6 +48,13 @@ import {
 const KIND_ONE_HOUR = "One Hour Reminder";
 const KIND_CHECK_IN = "Check In Open";
 const KIND_PICKUP = "Pickup Soon";
+// Phase A4: forgotten-departure nags. These fire AFTER the session ends and
+// are scoped to parents whose child still has an open attendance row (arrival
+// recorded but no departure). The reminder lands 15 min after end; the final
+// nudge lands 30 min after end, by which point the OnPitchCard goes amber and
+// the coach can tap-out as a backup.
+const KIND_PICKUP_REMINDER = "Pickup Confirm Reminder";
+const KIND_PICKUP_FINAL = "Pickup Confirm Final";
 
 // Pref-field name on the Push Subscriptions table for each kind. Used to
 // filter which subscriptions should receive a given kind.
@@ -51,14 +62,37 @@ const PREF_FIELD_BY_KIND = {
   [KIND_ONE_HOUR]: "Pref One Hour Reminder",
   [KIND_CHECK_IN]: "Pref Check In Open",
   [KIND_PICKUP]: "Pref Pickup Soon",
+  [KIND_PICKUP_REMINDER]: "Pref Pickup Confirm Reminder",
+  [KIND_PICKUP_FINAL]: "Pref Pickup Confirm Final",
 };
 
-// Window definitions: how many minutes before the relevant edge of the
-// session this kind targets, plus the symmetric tolerance around it.
+// Window definitions: how many minutes before (positive) or AFTER (negative)
+// the relevant edge of the session this kind targets, plus the symmetric
+// tolerance around it. Negative offsets are how we express "N minutes after
+// the edge" without adding a third axis to the shape.
+//
+// `requiresOpenAttendance` constrains the fan-out to parents whose child has
+// an attendance row with arrivalTime set and departureTime empty for this
+// session. Without it, the post-end nags would pester parents whose child
+// has already been collected, or who never showed up at all.
 const WINDOWS = [
   { kind: KIND_ONE_HOUR, edge: "start", offsetMin: 60, toleranceMin: 5 },
   { kind: KIND_CHECK_IN, edge: "start", offsetMin: 30, toleranceMin: 5 },
   { kind: KIND_PICKUP, edge: "end", offsetMin: 30, toleranceMin: 5 },
+  {
+    kind: KIND_PICKUP_REMINDER,
+    edge: "end",
+    offsetMin: -15,
+    toleranceMin: 5,
+    requiresOpenAttendance: true,
+  },
+  {
+    kind: KIND_PICKUP_FINAL,
+    edge: "end",
+    offsetMin: -30,
+    toleranceMin: 5,
+    requiresOpenAttendance: true,
+  },
 ];
 
 // Hard cap on Airtable list size for each table. The free-tier base is
@@ -181,6 +215,8 @@ async function findCandidateSessions(nowMs) {
     for (const window of WINDOWS) {
       const edgeAt = window.edge === "start" ? startAt : endAt;
       if (!edgeAt) continue;
+      // Positive offset = N minutes BEFORE the edge (target is earlier);
+      // negative offset = N minutes AFTER the edge (target is later).
       const targetMs = edgeAt.getTime() - window.offsetMin * 60_000;
       if (!isInWindow(nowMs, targetMs, window.toleranceMin)) continue;
       candidates.push({
@@ -188,6 +224,7 @@ async function findCandidateSessions(nowMs) {
         sessionFields: fields,
         kind: window.kind,
         targetAt: new Date(targetMs).toISOString(),
+        requiresOpenAttendance: !!window.requiresOpenAttendance,
       });
     }
   }
@@ -197,7 +234,13 @@ async function findCandidateSessions(nowMs) {
 // Find player record ids attending a given session. We use the Attendance
 // table when present (most reliable), otherwise fall back to the Players[]
 // link directly on the Session row.
-async function findPlayerIdsForSession(sessionId, sessionFields) {
+//
+// When `requireOpen` is true (Phase A4 pickup-confirm), we narrow further to
+// only attendance rows that have an arrivalTime AND no departureTime — i.e.
+// the child is still on the pitch. In that mode we DO NOT fall back to the
+// Session.Players link, because that fallback can't tell us which players
+// have an open attendance row.
+async function findPlayerIdsForSession(sessionId, sessionFields, { requireOpen = false } = {}) {
   // Prefer attendance rows for this session.
   try {
     const attendance = await airtableList(attendanceTable(), { pageSize: PAGE_SIZE });
@@ -205,12 +248,22 @@ async function findPlayerIdsForSession(sessionId, sessionFields) {
     for (const row of attendance) {
       const link = Array.isArray(row?.fields?.Session) ? row.fields.Session : [];
       if (!link.includes(sessionId)) continue;
+      if (requireOpen) {
+        const arrival = row?.fields?.["Arrival Time"];
+        const departure = row?.fields?.["Departure Time"];
+        if (!arrival || departure) continue;
+      }
       const playerLink = Array.isArray(row?.fields?.Player) ? row.fields.Player : [];
       for (const id of playerLink) ids.add(id);
     }
     if (ids.size > 0) return [...ids];
+    // No matches — for requireOpen this means everyone's already been picked
+    // up (or nobody scanned in), so we explicitly return empty rather than
+    // falling back to a broader list that could re-surface departed kids.
+    if (requireOpen) return [];
   } catch (error) {
     console.warn("[scheduled-push-fanout] Attendance lookup failed; falling back to Session.Players:", error);
+    if (requireOpen) return [];
   }
   // Fallback: the Session row's Players link field.
   const fallback = Array.isArray(sessionFields?.Players) ? sessionFields.Players : [];
@@ -296,6 +349,10 @@ function buildBody(kind, sessionFields) {
       return "Check-in is open. Tap to view your child's QR code.";
     case KIND_PICKUP:
       return "Session ends in 30 min \u2014 pickup soon.";
+    case KIND_PICKUP_REMINDER:
+      return "Session has ended. Tap to confirm pickup.";
+    case KIND_PICKUP_FINAL:
+      return "Your child is still marked as on the pitch. Please confirm pickup or contact your coach.";
     default:
       return "Session reminder.";
   }
@@ -381,10 +438,12 @@ export default async (req) => {
   let failed = 0;
 
   for (const candidate of candidates) {
-    const { sessionId, sessionFields, kind } = candidate;
+    const { sessionId, sessionFields, kind, requiresOpenAttendance } = candidate;
     let playerIds;
     try {
-      playerIds = await findPlayerIdsForSession(sessionId, sessionFields);
+      playerIds = await findPlayerIdsForSession(sessionId, sessionFields, {
+        requireOpen: requiresOpenAttendance,
+      });
     } catch (error) {
       console.error("[scheduled-push-fanout] Player lookup failed:", { sessionId, error });
       continue;
