@@ -527,6 +527,37 @@ function inferAttendanceStatus(raw, fields) {
   return "absent";
 }
 
+// Build the public scan URL for a given token. The host is configurable so
+// staging and production can each render their own deep-link without code
+// changes. SCAN_BASE_URL takes precedence; otherwise we use Netlify's URL env
+// var which the platform sets automatically per deploy. Falls back to the
+// staging hostname so back-fill on a base hooked up to a brand-new Netlify
+// site doesn't write a useless half-URL.
+export function buildScanUrl(token) {
+  if (!token) return "";
+  const base = (
+    process.env.SCAN_BASE_URL ||
+    process.env.URL ||
+    "https://grass2pro-coach-admin-staging.netlify.app"
+  ).replace(/\/$/, "");
+  return `${base}/scan?t=${encodeURIComponent(token)}`;
+}
+
+// Generate a 32-char URL-safe random token for a session's parent scan flow.
+// Uses crypto.randomBytes so the entropy is suitable for a bearer token.
+// The token is the *only* credential a parent presents on the scan landing
+// page — we treat it like a one-time link, valid only while `now` falls inside
+// the session's arrival/departure windows.
+export function generateScanToken() {
+  // 24 bytes of randomness → 32 chars of base64url with no padding. Keeps the
+  // QR small enough to render crisply on a coach's phone screen while still
+  // giving us 192 bits of entropy.
+  const bytes = crypto.getRandomValues(new Uint8Array(24));
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 1) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
 export function normaliseSession(record) {
   const fields = record?.fields || {};
   const date = stringValue(fields.Date || fields["Session Date"]);
@@ -545,6 +576,10 @@ export function normaliseSession(record) {
     notes: stringValue(fields["Session Notes"] || fields.Notes || fields["Coach Notes"], ""),
     checkInEnabled: boolValue(fields["Check-in Enabled"]),
     qrFallbackCode: stringValue(fields["QR Fallback Code"]),
+    // Per-session bearer token for the parent scan flow (Phase A). One token
+    // per session, valid for both Arrival and Departure phases. Empty when
+    // the row pre-dates Phase A — sessions.mjs lazily back-fills on read.
+    scanToken: stringValue(fields["Scan Token"], ""),
     playerIds: Array.isArray(fields.Players) ? fields.Players : [],
     // Pitch surface — drives kit, ball-pressure and weather-call decisions.
     // Empty string when the field hasn't been populated (e.g. legacy rows or
@@ -616,13 +651,75 @@ export async function listSessions({ scope = "upcoming" } = {}) {
   params["sort[0][direction]"] = scope === "past" ? "desc" : "asc";
   const records = await airtableList(table, params);
   const all = records.map(normaliseSession);
-  if (scope === "all") return all;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  if (scope === "past") {
-    return all.filter((s) => s.date && new Date(s.date) < today);
+
+  // Phase A back-fill: any session that is still upcoming (i.e. could plausibly
+  // be scanned into) without a Scan Token gets one generated and persisted.
+  // We deliberately skip past sessions — they're read-only and don't need a
+  // QR. Failures are swallowed: a missing token is a degraded UX (coach sees
+  // "QR unavailable") but should never break the dashboard load.
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  const backfillTargets = records.filter((record, index) => {
+    const session = all[index];
+    if (session.scanToken) return false;
+    if (!session.date) return true; // sessions without a date are treated as live
+    return new Date(session.date) >= now;
+  });
+  if (backfillTargets.length > 0) {
+    await Promise.allSettled(
+      backfillTargets.map(async (record) => {
+        const token = generateScanToken();
+        try {
+          // Write both the bearer token and the click-through URL so the
+          // Airtable row is fully populated in one round-trip.
+          await airtableUpdate(table, record.id, {
+            "Scan Token": token,
+            "QR Code URL": buildScanUrl(token),
+          });
+          // Mutate the in-memory copy so the response we return to the client
+          // already reflects the new token, no extra round-trip needed.
+          const idx = records.indexOf(record);
+          if (idx >= 0 && all[idx]) all[idx].scanToken = token;
+        } catch (err) {
+          console.warn("Scan Token back-fill failed for", record.id, err?.message || err);
+        }
+      }),
+    );
   }
-  return all.filter((s) => !s.date || new Date(s.date) >= today);
+
+  if (scope === "all") return all;
+  if (scope === "past") {
+    return all.filter((s) => s.date && new Date(s.date) < now);
+  }
+  return all.filter((s) => !s.date || new Date(s.date) >= now);
+}
+
+// Look up a session by its Scan Token. Returns the normalised session record
+// or null. Used by parent-scan-resolve.mjs — the token IS the credential, so
+// this is the only authentication the parent presents.
+//
+// We use Airtable's filterByFormula instead of fetching the whole table because
+// (a) it's faster on bases with hundreds of sessions and (b) it limits the
+// blast radius if someone tries to enumerate tokens — they can't list, only
+// match-or-miss.
+export async function findSessionByScanToken(token) {
+  if (!token || typeof token !== "string") return null;
+  if (!hasAirtableConfig()) {
+    const demo = demoSessions("all").find((s) => s.scanToken === token);
+    return demo || null;
+  }
+  const table = tableName("AIRTABLE_SESSIONS_TABLE", "Sessions", TABLE_IDS.SESSIONS);
+  // Escape any single quotes in the token defensively. Our generator only
+  // produces base64url chars (A–Z, a–z, 0–9, -, _) so this is belt-and-braces,
+  // but it stops a malformed token from breaking the formula syntax.
+  const safe = token.replace(/'/g, "\\'");
+  const records = await airtableList(table, {
+    filterByFormula: `{Scan Token} = '${safe}'`,
+    maxRecords: "1",
+    pageSize: "1",
+  });
+  if (!records.length) return null;
+  return normaliseSession(records[0]);
 }
 
 // Format a yyyy-mm-dd date string into a short, human-readable label like
@@ -876,6 +973,14 @@ export async function createSession({
     "Today's Session Type": "Training",
     "Check-in Enabled": true,
   };
+  // Phase A: per-session bearer token + click-through scan URL. Generated up
+  // front so every new session has a usable QR from the moment it lands in
+  // Airtable, and so the existing "QR Code URL" Airtable column is populated
+  // (handy for debugging and for sharing a session via WhatsApp without the
+  // QR image). listSessions() back-fills any pre-Phase-A rows on read.
+  const newToken = generateScanToken();
+  fields["Scan Token"] = newToken;
+  fields["QR Code URL"] = buildScanUrl(newToken);
   if (startTime) fields["Start Time"] = startTime;
   if (endTime) fields["End Time"] = endTime;
   if (location) fields.Location = location;
@@ -1304,6 +1409,7 @@ function demoSessions(scope = "upcoming") {
       notes: "Demo session — Airtable env vars not set.",
       checkInEnabled: true,
       qrFallbackCode: "DEMO-U11-WEST",
+      scanToken: "demo_token_u11west_aaaaaaaaaaaa",
       playerIds: [],
     },
     {
@@ -1321,6 +1427,7 @@ function demoSessions(scope = "upcoming") {
       notes: "Demo session — Airtable env vars not set.",
       checkInEnabled: true,
       qrFallbackCode: "DEMO-U8-JR",
+      scanToken: "demo_token_u8jrs_bbbbbbbbbbbbbb",
       playerIds: [],
     },
     {
@@ -1338,6 +1445,7 @@ function demoSessions(scope = "upcoming") {
       notes: "Demo session — Airtable env vars not set.",
       checkInEnabled: false,
       qrFallbackCode: "",
+      scanToken: "",
       playerIds: [],
     },
   ];

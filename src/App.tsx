@@ -115,6 +115,10 @@ type Session = {
   notes: string;
   checkInEnabled?: boolean;
   qrFallbackCode?: string;
+  // Phase A: per-session token for the parent scan flow. Empty string when
+  // the row pre-dates Phase A and back-fill hasn't run yet, or when the row
+  // is in demo mode without Airtable configured.
+  scanToken?: string;
   playerIds?: string[];
   pitchType?: PitchType | "";
   sessionFee?: number | null;
