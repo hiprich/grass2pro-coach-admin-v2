@@ -715,6 +715,66 @@
     --tone-accent: var(--tone-media-accent);
   }
 
+  /* ----- On the Pitch live roster (Phase A3) -----
+     Same chrome as a KPI card so it sits cleanly in the grid. The body
+     replaces the single-number "value" with a chip cloud of player first
+     names that updates as parents scan in/out. */
+  .on-pitch-card {
+    /* Slightly tighter gap so chips don't drift away from the label, and
+       enough min-height that the card doesn't pop in size when the first
+       chip arrives. */
+    gap: var(--space-2);
+    min-height: 7.5rem;
+  }
+
+  .on-pitch-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    /* Cap the height so a roster of 20+ children doesn't blow out the grid;
+       overflow scrolls vertically with a discrete scrollbar. */
+    max-height: 9rem;
+    overflow-y: auto;
+    padding-right: 2px;
+  }
+
+  .on-pitch-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--tone-accent, var(--tone-success-accent)) 12%, var(--surface));
+    color: color-mix(in oklab, var(--tone-accent, var(--tone-success-accent)) 70%, var(--text));
+    border: 1px solid color-mix(in oklab, var(--tone-accent, var(--tone-success-accent)) 35%, transparent);
+    font-size: var(--text-sm, 0.875rem);
+    font-weight: 500;
+    line-height: 1.2;
+    white-space: nowrap;
+    /* Brief fade-in so a fresh scan visibly appears — the visual analogue of
+       a child stepping onto the pitch. */
+    animation: on-pitch-chip-in 200ms ease-out;
+  }
+
+  @keyframes on-pitch-chip-in {
+    from {
+      opacity: 0;
+      transform: translateY(2px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .on-pitch-empty {
+    color: var(--muted);
+    font-size: var(--text-sm, 0.875rem);
+    font-style: italic;
+    /* Aligns roughly where the kpi-value would have been, so swapping
+       between the empty state and the chip cloud doesn't reflow the row. */
+    padding: var(--space-1) 0;
+  }
+
   /* Reuse the same tone system on form-section, checkbox-card, mini-card. */
   .form-section[data-tone],
   .mini-card[data-tone] {

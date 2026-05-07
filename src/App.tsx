@@ -866,6 +866,23 @@ async function loadAdminData(): Promise<AdminData> {
   }
 }
 
+// Lightweight attendance refresh — used by the "On the Pitch" live roster
+// card on the Overview dashboard to pick up parent scans without a full
+// admin-data round-trip. Falls back silently to the existing dataset on any
+// error so a flaky network doesn't blank the card mid-session.
+async function loadAttendance(): Promise<AttendanceRecord[] | null> {
+  if (!apiAvailable) return null;
+  try {
+    const response = await fetch(apiPath("/attendance"));
+    if (!response.ok) return null;
+    const body = (await response.json()) as { attendance?: AttendanceRecord[]; warning?: string };
+    if (Array.isArray(body.attendance) && !body.warning) return body.attendance;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 // Coach-side player mutations. Each call hits PATCH /api/players with a small
 // action verb. The endpoint always returns the freshly normalised player so
 // the UI can splice it back into state without reloading the whole dataset.
@@ -1676,14 +1693,199 @@ function KpiCard({
   );
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+// OnPitchCard (Phase A3)
+//
+// Replaces the static "Not recorded" KPI on the Overview dashboard with a
+// live roster of children currently checked in to an active session. The
+// card sits next to "Players · Squad Total" and:
+//   - Pulls attendance + sessions from the parent Overview component (which
+//     already loads them as part of the admin payload).
+//   - Identifies any session currently in arrival or departure phase via
+//     the same checkinPhase() helper used by the Sessions page.
+//   - Lists first names of players whose attendance row has an arrivalTime
+//     but no departureTime — i.e. they're physically on the pitch right now.
+//   - Disambiguates duplicate first names by appending the last initial
+//     ("Tom" → "Tom F." when there's also "Tom W.").
+//   - Polls /attendance every 30s while a session is active so names appear
+//     as parents scan in and disappear as they scan out, without forcing a
+//     full admin-data refresh.
+//
+// The polling is deliberately scoped: when no session is currently in a
+// check-in phase we don't poll at all, which keeps the dashboard quiet on
+// non-match days. We use a separate /attendance endpoint (not admin-data)
+// because attendance is the only thing that changes during the window.
+// ──────────────────────────────────────────────────────────────────────────────
+function OnPitchCard({
+  sessions,
+  attendance,
+  players,
+  onAttendanceUpdate,
+}: {
+  sessions: Session[];
+  attendance: AttendanceRecord[];
+  players: Player[];
+  onAttendanceUpdate?: (records: AttendanceRecord[]) => void;
+}) {
+  // Tick once a minute so the active-session detection re-evaluates as time
+  // crosses session boundaries (e.g. arrival window opens, departure window
+  // closes). Independent of the attendance poll so the two cadences don't
+  // need to share a clock.
+  const [, setMinuteTick] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setMinuteTick((n) => n + 1), 60_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  // Find the currently-active session. We pick the *first* session in a
+  // check-in phase — a coach running back-to-back sessions on different
+  // teams in a single day will get them shown one at a time as each phase
+  // window opens. (Two simultaneous overlapping sessions would be very
+  // unusual at a grassroots club and we'd revisit then.)
+  const activeSession = useMemo(() => {
+    const now = new Date();
+    return (
+      sessions.find((s) => checkinPhase(s, now) !== "none" && s.state !== "cancelled") || null
+    );
+  }, [sessions]);
+
+  // Build the list of players currently on the pitch. A player is "on the
+  // pitch" when their attendance row for the active session has an
+  // arrivalTime but no departureTime. The row's playerName is canonical
+  // (it's what was written when the scan happened); we only fall back to
+  // the players[] lookup if it's missing.
+  const onPitch = useMemo(() => {
+    if (!activeSession) return [] as Array<{ id: string; name: string }>;
+    const rows = attendance.filter(
+      (row) =>
+        row.sessionId === activeSession.id &&
+        !!row.arrivalTime &&
+        !row.departureTime,
+    );
+    return rows.map((row) => ({
+      id: row.playerId || row.id,
+      name:
+        (row.playerName || "").trim() ||
+        players.find((p) => p.id === row.playerId)?.name?.trim() ||
+        "Unknown player",
+    }));
+  }, [activeSession, attendance, players]);
+
+  // First name + last initial, with disambiguation only when needed. We
+  // count first-name occurrences within this on-pitch list — a Tom on the
+  // pitch alongside a Tom on the bench (not checked in) doesn't trigger
+  // disambiguation, since only the first Tom is shown.
+  const displayNames = useMemo(() => {
+    const firstNameCounts = new Map<string, number>();
+    for (const p of onPitch) {
+      const first = (p.name.split(/\s+/)[0] || p.name).toLowerCase();
+      firstNameCounts.set(first, (firstNameCounts.get(first) || 0) + 1);
+    }
+    return onPitch.map((p) => {
+      const parts = p.name.split(/\s+/).filter(Boolean);
+      const first = parts[0] || p.name;
+      const last = parts.slice(1).join(" ");
+      const dupes = (firstNameCounts.get(first.toLowerCase()) || 0) > 1;
+      if (dupes && last) {
+        const initial = last.charAt(0).toUpperCase();
+        return { id: p.id, label: `${first} ${initial}.` };
+      }
+      return { id: p.id, label: first };
+    });
+  }, [onPitch]);
+
+  // Poll attendance every 30s while a session is active so names appear and
+  // disappear in near real-time. Skipped entirely when there's no active
+  // session, which is the common case on a non-match-day.
+  useEffect(() => {
+    if (!activeSession || !onAttendanceUpdate) return;
+    let cancelled = false;
+    const tick = async () => {
+      const fresh = await loadAttendance();
+      if (cancelled || !fresh) return;
+      onAttendanceUpdate(fresh);
+    };
+    // Don't fire immediately on mount — the parent already loaded attendance
+    // as part of the admin payload, and an immediate re-fetch would burn an
+    // unnecessary call. The first poll lands 30s after mount.
+    const id = window.setInterval(tick, 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [activeSession, onAttendanceUpdate]);
+
+  // Determine the card's visual state:
+  //   no active session    → muted "No active session" placeholder
+  //   active, nobody yet   → "Waiting for first check-in…"
+  //   active, names list   → chips, count in the corner
+  const hasActive = !!activeSession;
+  const sessionLabel = activeSession
+    ? activeSession.team || activeSession.name || activeSession.ageGroup || "Active session"
+    : "";
+
+  return (
+    <article
+      className="kpi-card on-pitch-card"
+      data-tone={hasActive ? "success" : "neutral"}
+      data-testid="card-kpi-on-the-pitch"
+      aria-live="polite"
+    >
+      <div className="kpi-label">
+        <span>On the Pitch</span>
+        <Users size={16} aria-hidden="true" />
+      </div>
+      {!hasActive ? (
+        <>
+          <div className="on-pitch-empty" data-testid="text-on-pitch-empty">
+            No active session
+          </div>
+          <div className="kpi-foot">Names appear here as parents scan in</div>
+        </>
+      ) : displayNames.length === 0 ? (
+        <>
+          <div className="on-pitch-empty" data-testid="text-on-pitch-waiting">
+            Waiting for first check-in…
+          </div>
+          <div className="kpi-foot">{sessionLabel}</div>
+        </>
+      ) : (
+        <>
+          <div
+            className="on-pitch-list"
+            role="list"
+            data-testid="list-on-pitch"
+          >
+            {displayNames.map((p) => (
+              <span
+                key={p.id}
+                role="listitem"
+                className="on-pitch-chip"
+                data-testid={`chip-on-pitch-${p.id}`}
+              >
+                {p.label}
+              </span>
+            ))}
+          </div>
+          <div className="kpi-foot">
+            {displayNames.length} on pitch · {sessionLabel}
+          </div>
+        </>
+      )}
+    </article>
+  );
+}
+
 function Overview({
   data,
   onJumpToPlayers,
   onPlayerUpdate,
+  onAttendanceUpdate,
 }: {
   data: AdminData;
   onJumpToPlayers?: () => void;
   onPlayerUpdate?: (player: Player) => void;
+  onAttendanceUpdate?: (records: AttendanceRecord[]) => void;
 }) {
   // Active roster excludes players the coach has already marked as Left so
   // KPIs reflect the current squad. The Action needed card below still uses
@@ -1692,6 +1894,10 @@ function Overview({
   const players = data.players.filter((player) => player.status !== "Left");
   const fullConsent = players.filter((player) => player.consentStatus === "green").length;
   const limited = players.filter((player) => player.consentStatus === "amber").length;
+  // notRecorded was previously the value of the "Not recorded" KPI card, which
+  // has been replaced by the live OnPitchCard in Phase A3. We still compute it
+  // here because the Action needed card downstream uses it to decide whether
+  // the coach has any consent forms outstanding.
   const notRecorded = players.filter((player) => player.consentStatus === "grey").length;
   const withdrawn = players.filter((player) => player.consentStatus === "red").length;
   const needsAction = notRecorded + withdrawn;
@@ -1754,9 +1960,20 @@ function Overview({
     <>
       <section className="kpi-grid" aria-label="Player KPIs">
         <KpiCard label="Players" value={players.length} foot="Squad total" icon={Users} tone="neutral" />
+        {/* Phase A3: live roster of children currently checked in to an
+            active session. Sits next to "Players · Squad total" — same grid,
+            same chrome, but renders names instead of a single number. The
+            old "Not recorded" KPI is intentionally removed; that information
+            is already surfaced via the consent form workflow, and the slot
+            is more useful as a real-time pitchside readout. */}
+        <OnPitchCard
+          sessions={data.sessions}
+          attendance={data.attendance}
+          players={data.players}
+          onAttendanceUpdate={onAttendanceUpdate}
+        />
         <KpiCard label="Full consent" value={fullConsent} foot="Photo, video and review ready" icon={CheckCircle2} tone="success" />
         <KpiCard label="Limited consent" value={limited} foot="Internal-only or channel limits" icon={AlertTriangle} tone="warning" />
-        <KpiCard label="Not recorded" value={notRecorded} foot="Awaiting parent form" icon={ClipboardCheck} tone="attention" />
         <KpiCard label="Withdrawn" value={withdrawn} foot="Media usage blocked" icon={X} tone="danger" />
       </section>
 
@@ -6403,6 +6620,18 @@ function CoachDashboard() {
     });
   }
 
+  // Splice a fresh attendance dataset back into state. Used by the "On the
+  // Pitch" live roster card to pick up parent scans without re-fetching the
+  // entire admin payload. We replace the whole array because the upstream
+  // /attendance endpoint always returns the full normalised list — partial
+  // merges would let stale rows linger after a server-side delete.
+  function applyAttendanceUpdate(records: AttendanceRecord[]) {
+    setData((prev) => {
+      if (!prev) return prev;
+      return { ...prev, attendance: records };
+    });
+  }
+
   // Add a freshly-created session to the dataset so it shows up in the table
   // immediately. Sort isn't preserved here — the Sessions component sorts by
   // date inside its render.
@@ -6466,6 +6695,7 @@ function CoachDashboard() {
               data={data}
               onJumpToPlayers={() => setActiveView("players")}
               onPlayerUpdate={applyPlayerUpdate}
+              onAttendanceUpdate={applyAttendanceUpdate}
             />
           )}
           {activeView === "players" && (
