@@ -17,6 +17,7 @@ import {
   Lock,
   LogOut,
   MapPin,
+  Maximize2,
   Menu,
   Moon,
   Pencil,
@@ -2432,6 +2433,192 @@ function PlayerList({
   );
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+// SessionQrDialog (Phase A2)
+//
+// Pitchside fullscreen QR view. The coach taps "Show QR" on a session row, the
+// dialog renders a large, high-contrast QR encoding the parent scan deep-link
+// (https://<host>/scan?t=<token>). Beneath the QR we show the coach-readable
+// fallback code so a parent whose phone camera is uncooperative can still be
+// checked in/out by reading it aloud.
+//
+// Implementation notes:
+// - We dynamically import the `qrcode` library so it doesn't sit in the main
+//   bundle (~25 KB minified). It only loads the first time a coach opens the
+//   QR view, which is fine for a once-a-session action.
+// - The QR is rendered onto a hidden canvas at 1024×1024 logical pixels and
+//   then scaled with CSS to whatever physical size fits the viewport. That
+//   keeps it crisp on Retina/4K displays without us having to track DPR.
+// - We deliberately don't refresh the QR on each render — the token is per
+//   session and lives for the session's life, so a coach can leave the dialog
+//   open on a propped-up phone for the entire arrival window.
+// - The dialog closes on backdrop click, Escape key, or the "Done" button.
+// ──────────────────────────────────────────────────────────────────────────────
+function SessionQrDialog({
+  session,
+  onClose,
+}: {
+  session: Session;
+  onClose: () => void;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // Compute the deep-link the QR should encode. Order of preference:
+  // 1. Whatever the server back-fill wrote into the session (canonical, lives
+  //    in Airtable's QR Code URL field — but we don't expose that in the
+  //    Session type yet, so we rebuild it client-side from the token).
+  // 2. Fallback: build it from the token + current host so demo mode and
+  //    locally-running dev still produce a scannable QR.
+  // If no token is present we render an error state directly from this value.
+  const scanUrl = useMemo(() => {
+    const token = (session.scanToken || "").trim();
+    if (!token) return "";
+    const host =
+      typeof window !== "undefined" && window.location?.origin
+        ? window.location.origin
+        : "https://grass2pro-coach-admin-staging.netlify.app";
+    return `${host.replace(/\/$/, "")}/scan?t=${encodeURIComponent(token)}`;
+  }, [session.scanToken]);
+
+  // Initial render state derives synchronously from the URL so we never call
+  // setState inside the effect's body before the first await (which would
+  // trigger react-hooks/set-state-in-effect). The effect below only ever
+  // setState's *after* an await boundary or in error/cancellation paths.
+  const [renderState, setRenderState] = useState<"idle" | "rendering" | "ready" | "error">(() =>
+    scanUrl ? "rendering" : "error",
+  );
+  const [errorMessage, setErrorMessage] = useState<string>(() =>
+    scanUrl
+      ? ""
+      : "This session doesn't have a scan token yet — refresh the dashboard to back-fill it.",
+  );
+
+  // Render the QR once, after mount, with a dynamic import of the qrcode lib.
+  // We use a `cancelled` flag so a fast unmount/remount during the dynamic
+  // import doesn't paint a stale QR onto the new canvas.
+  useEffect(() => {
+    if (!scanUrl) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const QRCode = (await import("qrcode")).default;
+        if (cancelled) return;
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        await QRCode.toCanvas(canvas, scanUrl, {
+          width: 1024,
+          margin: 2,
+          // High error correction means the QR is still readable even if the
+          // pitchside phone screen is smudged or partly obscured by a coach's
+          // thumb. The trade-off is denser modules — fine at 1024px logical.
+          errorCorrectionLevel: "H",
+          color: { dark: "#0f1719", light: "#ffffff" },
+        });
+        if (!cancelled) setRenderState("ready");
+      } catch (err) {
+        if (cancelled) return;
+        console.error("QR render failed:", err);
+        setRenderState("error");
+        setErrorMessage("Unable to render the QR. Please close and try again.");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [scanUrl]);
+
+  // Escape closes the dialog — matches the existing modal convention.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="qr-fullscreen-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Pitchside QR for ${session.name}`}
+      onClick={(e) => {
+        // Backdrop-click closes — but only when the click landed on the
+        // backdrop itself, not on a child element that bubbled up.
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="qr-fullscreen-card">
+        <div className="qr-fullscreen-header">
+          <div>
+            <div className="page-kicker">Parent scan</div>
+            <h2 className="qr-fullscreen-title">{session.name}</h2>
+            <div className="qr-fullscreen-meta">
+              {session.coach}
+              {session.team ? ` · ${session.team}` : ""}
+              {session.location ? ` · ${session.location}` : ""}
+            </div>
+            <div className="qr-fullscreen-meta">
+              {formatDate(session.date)} · {session.startTime}–{session.endTime}
+            </div>
+          </div>
+          <button
+            type="button"
+            className="icon-button"
+            onClick={onClose}
+            aria-label="Close QR view"
+            data-testid="button-qr-fullscreen-close"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="qr-fullscreen-body">
+          {renderState === "error" ? (
+            <div className="qr-fullscreen-error" role="alert">
+              {errorMessage || "Unable to display QR."}
+            </div>
+          ) : (
+            <>
+              <div className="qr-fullscreen-canvas-wrap">
+                <canvas
+                  ref={canvasRef}
+                  className="qr-fullscreen-canvas"
+                  data-testid="canvas-qr-fullscreen"
+                  aria-label={`QR code linking to ${scanUrl}`}
+                />
+                {renderState !== "ready" && (
+                  <div className="qr-fullscreen-pending">Generating QR…</div>
+                )}
+              </div>
+              <div className="qr-fullscreen-instructions">
+                Parents scan this code to check their child in or out.
+              </div>
+              {session.qrFallbackCode ? (
+                <div className="qr-fullscreen-fallback">
+                  <span className="qr-fullscreen-fallback-label">Fallback code</span>
+                  <span className="qr-fullscreen-fallback-code">{session.qrFallbackCode}</span>
+                </div>
+              ) : null}
+            </>
+          )}
+        </div>
+
+        <div className="qr-fullscreen-footer">
+          <button
+            type="button"
+            className="primary-button"
+            onClick={onClose}
+            data-testid="button-qr-fullscreen-done"
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function QrCheckinDialog({
   session,
   players,
@@ -3497,6 +3684,9 @@ function Sessions({
   } | null>(null);
   const [cancelTarget, setCancelTarget] = useState<Session | null>(null);
   const [rescheduleTarget, setRescheduleTarget] = useState<Session | null>(null);
+  // Pitchside fullscreen QR (Phase A2). Holds the session whose parent-scan QR
+  // is currently being shown on the coach's phone screen. null = no QR open.
+  const [qrSession, setQrSession] = useState<Session | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   // Editable row — click anywhere on the session name cell opens this modal.
   const [editTarget, setEditTarget] = useState<Session | null>(null);
@@ -3776,6 +3966,29 @@ function Sessions({
                               <span>Departure check-in</span>
                             </button>
                           )}
+                          {/* "Show QR" — pitchside fullscreen QR for parents.
+                              Available during the arrival or departure window
+                              (phaseOf returns 'arrival' or 'departure') so the
+                              coach can prop their phone on the bag and let
+                              parents scan in/out themselves. We hide it when
+                              there's no scan token yet (e.g. a brand-new
+                              session that hasn't had its lazy back-fill
+                              persisted, or demo rows without a token), since
+                              the QR would render an error state. */}
+                          {(phaseOf(session) === "arrival" ||
+                            phaseOf(session) === "departure") &&
+                            session.scanToken ? (
+                            <button
+                              type="button"
+                              className="qr-show-button"
+                              onClick={() => setQrSession(session)}
+                              data-testid={`button-show-qr-${session.id}`}
+                              aria-label={`Show parent scan QR for ${session.name}`}
+                            >
+                              <Maximize2 size={16} aria-hidden="true" />
+                              <span>Show QR</span>
+                            </button>
+                          ) : null}
                           {/* Cancel only makes sense before the session has
                               officially ended — once we're in the departure
                               window the session has already happened, so we
@@ -3831,6 +4044,12 @@ function Sessions({
           initialScanType={checkinSession.initialScanType}
           players={players}
           onClose={() => setCheckinSession(null)}
+        />
+      )}
+      {qrSession && (
+        <SessionQrDialog
+          session={qrSession}
+          onClose={() => setQrSession(null)}
         />
       )}
       {cancelTarget && (
