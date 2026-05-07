@@ -4477,16 +4477,80 @@ function Sessions({
   );
 }
 
+function AttendanceRow({ record, session }: { record: AttendanceRecord; session: Session | undefined }) {
+  return (
+    <tr key={record.id} data-testid={`row-attendance-${record.id}`}>
+      <td>
+        <div className="player-cell">
+          <span className="player-avatar">{initials(record.playerName)}</span>
+          <span>
+            <span className="player-name">{record.playerName}</span>
+            <span className="player-sub">{session?.ageGroup ?? ""} {session?.team ? `· ${session.team}` : ""}</span>
+          </span>
+        </div>
+      </td>
+      <td>
+        <strong>{session?.name ?? "Unknown session"}</strong>
+        <div className="player-sub">
+          {session ? `${formatShortDate(session.date)} · ${session.startTime}` : ""}
+        </div>
+      </td>
+      <td>
+        <AttendanceBadge status={record.status} />
+      </td>
+      <td>{record.arrivalTime || "—"}</td>
+      <td>
+        <span className={`status-pill ${record.parentNotified ? "notify-yes" : "notify-no"}`}>
+          {record.parentNotified ? "Notified" : "Pending"}
+        </span>
+      </td>
+      <td>
+        <span className="notes-cell">{record.coachNotes || "—"}</span>
+      </td>
+    </tr>
+  );
+}
+
 function Attendance({ attendance, sessions }: { attendance: AttendanceRecord[]; sessions: Session[] }) {
+  // Two sub-tabs: "Live" (default) shows only attendance for sessions still
+  // inside their live window (Start ≤ now ≤ End + 30 min grace). "History"
+  // is everything else, with the legacy session dropdown + status chips for
+  // retrospective filtering.
+  const [tab, setTab] = useState<"live" | "history">("live");
   const [filter, setFilter] = useState<"all" | AttendanceStatus>("all");
-  // Default to "today" so coaches landing on the tab don't see months of
-  // history. They can switch to a specific session or All sessions via the
-  // dropdown.
   const [sessionId, setSessionId] = useState<string>("today");
+
+  // minuteTick re-renders the Live tab as time crosses session boundaries,
+  // so a session naturally falls off the Live view when its grace window ends.
+  const [minuteTick, setMinuteTick] = useState(0);
+  useEffect(() => {
+    const interval = window.setInterval(() => setMinuteTick((tick) => tick + 1), 30000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   const sessionLookup = useMemo(() => Object.fromEntries(sessions.map((s) => [s.id, s])), [sessions]);
 
-  const filtered = useMemo(() => {
+  // Live sessions: anything where checkinPhase != "none" and not cancelled.
+  // Mirrors OnPitchCard's activeSession logic so the two views stay in sync.
+  const liveSessionIds = useMemo(() => {
+    const now = new Date();
+    return new Set(
+      sessions
+        .filter((s) => s.state !== "cancelled" && checkinPhase(s, now) !== "none")
+        .map((s) => s.id),
+    );
+    // minuteTick drives re-evaluation as time advances; ESLint can't see the
+    // wall-clock read inside, so silence exhaustive-deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessions, minuteTick]);
+
+  // Live attendance rows: filter to sessions still in the live window.
+  const liveRecords = useMemo(() => {
+    return attendance.filter((record) => liveSessionIds.has(record.sessionId));
+  }, [attendance, liveSessionIds]);
+
+  // History rows use the existing session dropdown + status chips.
+  const historyRecords = useMemo(() => {
     const today = todayIsoDate();
     return attendance.filter((record) => {
       const matchesStatus = filter === "all" || record.status === filter;
@@ -4517,6 +4581,22 @@ function Attendance({ attendance, sessions }: { attendance: AttendanceRecord[]; 
     ? Math.round(((counts.present + counts.late) / attendance.length) * 100)
     : 0;
 
+  // Group live records by session so each ongoing session reads as its own
+  // block. Coaches running back-to-back sessions can scan to the right block
+  // without sorting through one combined list.
+  const liveGrouped = useMemo(() => {
+    const groups = new Map<string, AttendanceRecord[]>();
+    for (const record of liveRecords) {
+      const list = groups.get(record.sessionId) || [];
+      list.push(record);
+      groups.set(record.sessionId, list);
+    }
+    return Array.from(groups.entries()).map(([id, rows]) => ({
+      session: sessionLookup[id],
+      rows,
+    }));
+  }, [liveRecords, sessionLookup]);
+
   return (
     <>
       <section className="kpi-grid" aria-label="Attendance KPIs">
@@ -4530,96 +4610,134 @@ function Attendance({ attendance, sessions }: { attendance: AttendanceRecord[]; 
           <div>
             <div className="page-kicker">Attendance</div>
             <h2 id="attendance-title" className="page-title">
-              Session attendance log
+              {tab === "live" ? "Live attendance" : "Attendance history"}
             </h2>
           </div>
-          <label className="search-field select-field">
-            <span className="sr-only">Filter by session</span>
-            <select
-              data-testid="select-attendance-session"
-              value={sessionId}
-              onChange={(event) => setSessionId(event.target.value)}
-            >
-              <option value="today">Today</option>
-              <option value="all">All sessions</option>
-              {sessions.map((session) => (
-                <option key={session.id} value={session.id}>
-                  {formatShortDate(session.date)} · {session.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-        <div className="filter-row" aria-label="Attendance status filters">
-          {(["all", "present", "late", "absent", "injured", "excused"] as const).map((status) => (
+          <div className="attendance-tab-row" role="tablist" aria-label="Attendance view">
             <button
-              key={status}
               type="button"
-              className={`filter-button ${filter === status ? "active" : ""}`}
-              onClick={() => setFilter(status)}
-              data-testid={`button-attendance-filter-${status}`}
+              role="tab"
+              aria-selected={tab === "live"}
+              className={`filter-button ${tab === "live" ? "active" : ""}`}
+              onClick={() => setTab("live")}
+              data-testid="button-attendance-tab-live"
             >
-              {status === "all" ? "All" : status}
+              Live
             </button>
-          ))}
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === "history"}
+              className={`filter-button ${tab === "history" ? "active" : ""}`}
+              onClick={() => setTab("history")}
+              data-testid="button-attendance-tab-history"
+            >
+              History
+            </button>
+          </div>
         </div>
-        {filtered.length === 0 ? (
-          <div className="empty-state">
-            <ClipboardList size={32} aria-hidden="true" />
-            <h3>No matching attendance records</h3>
-            <p>Try a different session or status filter. Demo data includes a mix of present, late, absent, injured and excused.</p>
-          </div>
+        {tab === "live" ? (
+          liveGrouped.length === 0 ? (
+            <div className="empty-state">
+              <ClipboardList size={32} aria-hidden="true" />
+              <h3>No ongoing session</h3>
+              <p>Names appear here as parents scan in. Switch to History to review past sessions.</p>
+            </div>
+          ) : (
+            <div className="live-attendance-stack">
+              {liveGrouped.map(({ session, rows }) => (
+                <div key={session?.id || "unknown"} className="live-attendance-group">
+                  <header className="live-attendance-group-header">
+                    <strong>{session?.name ?? "Unknown session"}</strong>
+                    <span className="player-sub">
+                      {session ? `${formatShortDate(session.date)} · ${session.startTime}–${session.endTime}` : ""}
+                      {session?.team ? ` · ${session.team}` : ""}
+                    </span>
+                  </header>
+                  <div className="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Player</th>
+                          <th>Session</th>
+                          <th>Status</th>
+                          <th>Arrival</th>
+                          <th>Parent notified</th>
+                          <th>Coach notes</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((record) => (
+                          <AttendanceRow key={record.id} record={record} session={session} />
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )
         ) : (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Player</th>
-                  <th>Session</th>
-                  <th>Status</th>
-                  <th>Arrival</th>
-                  <th>Parent notified</th>
-                  <th>Coach notes</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((record) => {
-                  const session = sessionLookup[record.sessionId];
-                  return (
-                    <tr key={record.id} data-testid={`row-attendance-${record.id}`}>
-                      <td>
-                        <div className="player-cell">
-                          <span className="player-avatar">{initials(record.playerName)}</span>
-                          <span>
-                            <span className="player-name">{record.playerName}</span>
-                            <span className="player-sub">{session?.ageGroup ?? ""} {session?.team ? `· ${session.team}` : ""}</span>
-                          </span>
-                        </div>
-                      </td>
-                      <td>
-                        <strong>{session?.name ?? "Unknown session"}</strong>
-                        <div className="player-sub">
-                          {session ? `${formatShortDate(session.date)} · ${session.startTime}` : ""}
-                        </div>
-                      </td>
-                      <td>
-                        <AttendanceBadge status={record.status} />
-                      </td>
-                      <td>{record.arrivalTime || "—"}</td>
-                      <td>
-                        <span className={`status-pill ${record.parentNotified ? "notify-yes" : "notify-no"}`}>
-                          {record.parentNotified ? "Notified" : "Pending"}
-                        </span>
-                      </td>
-                      <td>
-                        <span className="notes-cell">{record.coachNotes || "—"}</span>
-                      </td>
+          <>
+            <div className="toolbar toolbar-secondary">
+              <label className="search-field select-field">
+                <span className="sr-only">Filter by session</span>
+                <select
+                  data-testid="select-attendance-session"
+                  value={sessionId}
+                  onChange={(event) => setSessionId(event.target.value)}
+                >
+                  <option value="today">Today</option>
+                  <option value="all">All sessions</option>
+                  {sessions.map((session) => (
+                    <option key={session.id} value={session.id}>
+                      {formatShortDate(session.date)} · {session.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="filter-row" aria-label="Attendance status filters">
+              {(["all", "present", "late", "absent", "injured", "excused"] as const).map((status) => (
+                <button
+                  key={status}
+                  type="button"
+                  className={`filter-button ${filter === status ? "active" : ""}`}
+                  onClick={() => setFilter(status)}
+                  data-testid={`button-attendance-filter-${status}`}
+                >
+                  {status === "all" ? "All" : status}
+                </button>
+              ))}
+            </div>
+            {historyRecords.length === 0 ? (
+              <div className="empty-state">
+                <ClipboardList size={32} aria-hidden="true" />
+                <h3>No matching attendance records</h3>
+                <p>Try a different session or status filter.</p>
+              </div>
+            ) : (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Player</th>
+                      <th>Session</th>
+                      <th>Status</th>
+                      <th>Arrival</th>
+                      <th>Parent notified</th>
+                      <th>Coach notes</th>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                  </thead>
+                  <tbody>
+                    {historyRecords.map((record) => (
+                      <AttendanceRow key={record.id} record={record} session={sessionLookup[record.sessionId]} />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
         )}
       </section>
     </>

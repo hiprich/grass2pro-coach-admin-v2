@@ -1133,6 +1133,48 @@
     overflow-x: auto;
   }
 
+  /* Attendance Live/History tab row sits in the toolbar slot where the */
+  /* session dropdown used to live. Two pill-style buttons reusing the */
+  /* existing .filter-button look so the chrome reads as a single family. */
+  .attendance-tab-row {
+    display: inline-flex;
+    gap: var(--space-1);
+  }
+
+  /* Secondary toolbar inside the History tab body — holds the session */
+  /* dropdown beneath the main toolbar. Lighter padding than the main one. */
+  .toolbar-secondary {
+    padding-top: var(--space-2);
+    padding-bottom: 0;
+    border-top: 0;
+    justify-content: flex-end;
+  }
+
+  /* Each ongoing session in the Live tab renders as its own block, with */
+  /* a small header that names the session + date/time/team. Stacked */
+  /* vertically with breathing room between groups. */
+  .live-attendance-stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+  .live-attendance-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+  .live-attendance-group-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3) 0;
+  }
+  .live-attendance-group-header strong {
+    font-size: 1.05rem;
+    color: var(--text-strong, #fff);
+  }
+
   /* Mobile-only stacked card layout. Hidden by default; the @media block at
      the bottom of this file flips visibility at the 760px breakpoint so the
      desktop <table> and the mobile <ul> never both render at the same time. */
