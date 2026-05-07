@@ -209,7 +209,7 @@ The Cloudflare Worker and the Netlify Functions both expose the same API surface
   "parentId": "recParent",
   "scanType": "Arrival",
   "confirmationResult": "Confirmed",
-  "method": "QR",
+  "method": "QR Code",
   "scanTime": "2026-05-02T17:25:00.000Z",
   "notes": "",
   "forceConfirm": false

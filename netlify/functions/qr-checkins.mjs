@@ -135,7 +135,7 @@ export const handler = async (event) => {
     Session: [sessionId],
     Player: [playerId],
     "Scan Type": scanType,
-    Method: method || "QR",
+    Method: method === "Fallback Code" ? "Fallback Code" : "QR Code",
     "Confirmation Result": "Confirmed",
   };
   if (parentId) fields["Parent/Guardian"] = [parentId];

@@ -981,7 +981,7 @@ async function submitQrCheckin(payload: {
   const body = JSON.stringify({
     ...payload,
     confirmationResult: "Confirmed",
-    method: "QR",
+    method: "QR Code",
   });
 
   if (!apiAvailable) {

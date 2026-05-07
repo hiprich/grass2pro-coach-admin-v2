@@ -686,7 +686,7 @@ async function createQrCheckin(request, env) {
     Session: [sessionId],
     Player: [playerId],
     "Scan Type": scanType,
-    Method: method || "QR",
+    Method: method || "QR Code",
     "Confirmation Result": "Confirmed",
   };
   if (parentId) fields["Parent/Guardian"] = [parentId];
