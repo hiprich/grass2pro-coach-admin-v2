@@ -200,6 +200,9 @@ export type PushSubscriptionPrefs = {
   oneHourReminder: boolean;
   checkInOpen: boolean;
   pickupSoon: boolean;
+  // Default-on. Drives the no-show check-in nudge that fires at end+30
+  // when the parent RSVP'd "Coming" and the child wasn't scanned in.
+  noShowCheckIn: boolean;
 };
 
 export type PushSubscriptionRow = {

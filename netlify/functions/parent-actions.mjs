@@ -19,12 +19,21 @@
 //     { playerId, action: "request-erasure" }
 //       Parent self-service erasure request. Flags Erasure Requested with
 //       a timestamp; the actual record deletion remains a coach decision.
+//     { playerId, action: "set-rsvp", sessionId, value }
+//       Parent declares whether the player is coming to a specific upcoming
+//       session. `value` is one of "Coming" | "Not Coming" | "Maybe" | ""
+//       (empty string clears the RSVP). Upserts an Attendance row keyed on
+//       (Session, Player). "Coming" is what the no-show fan-out keys on, so
+//       this endpoint is the single source of truth for that signal.
 import {
   TABLE_IDS,
+  airtableCreate,
   airtableList,
   airtableUpdate,
+  findAttendance,
   hasAirtableConfig,
   json,
+  normaliseAttendance,
   normalisePlayer,
   tableName,
 } from "./_airtable.mjs";
@@ -99,6 +108,12 @@ const ALLOWED_LEAVE_REASONS = new Set([
   "Parent Request",
   "Other",
 ]);
+
+// Mirror the singleSelect choice list on Attendance.RSVP Status. Empty
+// string is allowed and means "clear my RSVP" — we map it to null on the
+// Airtable write so the cell goes back to blank rather than holding a
+// literal empty-string option.
+const ALLOWED_RSVP_VALUES = new Set(["Coming", "Not Coming", "Maybe", ""]);
 
 function nowIso() {
   return new Date().toISOString();
@@ -187,6 +202,69 @@ async function handleRequestErasure({ playerId, parentEmail }) {
   return json(200, { player: normalisePlayer(updated) });
 }
 
+// Upsert an Attendance row carrying the parent's RSVP for a specific
+// upcoming session. The no-show fan-out scans Attendance for
+// `RSVP Status = "Coming"` AND no Arrival Time at end+30, so this
+// endpoint is what arms that signal.
+//
+// Ownership is verified via loadOwnedPlayer (same pattern as the other
+// handlers). We deliberately don't validate that the session itself
+// belongs to the club — every Attendance write is keyed on a real Session
+// record id, and an unknown id will simply produce an Attendance row that
+// no UI ever surfaces. Adding a session lookup here would double the
+// Airtable cost of every RSVP for no security benefit.
+async function handleSetRsvp({ playerId, body, parentEmail }) {
+  const sessionId = String(body.sessionId || "").trim();
+  if (!sessionId) {
+    return json(400, { error: "sessionId is required." });
+  }
+  // body.value is allowed to be missing/null — treat that as a clear.
+  const rawValue = body.value == null ? "" : String(body.value).trim();
+  if (!ALLOWED_RSVP_VALUES.has(rawValue)) {
+    return json(400, { error: "Unsupported RSVP value." });
+  }
+
+  const owned = await loadOwnedPlayer({ playerId, parentEmail });
+  if (owned.error) return owned.error;
+
+  const attendanceTable = tableName(
+    "AIRTABLE_ATTENDANCE_TABLE",
+    "Attendance",
+    TABLE_IDS.ATTENDANCE,
+  );
+  // null clears the cell back to empty; "Coming"/"Not Coming"/"Maybe"
+  // map straight to the singleSelect option.
+  const writeValue = rawValue === "" ? null : rawValue;
+
+  const existing = await findAttendance(sessionId, playerId);
+  let updatedRecord;
+  if (existing) {
+    updatedRecord = await airtableUpdate(attendanceTable, existing.id, {
+      "RSVP Status": writeValue,
+    });
+  } else {
+    // No prior Attendance row. Skip the create when the parent is
+    // clearing — there's nothing to clear, so creating a blank row would
+    // just be noise.
+    if (writeValue === null) {
+      return json(200, {
+        attendance: {
+          sessionId,
+          playerId,
+          rsvpStatus: "",
+        },
+      });
+    }
+    updatedRecord = await airtableCreate(attendanceTable, {
+      Session: [sessionId],
+      Player: [playerId],
+      "RSVP Status": writeValue,
+    });
+  }
+
+  return json(200, { attendance: normaliseAttendance(updatedRecord) });
+}
+
 export const handler = async (event) => {
   const method = (event.httpMethod || "PATCH").toUpperCase();
   if (method !== "PATCH") {
@@ -218,6 +296,7 @@ export const handler = async (event) => {
     if (action === "set-pathway") return await handleSetPathway({ playerId, body, parentEmail });
     if (action === "request-leave") return await handleRequestLeave({ playerId, body, parentEmail });
     if (action === "request-erasure") return await handleRequestErasure({ playerId, parentEmail });
+    if (action === "set-rsvp") return await handleSetRsvp({ playerId, body, parentEmail });
     return json(400, { error: `Unknown action: ${action}` });
   } catch (error) {
     console.error("[parent-actions] Update failed:", error);

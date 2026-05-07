@@ -97,6 +97,12 @@ export const handler = async (event) => {
           oneHourReminder: Boolean(fields["Pref One Hour Reminder"]),
           checkInOpen: Boolean(fields["Pref Check In Open"]),
           pickupSoon: Boolean(fields["Pref Pickup Soon"]),
+          // Default-on read so legacy rows that pre-date the field still
+          // surface this pref as enabled in the SPA.
+          noShowCheckIn:
+            fields["Pref No Show Check-In"] === undefined
+              ? true
+              : Boolean(fields["Pref No Show Check-In"]),
         },
         endpointHash: hashEndpoint(fields.Endpoint),
         createdAt: fields["Created At"] || null,

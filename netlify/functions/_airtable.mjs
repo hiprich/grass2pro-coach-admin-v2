@@ -618,6 +618,11 @@ export function normaliseAttendance(record) {
     confirmationStatus: stringValue(fields["Confirmation Status"], ""),
     paymentStatus: stringValue(fields["Payment Status at Check-in"], ""),
     attendanceRecordIdText: stringValue(fields["Attendance Record ID"], ""),
+    // Parent-set RSVP for the upcoming session. "Coming" gates the no-show
+    // check-in fan-out (see scheduled-push-fanout.mjs); blank means the
+    // parent has not declared yet. Surfaced here so the SPA can render the
+    // current selection on the parent portal session card.
+    rsvpStatus: stringValue(fields["RSVP Status"], ""),
   };
 }
 

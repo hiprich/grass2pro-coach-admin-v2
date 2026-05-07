@@ -139,6 +139,10 @@ type AttendanceRecord = {
   confirmationStatus?: string;
   paymentStatus?: string;
   attendanceRecordIdText?: string;
+  // Parent-set RSVP for the upcoming session. Drives the no-show fan-out
+  // server-side and the highlighted pill on the parent portal session card.
+  // "" means the parent has not declared yet.
+  rsvpStatus?: "" | "Coming" | "Not Coming" | "Maybe" | string;
 };
 
 type Payment = {
@@ -6026,6 +6030,63 @@ function ParentVerifyErrorScreen({ message, onRestart }: { message: string; onRe
   );
 }
 
+// RSVP pill choices on the upcoming-session cards. Order matches the
+// visual order on the card. "" is the implicit fourth state — no pill
+// highlighted means the parent hasn't declared yet, which is what the
+// no-show fan-out treats as silence (and therefore doesn't nag).
+const PARENT_RSVP_CHOICES: ReadonlyArray<{
+  value: "Coming" | "Not Coming" | "Maybe";
+  label: string;
+  tone: "coming" | "not-coming" | "maybe";
+}> = [
+  { value: "Coming", label: "Coming", tone: "coming" },
+  { value: "Not Coming", label: "Not coming", tone: "not-coming" },
+  { value: "Maybe", label: "Maybe", tone: "maybe" },
+];
+
+// True for any session whose date string falls on the local current
+// calendar day. We compare on the YYYY-MM-DD prefix of the ISO date so
+// timezone offsets in the Airtable date string don't accidentally bump
+// the comparison off by a day.
+function isSessionToday(iso: string | undefined | null): boolean {
+  if (!iso) return false;
+  const ts = Date.parse(iso);
+  if (!Number.isFinite(ts)) return false;
+  const sessionDay = new Date(ts);
+  const today = new Date();
+  return (
+    sessionDay.getFullYear() === today.getFullYear() &&
+    sessionDay.getMonth() === today.getMonth() &&
+    sessionDay.getDate() === today.getDate()
+  );
+}
+
+// Returns sessions in the future (or undated, treated as live) where the
+// player is on the roster, soonest first. We deliberately don't show
+// past sessions in the RSVP list — those land in "Recent attendance"
+// below where the actual coach-recorded status takes precedence.
+function upcomingSessionsForPlayer(
+  sessions: Session[],
+  playerId: string,
+): Session[] {
+  // Roster filter: parent-data returns every recent club session, not just
+  // ones where this child is rostered. Honour `playerIds` when present so
+  // we don't ask a parent to RSVP to the wrong age group's training.
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  return sessions
+    .filter((session) => {
+      if (Array.isArray(session.playerIds) && session.playerIds.length > 0) {
+        if (!session.playerIds.includes(playerId)) return false;
+      }
+      if (!session.date) return true;
+      const ts = Date.parse(session.date);
+      if (!Number.isFinite(ts)) return true;
+      return ts >= startOfToday.getTime();
+    })
+    .sort((a, b) => Date.parse(a.date || "") - Date.parse(b.date || ""));
+}
+
 function ParentChildCard({
   player,
   attendance,
@@ -6034,6 +6095,7 @@ function ParentChildCard({
   onPathwayChange,
   onLeaveRequest,
   onErasureRequest,
+  onRsvp,
 }: {
   player: Player;
   attendance: AttendanceRecord[];
@@ -6042,14 +6104,39 @@ function ParentChildCard({
   onPathwayChange: (value: string) => Promise<void>;
   onLeaveRequest: (reason: string, notes: string) => Promise<void>;
   onErasureRequest: () => Promise<void>;
+  onRsvp: (
+    sessionId: string,
+    value: "Coming" | "Not Coming" | "Maybe" | "",
+  ) => Promise<void>;
 }) {
   const [manageOpen, setManageOpen] = useState(false);
   const [leaveReason, setLeaveReason] = useState("");
   const [leaveNotes, setLeaveNotes] = useState("");
   const [pendingKey, setPendingKey] = useState<string | null>(null);
+  // Per-session RSVP busy flag, keyed `${sessionId}:${value}` so we only
+  // disable the specific pill the parent just tapped — the other two
+  // pills on the same card stay tappable in case they meant to pick a
+  // different option.
+  const [rsvpPending, setRsvpPending] = useState<string | null>(null);
 
   const childAttendance = attendance.filter((row) => row.playerId === player.id);
   const sessionLookup = new Map(sessions.map((session) => [session.id, session]));
+  const attendanceBySession = new Map(
+    childAttendance.map((row) => [row.sessionId, row]),
+  );
+  const upcomingSessions = upcomingSessionsForPlayer(sessions, player.id);
+  // Checked-in strip surfaces when the child has been physically scanned
+  // in (Arrival Time present) on a session dated today. Coaches scan
+  // pitchside and parents want immediate confirmation that arrival
+  // landed — this strip removes the "did the QR work?" anxiety.
+  const checkedInToday = childAttendance.find((row) => {
+    if (!row.arrivalTime) return false;
+    const session = sessionLookup.get(row.sessionId);
+    return session ? isSessionToday(session.date) : false;
+  });
+  const checkedInSession = checkedInToday
+    ? sessionLookup.get(checkedInToday.sessionId)
+    : null;
 
   return (
     <article className="portal-child-card" data-testid={`card-portal-child-${player.id}`}>
@@ -6066,6 +6153,25 @@ function ParentChildCard({
           {player.status}
         </span>
       </header>
+
+      {checkedInToday && checkedInSession ? (
+        <div
+          className="portal-checkedin-strip"
+          role="status"
+          data-testid={`strip-portal-checkedin-${player.id}`}
+        >
+          <span className="portal-checkedin-dot" aria-hidden="true" />
+          <span className="portal-checkedin-text">
+            <strong>{player.name.split(" ")[0] || player.name}</strong>
+            {" is checked in for "}
+            {checkedInSession.name || "today's session"}
+            {checkedInToday.arrivalTime
+              ? ` at ${new Date(checkedInToday.arrivalTime).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`
+              : ""}
+            .
+          </span>
+        </div>
+      ) : null}
 
       <section className="portal-section">
         <h2 className="portal-section-title">Football pathway</h2>
@@ -6115,6 +6221,96 @@ function ParentChildCard({
             );
           })}
         </ul>
+      </section>
+
+      <section className="portal-section">
+        <h2 className="portal-section-title">Upcoming sessions</h2>
+        <p className="portal-section-help">
+          Let your coach know if {player.name.split(" ")[0] || player.name} is coming. We'll only chase you if you've said "Coming" and they don't show up.
+        </p>
+        {upcomingSessions.length === 0 ? (
+          <p className="portal-empty">No upcoming sessions scheduled.</p>
+        ) : (
+          <ul className="portal-upcoming-list">
+            {upcomingSessions.map((session) => {
+              const existing = attendanceBySession.get(session.id);
+              const current = existing?.rsvpStatus || "";
+              const dateLabel = session.date
+                ? new Date(session.date).toLocaleDateString("en-GB", {
+                    weekday: "short",
+                    day: "numeric",
+                    month: "short",
+                  })
+                : "Date TBC";
+              const timeLabel = session.startTime
+                ? `${session.startTime}${session.endTime ? `\u2013${session.endTime}` : ""}`
+                : "";
+              return (
+                <li
+                  key={session.id}
+                  className="portal-upcoming-item"
+                  data-testid={`item-portal-upcoming-${player.id}-${session.id}`}
+                >
+                  <div className="portal-upcoming-head">
+                    <div>
+                      <div className="portal-attendance-name">
+                        {session.name || "Session"}
+                      </div>
+                      <div className="portal-attendance-meta">
+                        {dateLabel}
+                        {timeLabel ? ` \u00b7 ${timeLabel}` : ""}
+                        {session.location ? ` \u00b7 ${session.location}` : ""}
+                      </div>
+                    </div>
+                  </div>
+                  <div
+                    className="portal-rsvp-row"
+                    role="radiogroup"
+                    aria-label={`RSVP for ${session.name || "this session"}`}
+                  >
+                    {PARENT_RSVP_CHOICES.map((choice) => {
+                      const isActive = current === choice.value;
+                      const pendingKeyName = `${session.id}:${choice.value}`;
+                      const isPending = rsvpPending === pendingKeyName;
+                      return (
+                        <button
+                          key={choice.value}
+                          type="button"
+                          role="radio"
+                          aria-checked={isActive}
+                          // Tooltip: explains *why* we're asking. The same
+                          // copy on every pill keeps the message simple
+                          // and reinforces the no-show contract — only
+                          // "Coming" RSVPs trigger the end+30 nudge.
+                          title="Helps your coach know who to expect. Only 'Coming' RSVPs trigger a check-in nudge if your child doesn't arrive."
+                          aria-label={`${choice.label} — helps your coach know who to expect.`}
+                          className={`portal-rsvp-pill portal-rsvp-pill-${choice.tone}${
+                            isActive ? " is-active" : ""
+                          }`}
+                          disabled={isPending}
+                          onClick={async () => {
+                            // Tap an active pill to clear it back to no
+                            // RSVP — mirrors how toggle chips usually feel.
+                            const next = isActive ? "" : choice.value;
+                            setRsvpPending(pendingKeyName);
+                            try {
+                              await onRsvp(session.id, next);
+                            } finally {
+                              setRsvpPending(null);
+                            }
+                          }}
+                          data-testid={`button-portal-rsvp-${choice.tone}-${player.id}-${session.id}`}
+                        >
+                          {choice.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </section>
 
       <section className="portal-section">
@@ -6324,6 +6520,11 @@ function PushPrefRow({
             key: "pickupSoon" as const,
             title: "Pickup soon",
             hint: "30 minutes before the session ends.",
+          },
+          {
+            key: "noShowCheckIn" as const,
+            title: "No-show check-in",
+            hint: "30 minutes after a session ends — only if you said 'Coming' and your child wasn't checked in.",
           },
         ].map((row) => (
           <label
@@ -6606,6 +6807,32 @@ function ParentNotificationsCard({ flash }: { flash: PushFlash }) {
   );
 }
 
+// localStorage key for the parent-portal onboarding hint card. Bumping the
+// suffix in future (e.g. ":v2") re-shows the card to existing parents when
+// the hint copy changes meaningfully.
+const PARENT_ONBOARDING_DISMISSED_KEY = "g2p:parent-portal-onboarding:v1";
+
+function readDismissedFlag(key: string): boolean {
+  if (typeof window === "undefined") return true; // SSR — don't render the hint.
+  try {
+    return window.localStorage.getItem(key) === "1";
+  } catch {
+    // Private-mode Safari throws on localStorage access — hide the card
+    // rather than spam the parent on every refresh.
+    return true;
+  }
+}
+
+function writeDismissedFlag(key: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(key, "1");
+  } catch {
+    // Best-effort; if storage is blocked the card just re-appears on the
+    // next visit, which is acceptable.
+  }
+}
+
 function ParentOverviewScreen({
   summary,
   onRefresh,
@@ -6617,6 +6844,9 @@ function ParentOverviewScreen({
 }) {
   const [working, setWorking] = useState(false);
   const [message, setMessage] = useState<{ tone: "info" | "success" | "error"; text: string } | null>(null);
+  const [onboardingDismissed, setOnboardingDismissed] = useState<boolean>(() =>
+    readDismissedFlag(PARENT_ONBOARDING_DISMISSED_KEY),
+  );
 
   function flash(tone: "info" | "success" | "error", text: string) {
     setMessage({ tone, text });
@@ -6673,6 +6903,42 @@ function ParentOverviewScreen({
         </div>
       ) : null}
 
+      {!onboardingDismissed && summary.players.length > 0 ? (
+        <div
+          className="portal-onboarding-card"
+          role="region"
+          aria-label="Welcome tips"
+          data-testid="card-portal-onboarding"
+        >
+          <div className="portal-onboarding-body">
+            <h2 className="portal-onboarding-title">Welcome to your portal</h2>
+            <p className="portal-onboarding-help">
+              Two quick things make every session smoother:
+            </p>
+            <ul className="portal-onboarding-list">
+              <li>
+                Tap <strong>Coming</strong>, <strong>Not coming</strong> or <strong>Maybe</strong> on each upcoming session so your coach knows who to expect.
+              </li>
+              <li>
+                Turn on notifications below so we can ping you when check-in opens, when pickup is near, or if your child hasn't arrived.
+              </li>
+            </ul>
+          </div>
+          <button
+            type="button"
+            className="portal-onboarding-dismiss"
+            onClick={() => {
+              writeDismissedFlag(PARENT_ONBOARDING_DISMISSED_KEY);
+              setOnboardingDismissed(true);
+            }}
+            data-testid="button-portal-onboarding-dismiss"
+            aria-label="Dismiss welcome tips"
+          >
+            Got it
+          </button>
+        </div>
+      ) : null}
+
       {summary.players.length === 0 ? (
         <div className="portal-card portal-empty-card">
           <h2>No children linked yet</h2>
@@ -6692,6 +6958,7 @@ function ParentOverviewScreen({
               onPathwayChange={(value) => runAction({ playerId: player.id, action: "set-pathway", value })}
               onLeaveRequest={(reason, notes) => runAction({ playerId: player.id, action: "request-leave", reason, notes })}
               onErasureRequest={() => runAction({ playerId: player.id, action: "request-erasure" })}
+              onRsvp={(sessionId, value) => runAction({ playerId: player.id, action: "set-rsvp", sessionId, value })}
             />
           ))}
         </div>

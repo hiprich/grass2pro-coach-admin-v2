@@ -4,7 +4,7 @@
 // PATCH /.netlify/functions/parent-push-prefs
 //   Body: {
 //     subscriptionId: string,         // Airtable record id
-//     prefs?: { oneHourReminder?, checkInOpen?, pickupSoon? },
+//     prefs?: { oneHourReminder?, checkInOpen?, pickupSoon?, noShowCheckIn? },
 //     active?: boolean,               // master mute for this device
 //     deviceLabel?: string,           // rename device
 //   }
@@ -93,6 +93,9 @@ export const handler = async (event) => {
     if (typeof body.prefs.pickupSoon === "boolean") {
       fieldPatch["Pref Pickup Soon"] = body.prefs.pickupSoon;
     }
+    if (typeof body.prefs.noShowCheckIn === "boolean") {
+      fieldPatch["Pref No Show Check-In"] = body.prefs.noShowCheckIn;
+    }
   }
   if (typeof body.active === "boolean") {
     fieldPatch.Active = body.active;
@@ -133,6 +136,11 @@ export const handler = async (event) => {
           oneHourReminder: Boolean(fields["Pref One Hour Reminder"]),
           checkInOpen: Boolean(fields["Pref Check In Open"]),
           pickupSoon: Boolean(fields["Pref Pickup Soon"]),
+          // Default-on for legacy rows that pre-date this field.
+          noShowCheckIn:
+            fields["Pref No Show Check-In"] === undefined
+              ? true
+              : Boolean(fields["Pref No Show Check-In"]),
         },
       },
     });

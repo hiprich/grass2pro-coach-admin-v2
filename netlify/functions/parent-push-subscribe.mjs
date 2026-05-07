@@ -170,10 +170,13 @@ export const handler = async (event) => {
       "Auth Key": auth,
       "User Agent": userAgent,
       Active: true,
-      // Default all three prefs ON for new subscriptions, per the locked spec.
+      // Default all four prefs ON for new subscriptions, per the locked spec.
+      // No Show Check-In is opt-out: parents who RSVP "Coming" almost always
+      // want the nudge that catches forgotten drop-offs.
       "Pref One Hour Reminder": true,
       "Pref Check In Open": true,
       "Pref Pickup Soon": true,
+      "Pref No Show Check-In": true,
       "Created At": nowIso(),
       "Last Used At": nowIso(),
       "Failure Count": 0,
