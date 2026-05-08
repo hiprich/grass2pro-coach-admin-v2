@@ -886,6 +886,17 @@ export default async (req) => {
   }
 
   console.log("[scheduled-push-fanout] done", { candidates: candidates.length, attempted, sent, failed, skipped });
+  // Stats probe: ?stats=1 reports the run summary as JSON instead of the
+  // silent 204. Lets us see what the REAL path actually does (vs debug=1
+  // which short-circuits before the send loop).
+  let isStats = false;
+  try {
+    const url = new URL(req.url);
+    isStats = url.searchParams.get("stats") === "1";
+  } catch { /* parse failure ok */ }
+  if (isStats) {
+    return new Response(JSON.stringify({ candidates: candidates.length, attempted, sent, failed, skipped }, null, 2), { status: 200, headers: { "content-type": "application/json" } });
+  }
   return new Response(null, { status: 204 });
 };
 
