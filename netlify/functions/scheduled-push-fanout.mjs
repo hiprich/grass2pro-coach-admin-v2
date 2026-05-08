@@ -563,11 +563,79 @@ export default async (req) => {
   }
 
   if (isDebug) {
+    // Trace the post-candidate path for each candidate without sending
+    // anything. Mirrors the real loop's bailouts so we can see exactly
+    // which `continue` is firing.
+    const traces = [];
+    let sentRecordsDbg = [];
+    try {
+      sentRecordsDbg = await airtableList(notificationsSentTable(), { pageSize: PAGE_SIZE });
+    } catch (error) {
+      traces.push({ stage: "sentRecords-list", error: String(error?.message || error) });
+    }
+    for (const candidate of candidates) {
+      const trace = { sessionId: candidate.sessionId, kind: candidate.kind, steps: [] };
+      let playerHits;
+      try {
+        playerHits = await findPlayerIdsForSession(candidate.sessionId, candidate.sessionFields, {
+          requireOpen: candidate.requiresOpenAttendance,
+          requireRsvpComingNoArrival: candidate.requiresRsvpComingNoArrival,
+        });
+      } catch (error) {
+        trace.steps.push({ at: "findPlayerIdsForSession", error: String(error?.message || error) });
+        traces.push(trace);
+        continue;
+      }
+      trace.steps.push({ at: "playerHits", count: playerHits.length, playerIds: playerHits.map((h) => h.playerId) });
+      if (playerHits.length === 0) { traces.push(trace); continue; }
+      const playerIds = playerHits.map((h) => h.playerId);
+      let parentToPlayers;
+      try {
+        parentToPlayers = await findParentIdsForPlayers(playerIds);
+      } catch (error) {
+        trace.steps.push({ at: "findParentIdsForPlayers", error: String(error?.message || error) });
+        traces.push(trace);
+        continue;
+      }
+      trace.steps.push({ at: "parentIds", parents: [...parentToPlayers.keys()] });
+      if (parentToPlayers.size === 0) { traces.push(trace); continue; }
+      let parentEmailsDbg = new Map();
+      if (candidate.kind === KIND_NO_SHOW) {
+        try {
+          parentEmailsDbg = await findParentEmailsByIds([...parentToPlayers.keys()]);
+        } catch (error) {
+          trace.steps.push({ at: "findParentEmailsByIds", error: String(error?.message || error) });
+        }
+      }
+      for (const [parentId, linkedPlayerIds] of parentToPlayers.entries()) {
+        const key = dedupeKey(candidate.sessionId, candidate.kind, parentId);
+        const already = await alreadySent(key, sentRecordsDbg);
+        const subs = await findEligibleSubscriptions(parentId, candidate.kind).catch((e) => ({ __error: String(e?.message || e) }));
+        const email = parentEmailsDbg.get(parentId) || null;
+        trace.steps.push({
+          at: "parentLoop",
+          parentId,
+          dedupeKey: key,
+          alreadySent: already,
+          subscriptionCount: Array.isArray(subs) ? subs.length : 0,
+          subError: subs && subs.__error ? subs.__error : null,
+          emailForFallback: email,
+          linkedPlayerIds: [...linkedPlayerIds],
+        });
+      }
+      traces.push(trace);
+    }
     return new Response(JSON.stringify({
       nowISO: new Date(nowMs).toISOString(),
       candidateCount: candidates.length,
       candidates: candidates.map((c) => ({ sessionId: c.sessionId, kind: c.kind, targetAt: c.targetAt })),
+      sentRowsCount: sentRecordsDbg.length,
+      traces,
       allSessions: debugAllSessions,
+      env: {
+        hasResendKey: !!process.env.RESEND_API_KEY,
+        emailFrom: process.env.EMAIL_FROM || null,
+      },
     }, null, 2), { status: 200, headers: { "content-type": "application/json" } });
   }
 
