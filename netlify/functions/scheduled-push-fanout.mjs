@@ -739,6 +739,7 @@ export default async (req) => {
         requireRsvpComingNoArrival,
       });
     } catch (error) {
+      tracePush({ at: "playerHits-throw", kind, error: String(error?.message || error), stack: String(error?.stack || "").slice(0, 500) });
       console.error("[scheduled-push-fanout] Player lookup failed:", { sessionId, error });
       continue;
     }
@@ -756,6 +757,7 @@ export default async (req) => {
     try {
       parentToPlayers = await findParentIdsForPlayers(playerIds);
     } catch (error) {
+      tracePush({ at: "parentLookup-throw", kind, error: String(error?.message || error), stack: String(error?.stack || "").slice(0, 500) });
       console.error("[scheduled-push-fanout] Parent lookup failed:", { sessionId, error });
       continue;
     }
