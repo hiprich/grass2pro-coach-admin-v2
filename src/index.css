@@ -2108,9 +2108,11 @@
     outline-offset: 2px;
   }
 
-  /* Compact pitch tag rendered under the venue in the Sessions table row. */
-  /* Same dot language as the chip, smaller scale, muted background so it */
-  /* sits under the location without competing with QR check-in or status. */
+  /* Compact pitch tag rendered under the venue in the Sessions table row.
+     Filled with a translucent wash of the dot's hue (lime for astro,
+     primary green for grass) so the whole chip carries the colour
+     language, not just the dot. Border and text are derived from the
+     same hue via color-mix so the pill reads cleanly in both themes. */
   .pitch-type-tag {
     display: inline-flex;
     align-items: center;
@@ -2133,8 +2135,18 @@
     border-radius: 50%;
     flex: 0 0 auto;
   }
+  .pitch-type-tag[data-pitch="astro"] {
+    background: color-mix(in oklab, var(--lime) 22%, transparent);
+    border-color: color-mix(in oklab, var(--lime) 55%, transparent);
+    color: color-mix(in oklab, var(--lime) 65%, var(--text));
+  }
   .pitch-type-tag[data-pitch="astro"] .pitch-type-dot {
     background: var(--lime);
+  }
+  .pitch-type-tag[data-pitch="grass"] {
+    background: color-mix(in oklab, var(--primary) 18%, transparent);
+    border-color: color-mix(in oklab, var(--primary) 50%, transparent);
+    color: color-mix(in oklab, var(--primary) 60%, var(--text));
   }
   .pitch-type-tag[data-pitch="grass"] .pitch-type-dot {
     background: var(--primary-strong);
