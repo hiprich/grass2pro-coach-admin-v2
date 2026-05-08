@@ -716,6 +716,18 @@ export default async (req) => {
   let skipped = 0;
   let failed = 0;
 
+  // ?stats=2 traces every step of the REAL loop so we can see exactly
+  // which line bails when the loop runs but no counters move. Mirrors
+  // ?debug=1's per-candidate trace but for the actual send path.
+  let isStats2 = false;
+  try {
+    const u = new URL(req.url);
+    isStats2 = u.searchParams.get("stats") === "2";
+  } catch { /* parse failure ok */ }
+  const realTraces = [];
+  const tracePush = (entry) => { if (isStats2) realTraces.push(entry); };
+  tracePush({ at: "sentRecordsListed", count: sentRecords.length });
+
   for (const candidate of candidates) {
     const { sessionId, sessionFields, kind, requiresOpenAttendance, requiresRsvpComingNoArrival } = candidate;
     let playerHits;
@@ -728,6 +740,7 @@ export default async (req) => {
       console.error("[scheduled-push-fanout] Player lookup failed:", { sessionId, error });
       continue;
     }
+    tracePush({ at: "playerHits", kind: candidate.kind, count: playerHits.length });
     if (playerHits.length === 0) continue;
 
     const playerIds = playerHits.map((h) => h.playerId);
@@ -744,6 +757,7 @@ export default async (req) => {
       console.error("[scheduled-push-fanout] Parent lookup failed:", { sessionId, error });
       continue;
     }
+    tracePush({ at: "parentToPlayers", kind: candidate.kind, size: parentToPlayers.size, parents: [...parentToPlayers.keys()] });
     if (parentToPlayers.size === 0) continue;
 
     // For the no-show kind we also need parent emails and player names so the
@@ -756,14 +770,18 @@ export default async (req) => {
           findParentEmailsByIds([...parentToPlayers.keys()]),
           findPlayerNamesByIds(playerIds),
         ]);
+        tracePush({ at: "noshowLookups", emailsSize: parentEmails.size, namesSize: playerNames.size });
       } catch (error) {
+        tracePush({ at: "noshowLookups", error: String(error?.message || error) });
         console.warn("[scheduled-push-fanout] No-show lookup helpers failed:", error);
       }
     }
 
     for (const [parentId, linkedPlayerIds] of parentToPlayers.entries()) {
       const key = dedupeKey(sessionId, kind, parentId);
-      if (await alreadySent(key, sentRecords)) continue;
+      const already = await alreadySent(key, sentRecords);
+      tracePush({ at: "alreadySent", kind, parentId, key, already });
+      if (already) continue;
 
       // Pick the first matching player for this parent so we can name the
       // child in the message body. Multi-child households at the same
@@ -783,10 +801,14 @@ export default async (req) => {
         if (kind !== KIND_NO_SHOW) continue;
       }
 
+      tracePush({ at: "subscriptions", kind, parentId, count: subscriptions.length });
       // Non-noshow kinds keep their old behaviour: skip when there are no
       // eligible subscriptions. The no-show kind continues so we can fall
       // back to email even when the parent never subscribed to push.
-      if (subscriptions.length === 0 && kind !== KIND_NO_SHOW) continue;
+      if (subscriptions.length === 0 && kind !== KIND_NO_SHOW) {
+        tracePush({ at: "earlyExit", reason: "no-subs-and-not-noshow", kind });
+        continue;
+      }
 
       // Write the dedupe row FIRST so a re-tick within the window cannot
       // double-send. Status starts as "Skipped" and is upgraded after the
@@ -801,7 +823,9 @@ export default async (req) => {
           "Sent At": new Date().toISOString(),
           Status: "Skipped",
         });
+        tracePush({ at: "dedupeRowCreate", ok: true, id: dedupeRow.id });
       } catch (error) {
+        tracePush({ at: "dedupeRowCreate", ok: false, error: String(error?.message || error) });
         console.error("[scheduled-push-fanout] Dedupe row create failed:", { key, error });
         continue;
       }
@@ -855,6 +879,7 @@ export default async (req) => {
       let emailError = null;
       if (kind === KIND_NO_SHOW) {
         const to = parentEmails.get(parentId);
+        tracePush({ at: "emailFallback", kind, parentId, to: to || null });
         if (to) {
           attempted += 1;
           const result = await sendNoShowCheckInEmail({
@@ -931,6 +956,9 @@ export default async (req) => {
   } catch { /* parse failure ok */ }
   if (isStats) {
     return new Response(JSON.stringify({ candidates: candidates.length, attempted, sent, failed, skipped }, null, 2), { status: 200, headers: { "content-type": "application/json" } });
+  }
+  if (isStats2) {
+    return new Response(JSON.stringify({ candidates: candidates.length, attempted, sent, failed, skipped, traces: realTraces }, null, 2), { status: 200, headers: { "content-type": "application/json" } });
   }
   return new Response(null, { status: 204 });
 };
