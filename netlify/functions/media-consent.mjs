@@ -388,7 +388,7 @@ export const handler = async (event) => {
       console.error("Player lookup failed:", error);
     }
 
-    let parentId = null;
+    let parentId;
     try {
       parentId = await resolveOrCreateParent(payload, playerId);
       if (parentId) {

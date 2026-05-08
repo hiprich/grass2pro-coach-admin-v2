@@ -85,7 +85,7 @@ async function airtableUpdateWithFieldFallback(table, recordId, candidates, valu
       lastError = error;
       if (!isUnknownFieldError(error)) throw error;
       console.warn(
-        `[parent-actions] Field \"${fieldName}\" not found on ${table}; trying next candidate.`,
+        `[parent-actions] Field "${fieldName}" not found on ${table}; trying next candidate.`,
       );
     }
   }

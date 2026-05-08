@@ -19,4 +19,26 @@ export default defineConfig([
       globals: globals.browser,
     },
   },
+  // Lint Netlify serverless functions. They live as .mjs so they were
+  // previously skipped by the .ts/.tsx-only glob above \u2014 which is exactly
+  // how the requireRsvpComingNoArrival ReferenceError bug slipped past CI.
+  // Enabling no-undef here catches that whole class of typo.
+  {
+    files: ['netlify/functions/**/*.mjs'],
+    extends: [js.configs.recommended],
+    languageOptions: {
+      ecmaVersion: 'latest',
+      sourceType: 'module',
+      globals: {
+        ...globals.node,
+        // web-standard APIs available in Netlify's runtime
+        fetch: 'readonly',
+        Request: 'readonly',
+        Response: 'readonly',
+        Headers: 'readonly',
+        URL: 'readonly',
+        URLSearchParams: 'readonly',
+      },
+    },
+  },
 ])

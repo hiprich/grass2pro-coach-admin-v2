@@ -87,7 +87,7 @@ export const handler = async (event) => {
 
   // Look up existing Attendance record for (session, player) and apply
   // duplicate / out-of-order safeguards.
-  let existingAttendance = null;
+  let existingAttendance;
   try {
     existingAttendance = await findAttendance(sessionId, playerId);
   } catch (error) {

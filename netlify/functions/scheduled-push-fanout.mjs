@@ -35,7 +35,6 @@ import webpush from "web-push";
 import {
   TABLE_IDS,
   airtableCreate,
-  airtableGet,
   airtableList,
   airtableUpdate,
   hasAirtableConfig,
@@ -675,7 +674,7 @@ export default async (req) => {
       // and replied to the coach won't mind a follow-up email saying the
       // same thing, but a parent on iOS without PWA install would otherwise
       // get nothing at all.
-      let emailStatus = null;
+      let emailStatus;
       let emailError = null;
       if (kind === KIND_NO_SHOW) {
         const to = parentEmails.get(parentId);
