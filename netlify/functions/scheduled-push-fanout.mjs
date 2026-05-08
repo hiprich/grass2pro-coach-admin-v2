@@ -734,9 +734,15 @@ export default async (req) => {
     const { sessionId, sessionFields, kind, requiresOpenAttendance, requiresRsvpComingNoArrival } = candidate;
     let playerHits;
     try {
+      // findPlayerIdsForSession's parameter is named requireRsvpComingNoArrival
+      // (without the trailing 's' on "require"). Map the candidate property
+      // name to the function parameter name explicitly so the shorthand
+      // doesn't silently reference an undefined name (which threw
+      // ReferenceError at runtime and caused the no-show fan-out to skip
+      // every candidate without logging).
       playerHits = await findPlayerIdsForSession(sessionId, sessionFields, {
         requireOpen: requiresOpenAttendance,
-        requireRsvpComingNoArrival,
+        requireRsvpComingNoArrival: requiresRsvpComingNoArrival,
       });
     } catch (error) {
       tracePush({ at: "playerHits-throw", kind, error: String(error?.message || error), stack: String(error?.stack || "").slice(0, 500) });
