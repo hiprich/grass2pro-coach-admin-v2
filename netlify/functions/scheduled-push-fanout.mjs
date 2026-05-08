@@ -622,6 +622,26 @@ export default async (req) => {
           emailForFallback: email,
           linkedPlayerIds: [...linkedPlayerIds],
         });
+        // Attempt the dedupe row create with the same payload the real path
+        // uses, so we can confirm whether airtableCreate is the failing
+        // step. The created row is harmless — it has Status=Skipped, so the
+        // real cron will skip this parent on its next tick (which is the
+        // expected dedupe behaviour anyway).
+        if (!already && candidate.kind === KIND_NO_SHOW) {
+          try {
+            const created = await airtableCreate(notificationsSentTable(), {
+              "Dedupe Key": key,
+              Session: [candidate.sessionId],
+              Parent: [parentId],
+              Kind: candidate.kind,
+              "Sent At": new Date().toISOString(),
+              Status: "Skipped",
+            });
+            trace.steps.push({ at: "dedupeRowCreate", ok: true, id: created.id, returnedFields: Object.keys(created.fields || {}) });
+          } catch (error) {
+            trace.steps.push({ at: "dedupeRowCreate", ok: false, error: String(error?.message || error) });
+          }
+        }
       }
       traces.push(trace);
     }
