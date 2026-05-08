@@ -36,6 +36,8 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { PushCapability, PushSubscriptionRow } from "./lib/pushClient";
+import CoachLandingPage, { CoachNotFoundPage } from "./CoachLandingPage";
+import { getCoachProfile } from "./coachProfiles";
 import {
   getPushCapability,
   listPushSubscriptions,
@@ -7076,10 +7078,28 @@ function shouldRenderParentPortal(): boolean {
   return /^\/portal(\/|\?|$)/i.test(window.location.pathname + window.location.search);
 }
 
-// Top-level router: /portal renders the parent portal, everything else
-// renders the coach dashboard. Wrapper component so the dashboard's hooks
-// never run for parents (and parent portal hooks never run for coaches).
+// Detect /c/:slug coach landing pages. We extract the slug here so the
+// router can fast-path render the matching coach without any state hooks
+// from the dashboard or portal firing in parallel. Trailing slashes,
+// query strings and case variations all normalise to the same slug.
+function matchCoachLandingSlug(): string | null {
+  if (typeof window === "undefined") return null;
+  const match = /^\/c\/([^/?#]+)/i.exec(window.location.pathname);
+  if (!match) return null;
+  return decodeURIComponent(match[1]).toLowerCase();
+}
+
+// Top-level router: /c/:slug renders the public coach landing page,
+// /portal renders the parent portal, everything else renders the coach
+// dashboard. Wrapper component so each surface's hooks never run for
+// the others.
 function AppRoot() {
+  const coachSlug = matchCoachLandingSlug();
+  if (coachSlug !== null) {
+    const coach = getCoachProfile(coachSlug);
+    if (!coach) return <CoachNotFoundPage slug={coachSlug} />;
+    return <CoachLandingPage coach={coach} />;
+  }
   if (shouldRenderParentPortal()) return <ParentPortal />;
   return <CoachDashboard />;
 }

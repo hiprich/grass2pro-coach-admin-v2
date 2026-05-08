@@ -4621,3 +4621,518 @@ textarea.portal-input {
     padding-bottom: var(--space-2);
   }
 }
+
+/* ============================================================================
+   Public coach landing page (/c/:slug)
+   ----------------------------------------------------------------------------
+   Surface: lime-on-black, brand-loud, parent-shareable. Lives outside the
+   admin shell entirely — no sidebar, no theme toggle, no theme tokens.
+   We deliberately hard-code colours here (rather than using --surface,
+   --text etc.) because:
+     1. The page must render identically regardless of system colour scheme
+        — a parent landing on it should never see a half-rendered light/dark
+        flicker before the data-surface attribute is read
+     2. It IS the brand surface — locking in lime/black guarantees the CTA
+        in the user's WhatsApp share matches the page they tap into
+     3. We want this surface to feel "of the coach", not "of the admin app"
+   ============================================================================ */
+
+html[data-surface="coach-landing"] body {
+  /* Stop the admin background bleeding through behind the landing page. */
+  background: #0b0d0a;
+}
+
+.coach-landing {
+  min-height: 100vh;
+  background: #0b0d0a;
+  color: #f3f5ee;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI",
+    Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  display: flex;
+  flex-direction: column;
+}
+
+.coach-landing-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 28px;
+  border-bottom: 1px solid #1d2118;
+}
+
+.coach-landing-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  color: #f3f5ee;
+}
+.coach-landing-brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: #c9e970;
+  color: #1a2110;
+  font-weight: 900;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+}
+.coach-landing-brand-text {
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0.02em;
+}
+
+.coach-landing-main {
+  flex: 1 1 auto;
+  width: 100%;
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 32px 24px 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 36px;
+}
+
+/* Hero ------------------------------------------------------------------- */
+.coach-landing-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 28px;
+  align-items: start;
+}
+@media (min-width: 760px) {
+  .coach-landing-hero {
+    grid-template-columns: 360px minmax(0, 1fr);
+    gap: 40px;
+  }
+}
+
+.coach-landing-hero-photo {
+  position: relative;
+  border-radius: 22px;
+  overflow: hidden;
+  background: #11140e;
+  border: 2px solid #c9e970;
+  /* Subtle inset glow so the lime border looks "on" rather than flat. */
+  box-shadow: 0 0 0 6px rgba(201, 233, 112, 0.08), 0 18px 40px rgba(0, 0, 0, 0.55);
+  aspect-ratio: 4 / 5;
+}
+.coach-landing-hero-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.coach-landing-hero-text {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.coach-landing-kicker {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #c9e970;
+  font-weight: 800;
+}
+
+.coach-landing-name {
+  font-size: clamp(2.25rem, 1.6rem + 2.4vw, 3.5rem);
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  font-weight: 800;
+  margin: 0;
+  color: #ffffff;
+}
+
+.coach-landing-tagline {
+  font-size: clamp(1.05rem, 0.95rem + 0.4vw, 1.2rem);
+  font-weight: 600;
+  color: #c9e970;
+  margin: 0;
+  line-height: 1.4;
+}
+
+.coach-landing-credentials {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.coach-landing-credentials li {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(201, 233, 112, 0.1);
+  border: 1px solid rgba(201, 233, 112, 0.35);
+  color: #d6e9b0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.coach-landing-bio {
+  margin: 6px 0 0;
+  font-size: clamp(1rem, 0.95rem + 0.25vw, 1.1rem);
+  line-height: 1.6;
+  color: #cdd2c4;
+}
+
+/* Primary CTA ------------------------------------------------------------ */
+.coach-landing-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 18px;
+  padding: 18px 26px;
+  border-radius: 999px;
+  border: 2px solid #c9e970;
+  background: #0b0d0a;
+  color: #c9e970;
+  font-weight: 800;
+  font-size: 17px;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: transform 160ms ease, background 160ms ease, color 160ms ease,
+    box-shadow 160ms ease;
+  box-shadow: 0 0 0 0 rgba(201, 233, 112, 0.0);
+  align-self: flex-start;
+  text-decoration: none;
+}
+.coach-landing-cta:hover {
+  background: #c9e970;
+  color: #0b0d0a;
+  transform: translateY(-1px);
+  box-shadow: 0 8px 22px rgba(201, 233, 112, 0.28);
+}
+.coach-landing-cta:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 3px;
+}
+.coach-landing-cta:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+.coach-landing-cta-submit {
+  width: 100%;
+  background: #c9e970;
+  color: #0b0d0a;
+}
+.coach-landing-cta-submit:hover:not(:disabled) {
+  background: #d6f08a;
+  color: #0b0d0a;
+}
+
+/* Generic block ---------------------------------------------------------- */
+.coach-landing-block-title {
+  font-size: clamp(1.25rem, 1.1rem + 0.6vw, 1.6rem);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: #ffffff;
+  margin: 0 0 16px;
+}
+
+.coach-landing-block {
+  background: #11140e;
+  border: 1px solid #1d2118;
+  border-radius: 18px;
+  padding: 24px 22px;
+}
+
+/* Specialisms list ------------------------------------------------------- */
+.coach-landing-specialisms {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+@media (min-width: 600px) {
+  .coach-landing-specialisms {
+    grid-template-columns: 1fr 1fr;
+    gap: 12px 24px;
+  }
+}
+.coach-landing-specialisms li {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  font-size: 15px;
+  line-height: 1.45;
+  color: #e7eadf;
+}
+.coach-landing-specialisms-dot {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #c9e970;
+  margin-top: 7px;
+  box-shadow: 0 0 0 3px rgba(201, 233, 112, 0.18);
+}
+
+/* Meta cards (Age / Location / Pricing) ---------------------------------- */
+.coach-landing-meta-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+@media (min-width: 600px) {
+  .coach-landing-meta-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+.coach-landing-meta-card {
+  background: #11140e;
+  border: 1px solid #1d2118;
+  border-radius: 16px;
+  padding: 18px 18px;
+}
+.coach-landing-meta-label {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 800;
+  color: #9aa39a;
+  margin-bottom: 6px;
+}
+.coach-landing-meta-value {
+  font-size: 15px;
+  line-height: 1.4;
+  color: #f3f5ee;
+  font-weight: 600;
+}
+
+/* Registration form ----------------------------------------------------- */
+.coach-landing-register {
+  background: #11140e;
+  border: 2px solid #c9e970;
+  border-radius: 22px;
+  padding: 24px;
+  scroll-margin-top: 24px;
+  /* Closed by default — opening reveals the form via max-height transition. */
+  max-height: 220px;
+  overflow: hidden;
+  transition: max-height 320ms ease;
+}
+.coach-landing-register.is-open {
+  max-height: 1600px;
+}
+.coach-landing-register-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.coach-landing-register-blurb {
+  margin: 0;
+  color: #cdd2c4;
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.coach-landing-form {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  margin-top: 6px;
+}
+@media (min-width: 640px) {
+  .coach-landing-form {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.coach-landing-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.coach-landing-field-wide { grid-column: 1 / -1; }
+.coach-landing-field > span {
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 800;
+  color: #9aa39a;
+}
+.coach-landing-field-hint {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 600;
+  color: #6b7066;
+  font-size: 11px;
+  margin-left: 4px;
+}
+.coach-landing-field input,
+.coach-landing-field select,
+.coach-landing-field textarea {
+  background: #0b0d0a;
+  border: 1px solid #2a2f24;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 16px;  /* keep at 16px so iOS doesn't auto-zoom on focus */
+  font-family: inherit;
+  color: #f3f5ee;
+  outline: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+.coach-landing-field input:focus,
+.coach-landing-field select:focus,
+.coach-landing-field textarea:focus {
+  border-color: #c9e970;
+  box-shadow: 0 0 0 3px rgba(201, 233, 112, 0.18);
+}
+.coach-landing-field textarea {
+  resize: vertical;
+  min-height: 96px;
+  line-height: 1.5;
+}
+
+.coach-landing-honeypot {
+  /* Fully off-screen so screen readers can still parse it but humans can't
+     see/tab into it. Kept in DOM so bots find it and fill it. */
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+.coach-landing-error {
+  grid-column: 1 / -1;
+  background: rgba(229, 90, 70, 0.1);
+  border: 1px solid rgba(229, 90, 70, 0.4);
+  color: #ff9c8e;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.coach-landing-form-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.coach-landing-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 18px;
+  border-radius: 999px;
+  border: 1px solid #2a2f24;
+  background: transparent;
+  color: #d6d9cf;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+  transition: border-color 160ms ease, color 160ms ease;
+}
+.coach-landing-secondary:hover {
+  border-color: #c9e970;
+  color: #c9e970;
+}
+
+/* Success state --------------------------------------------------------- */
+.coach-landing-success {
+  text-align: center;
+  padding: 24px 8px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.coach-landing-success-tick {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: #c9e970;
+  color: #0b0d0a;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  font-weight: 900;
+  margin-bottom: 6px;
+}
+.coach-landing-success h3 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+  color: #ffffff;
+}
+.coach-landing-success p {
+  margin: 0;
+  color: #cdd2c4;
+  font-size: 15px;
+  line-height: 1.5;
+  max-width: 32ch;
+}
+
+/* Footer ---------------------------------------------------------------- */
+.coach-landing-footer {
+  border-top: 1px solid #1d2118;
+  padding: 22px 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  color: #6b7066;
+  flex-wrap: wrap;
+}
+.coach-landing-footer a {
+  color: #c9e970;
+  text-decoration: none;
+}
+.coach-landing-footer-mark {
+  display: inline-block;
+  background: #c9e970;
+  color: #1a2110;
+  border-radius: 6px;
+  padding: 2px 6px;
+  font-weight: 900;
+  font-size: 11px;
+  margin-right: 6px;
+  letter-spacing: 0.04em;
+}
+
+/* Coach-not-found empty state ------------------------------------------- */
+.coach-landing-empty {
+  align-items: center;
+  text-align: center;
+  padding-top: 64px;
+}
+.coach-landing-empty h1 {
+  margin: 0 0 8px;
+  font-size: clamp(1.6rem, 1.4rem + 0.8vw, 2.2rem);
+  color: #ffffff;
+}
+.coach-landing-empty p {
+  margin: 0 0 22px;
+  color: #cdd2c4;
+  font-size: 15px;
+}
+.coach-landing-empty code {
+  background: #11140e;
+  border: 1px solid #2a2f24;
+  border-radius: 6px;
+  padding: 2px 6px;
+  color: #c9e970;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+}
