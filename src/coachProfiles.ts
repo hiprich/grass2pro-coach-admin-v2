@@ -51,7 +51,7 @@ export const COACH_PROFILES: Record<string, CoachProfile> = {
     bio: "I'm Hope — Tottenham Hotspur scout and co-founder of PurePro Elite. We run elite small-group sessions that develop in-game effectiveness and prepare players for academy football.",
     credentials: [
       "Tottenham Hotspur Scout",
-      "Spurs scout · academy pathway",
+      "Academy pathway specialist",
     ],
     specialisms: [
       "Elite small-group sessions",
