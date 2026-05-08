@@ -35,7 +35,6 @@ import webpush from "web-push";
 import {
   TABLE_IDS,
   airtableCreate,
-  airtableDelete,
   airtableGet,
   airtableList,
   airtableUpdate,
@@ -492,42 +491,9 @@ export default async (req) => {
   }
   console.log("[scheduled-push-fanout] tick", { nextRun, ts: new Date().toISOString() });
 
-  // Debug probe: ?debug=1 returns the candidate selection state as JSON
-  // without sending anything. Lets us confirm the cron is parsing sessions
-  // correctly when end-to-end tests don't fire as expected.
-  let isDebug = false;
-  let isCleanup = false;
-  try {
-    const url = new URL(req.url);
-    isDebug = url.searchParams.get("debug") === "1";
-    isCleanup = url.searchParams.get("cleanup") === "1";
-  } catch { /* manual invocations may not have a parseable URL */ }
-
   if (!hasAirtableConfig()) {
     console.warn("[scheduled-push-fanout] Airtable not configured; skipping.");
-    if (isDebug) return new Response(JSON.stringify({ error: "airtable-not-configured" }), { status: 200, headers: { "content-type": "application/json" } });
     return new Response(null, { status: 204 });
-  }
-
-  // Cleanup probe: ?cleanup=1 wipes the Notifications Sent table so we can
-  // re-test the fan-out from a clean slate. Test base only \u2014 do not ship
-  // this to a base with real audit history.
-  if (isCleanup) {
-    try {
-      const rows = await airtableList(notificationsSentTable(), { pageSize: PAGE_SIZE });
-      const results = [];
-      for (const row of rows) {
-        try {
-          await airtableDelete(notificationsSentTable(), row.id);
-          results.push({ id: row.id, deleted: true });
-        } catch (error) {
-          results.push({ id: row.id, deleted: false, error: String(error?.message || error) });
-        }
-      }
-      return new Response(JSON.stringify({ scanned: rows.length, results }, null, 2), { status: 200, headers: { "content-type": "application/json" } });
-    } catch (error) {
-      return new Response(JSON.stringify({ error: String(error?.message || error) }), { status: 500, headers: { "content-type": "application/json" } });
-    }
   }
 
   try {
@@ -539,159 +505,11 @@ export default async (req) => {
 
   const nowMs = Date.now();
   let candidates;
-  let debugAllSessions = null;
   try {
-    if (isDebug) {
-      // In debug mode, also pull every session and show how each was
-      // evaluated against each window so we can see exactly why the
-      // candidate didn't match.
-      const records = await airtableList(sessionsTable(), { pageSize: PAGE_SIZE });
-      debugAllSessions = records.map((record) => {
-        const fields = record?.fields || {};
-        const date = String(fields.Date || fields["Session Date"] || "");
-        const start = String(fields["Start Time"] || fields.Start || "");
-        const end = String(fields["End Time"] || fields.End || "");
-        const status = String(fields.Status || fields.State || "");
-        const startAt = combineLondonDateTime(date, start);
-        const endAt = combineLondonDateTime(date, end);
-        const evaluations = WINDOWS.map((window) => {
-          const edgeAt = window.edge === "start" ? startAt : endAt;
-          if (!edgeAt) return { kind: window.kind, reason: "no-edge-date" };
-          const targetMs = edgeAt.getTime() - window.offsetMin * 60_000;
-          const inWindow = isInWindow(nowMs, targetMs, window.toleranceMin);
-          return {
-            kind: window.kind,
-            targetISO: new Date(targetMs).toISOString(),
-            deltaMin: Math.round((nowMs - targetMs) / 60_000),
-            inWindow,
-          };
-        });
-        return {
-          id: record.id,
-          name: String(fields["Session Name"] || fields.Name || ""),
-          date,
-          start,
-          end,
-          status,
-          startAtISO: startAt ? startAt.toISOString() : null,
-          endAtISO: endAt ? endAt.toISOString() : null,
-          windows: evaluations,
-        };
-      });
-    }
     candidates = await findCandidateSessions(nowMs);
   } catch (error) {
     console.error("[scheduled-push-fanout] Session lookup failed:", error);
-    if (isDebug) return new Response(JSON.stringify({ error: String(error?.message || error) }), { status: 500, headers: { "content-type": "application/json" } });
     return new Response(null, { status: 500 });
-  }
-
-  if (isDebug) {
-    // Trace the post-candidate path for each candidate without sending
-    // anything. Mirrors the real loop's bailouts so we can see exactly
-    // which `continue` is firing.
-    const traces = [];
-    let sentRecordsDbg = [];
-    try {
-      sentRecordsDbg = await airtableList(notificationsSentTable(), { pageSize: PAGE_SIZE });
-    } catch (error) {
-      traces.push({ stage: "sentRecords-list", error: String(error?.message || error) });
-    }
-    for (const candidate of candidates) {
-      const trace = { sessionId: candidate.sessionId, kind: candidate.kind, steps: [] };
-      let playerHits;
-      try {
-        playerHits = await findPlayerIdsForSession(candidate.sessionId, candidate.sessionFields, {
-          requireOpen: candidate.requiresOpenAttendance,
-          requireRsvpComingNoArrival: candidate.requiresRsvpComingNoArrival,
-        });
-      } catch (error) {
-        trace.steps.push({ at: "findPlayerIdsForSession", error: String(error?.message || error) });
-        traces.push(trace);
-        continue;
-      }
-      trace.steps.push({ at: "playerHits", count: playerHits.length, playerIds: playerHits.map((h) => h.playerId) });
-      if (playerHits.length === 0) { traces.push(trace); continue; }
-      const playerIds = playerHits.map((h) => h.playerId);
-      let parentToPlayers;
-      try {
-        parentToPlayers = await findParentIdsForPlayers(playerIds);
-      } catch (error) {
-        trace.steps.push({ at: "findParentIdsForPlayers", error: String(error?.message || error) });
-        traces.push(trace);
-        continue;
-      }
-      trace.steps.push({ at: "parentIds", parents: [...parentToPlayers.keys()] });
-      if (parentToPlayers.size === 0) { traces.push(trace); continue; }
-      let parentEmailsDbg = new Map();
-      if (candidate.kind === KIND_NO_SHOW) {
-        try {
-          parentEmailsDbg = await findParentEmailsByIds([...parentToPlayers.keys()]);
-        } catch (error) {
-          trace.steps.push({ at: "findParentEmailsByIds", error: String(error?.message || error) });
-        }
-      }
-      for (const [parentId, linkedPlayerIds] of parentToPlayers.entries()) {
-        const key = dedupeKey(candidate.sessionId, candidate.kind, parentId);
-        const already = await alreadySent(key, sentRecordsDbg);
-        const subs = await findEligibleSubscriptions(parentId, candidate.kind).catch((e) => ({ __error: String(e?.message || e) }));
-        const email = parentEmailsDbg.get(parentId) || null;
-        trace.steps.push({
-          at: "parentLoop",
-          parentId,
-          dedupeKey: key,
-          alreadySent: already,
-          subscriptionCount: Array.isArray(subs) ? subs.length : 0,
-          subError: subs && subs.__error ? subs.__error : null,
-          emailForFallback: email,
-          linkedPlayerIds: [...linkedPlayerIds],
-        });
-        // Attempt the dedupe row create with the same payload the real path
-        // uses, so we can confirm whether airtableCreate is the failing
-        // step. The created row is harmless — it has Status=Skipped, so the
-        // real cron will skip this parent on its next tick (which is the
-        // expected dedupe behaviour anyway).
-        if (!already && candidate.kind === KIND_NO_SHOW) {
-          try {
-            const created = await airtableCreate(notificationsSentTable(), {
-              "Dedupe Key": key,
-              Session: [candidate.sessionId],
-              Parent: [parentId],
-              Kind: candidate.kind,
-              "Sent At": new Date().toISOString(),
-              Status: "Skipped",
-            });
-            trace.steps.push({ at: "dedupeRowCreate", ok: true, id: created.id, returnedFields: Object.keys(created.fields || {}) });
-            // Roll back immediately so debug=1 doesn't pollute the dedupe
-            // table. Without this, every debug call leaves a row that
-            // makes the next real cron tick think the parent was already
-            // notified \u2014 which is exactly the false-positive bug we hit
-            // earlier (real path saw alreadySent=true and bailed silently).
-            try {
-              await airtableDelete(notificationsSentTable(), created.id);
-              trace.steps.push({ at: "dedupeRowRollback", ok: true, id: created.id });
-            } catch (delError) {
-              trace.steps.push({ at: "dedupeRowRollback", ok: false, error: String(delError?.message || delError) });
-            }
-          } catch (error) {
-            trace.steps.push({ at: "dedupeRowCreate", ok: false, error: String(error?.message || error) });
-          }
-        }
-      }
-      traces.push(trace);
-    }
-    return new Response(JSON.stringify({
-      nowISO: new Date(nowMs).toISOString(),
-      candidateCount: candidates.length,
-      candidates: candidates.map((c) => ({ sessionId: c.sessionId, kind: c.kind, targetAt: c.targetAt })),
-      sentRowsCount: sentRecordsDbg.length,
-      traces,
-      allSessions: debugAllSessions,
-      env: {
-        hasResendKey: !!process.env.RESEND_API_KEY,
-        emailFrom: process.env.EMAIL_FROM || null,
-      },
-    }, null, 2), { status: 200, headers: { "content-type": "application/json" } });
   }
 
   if (candidates.length === 0) {
@@ -716,21 +534,7 @@ export default async (req) => {
   let skipped = 0;
   let failed = 0;
 
-  // ?stats=2 traces every step of the REAL loop so we can see exactly
-  // which line bails when the loop runs but no counters move. Mirrors
-  // ?debug=1's per-candidate trace but for the actual send path.
-  let isStats2 = false;
-  try {
-    const u = new URL(req.url);
-    isStats2 = u.searchParams.get("stats") === "2";
-  } catch { /* parse failure ok */ }
-  const realTraces = [];
-  const tracePush = (entry) => { if (isStats2) realTraces.push(entry); };
-  tracePush({ at: "sentRecordsListed", count: sentRecords.length });
-  tracePush({ at: "loopStart", candidateCount: candidates.length, isArray: Array.isArray(candidates), kinds: candidates.map((c) => c.kind) });
-
   for (const candidate of candidates) {
-    tracePush({ at: "iterEnter", kind: candidate.kind, sessionId: candidate.sessionId });
     const { sessionId, sessionFields, kind, requiresOpenAttendance, requiresRsvpComingNoArrival } = candidate;
     let playerHits;
     try {
@@ -745,11 +549,9 @@ export default async (req) => {
         requireRsvpComingNoArrival: requiresRsvpComingNoArrival,
       });
     } catch (error) {
-      tracePush({ at: "playerHits-throw", kind, error: String(error?.message || error), stack: String(error?.stack || "").slice(0, 500) });
       console.error("[scheduled-push-fanout] Player lookup failed:", { sessionId, error });
       continue;
     }
-    tracePush({ at: "playerHits", kind: candidate.kind, count: playerHits.length });
     if (playerHits.length === 0) continue;
 
     const playerIds = playerHits.map((h) => h.playerId);
@@ -763,11 +565,9 @@ export default async (req) => {
     try {
       parentToPlayers = await findParentIdsForPlayers(playerIds);
     } catch (error) {
-      tracePush({ at: "parentLookup-throw", kind, error: String(error?.message || error), stack: String(error?.stack || "").slice(0, 500) });
       console.error("[scheduled-push-fanout] Parent lookup failed:", { sessionId, error });
       continue;
     }
-    tracePush({ at: "parentToPlayers", kind: candidate.kind, size: parentToPlayers.size, parents: [...parentToPlayers.keys()] });
     if (parentToPlayers.size === 0) continue;
 
     // For the no-show kind we also need parent emails and player names so the
@@ -780,18 +580,14 @@ export default async (req) => {
           findParentEmailsByIds([...parentToPlayers.keys()]),
           findPlayerNamesByIds(playerIds),
         ]);
-        tracePush({ at: "noshowLookups", emailsSize: parentEmails.size, namesSize: playerNames.size });
       } catch (error) {
-        tracePush({ at: "noshowLookups", error: String(error?.message || error) });
         console.warn("[scheduled-push-fanout] No-show lookup helpers failed:", error);
       }
     }
 
     for (const [parentId, linkedPlayerIds] of parentToPlayers.entries()) {
       const key = dedupeKey(sessionId, kind, parentId);
-      const already = await alreadySent(key, sentRecords);
-      tracePush({ at: "alreadySent", kind, parentId, key, already });
-      if (already) continue;
+      if (await alreadySent(key, sentRecords)) continue;
 
       // Pick the first matching player for this parent so we can name the
       // child in the message body. Multi-child households at the same
@@ -811,14 +607,10 @@ export default async (req) => {
         if (kind !== KIND_NO_SHOW) continue;
       }
 
-      tracePush({ at: "subscriptions", kind, parentId, count: subscriptions.length });
       // Non-noshow kinds keep their old behaviour: skip when there are no
       // eligible subscriptions. The no-show kind continues so we can fall
       // back to email even when the parent never subscribed to push.
-      if (subscriptions.length === 0 && kind !== KIND_NO_SHOW) {
-        tracePush({ at: "earlyExit", reason: "no-subs-and-not-noshow", kind });
-        continue;
-      }
+      if (subscriptions.length === 0 && kind !== KIND_NO_SHOW) continue;
 
       // Write the dedupe row FIRST so a re-tick within the window cannot
       // double-send. Status starts as "Skipped" and is upgraded after the
@@ -833,9 +625,7 @@ export default async (req) => {
           "Sent At": new Date().toISOString(),
           Status: "Skipped",
         });
-        tracePush({ at: "dedupeRowCreate", ok: true, id: dedupeRow.id });
       } catch (error) {
-        tracePush({ at: "dedupeRowCreate", ok: false, error: String(error?.message || error) });
         console.error("[scheduled-push-fanout] Dedupe row create failed:", { key, error });
         continue;
       }
@@ -889,7 +679,6 @@ export default async (req) => {
       let emailError = null;
       if (kind === KIND_NO_SHOW) {
         const to = parentEmails.get(parentId);
-        tracePush({ at: "emailFallback", kind, parentId, to: to || null });
         if (to) {
           attempted += 1;
           const result = await sendNoShowCheckInEmail({
@@ -955,22 +744,7 @@ export default async (req) => {
     }
   }
 
-  tracePush({ at: "loopEnd" });
   console.log("[scheduled-push-fanout] done", { candidates: candidates.length, attempted, sent, failed, skipped });
-  // Stats probe: ?stats=1 reports the run summary as JSON instead of the
-  // silent 204. Lets us see what the REAL path actually does (vs debug=1
-  // which short-circuits before the send loop).
-  let isStats = false;
-  try {
-    const url = new URL(req.url);
-    isStats = url.searchParams.get("stats") === "1";
-  } catch { /* parse failure ok */ }
-  if (isStats) {
-    return new Response(JSON.stringify({ candidates: candidates.length, attempted, sent, failed, skipped }, null, 2), { status: 200, headers: { "content-type": "application/json" } });
-  }
-  if (isStats2) {
-    return new Response(JSON.stringify({ candidates: candidates.length, attempted, sent, failed, skipped, traces: realTraces }, null, 2), { status: 200, headers: { "content-type": "application/json" } });
-  }
   return new Response(null, { status: 204 });
 };
 
