@@ -4721,12 +4721,67 @@ html[data-surface="coach-landing"] body {
   /* Subtle inset glow so the lime border looks "on" rather than flat. */
   box-shadow: 0 0 0 6px rgba(201, 233, 112, 0.08), 0 18px 40px rgba(0, 0, 0, 0.55);
   aspect-ratio: 4 / 5;
+  transform: translateZ(0);
+  transition:
+    transform 600ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 600ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    border-color 400ms ease;
+  isolation: isolate;
+}
+.coach-landing-hero-photo::after {
+  /* Diagonal sheen that sweeps across the photo on hover. */
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    115deg,
+    transparent 35%,
+    rgba(201, 233, 112, 0.18) 48%,
+    rgba(255, 255, 255, 0.22) 50%,
+    rgba(201, 233, 112, 0.18) 52%,
+    transparent 65%
+  );
+  transform: translateX(-110%);
+  transition: transform 900ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  mix-blend-mode: screen;
+  z-index: 2;
 }
 .coach-landing-hero-photo img {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
+  transition: transform 900ms cubic-bezier(0.2, 0.8, 0.2, 1), filter 600ms ease;
+  will-change: transform;
+}
+.coach-landing-hero-photo:hover {
+  transform: translateY(-4px);
+  border-color: #d8f08a;
+  box-shadow:
+    0 0 0 6px rgba(201, 233, 112, 0.18),
+    0 0 38px rgba(201, 233, 112, 0.28),
+    0 28px 60px rgba(0, 0, 0, 0.6);
+}
+.coach-landing-hero-photo:hover img {
+  transform: scale(1.045);
+  filter: saturate(1.08) contrast(1.03);
+}
+.coach-landing-hero-photo:hover::after {
+  transform: translateX(110%);
+}
+@media (prefers-reduced-motion: reduce) {
+  .coach-landing-hero-photo,
+  .coach-landing-hero-photo img,
+  .coach-landing-hero-photo::after {
+    transition: none;
+  }
+  .coach-landing-hero-photo:hover {
+    transform: none;
+  }
+  .coach-landing-hero-photo:hover img {
+    transform: none;
+  }
 }
 
 .coach-landing-hero-text {
@@ -4779,6 +4834,29 @@ html[data-surface="coach-landing"] body {
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.02em;
+  cursor: default;
+  transition:
+    transform 280ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    background-color 280ms ease,
+    color 280ms ease,
+    border-color 280ms ease,
+    box-shadow 280ms ease;
+}
+.coach-landing-credentials li:hover {
+  transform: translateY(-2px) scale(1.04);
+  background: #c9e970;
+  border-color: #c9e970;
+  color: #0b0d0a;
+  box-shadow:
+    0 0 0 4px rgba(201, 233, 112, 0.18),
+    0 8px 22px rgba(201, 233, 112, 0.22);
+}
+@media (prefers-reduced-motion: reduce) {
+  .coach-landing-credentials li,
+  .coach-landing-credentials li:hover {
+    transition: none;
+    transform: none;
+  }
 }
 
 .coach-landing-bio {
