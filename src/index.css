@@ -4565,19 +4565,25 @@ textarea.portal-input {
   background: var(--tone-media-lavender-accent);
 }
 
-/* ── completed → lime everywhere (incl. the Completed status pill) ───── */
-[data-active-filter="completed"] .pitch-type-tag {
-  background: color-mix(in oklab, var(--lime) 22%, transparent);
-  border-color: color-mix(in oklab, var(--lime) 55%, transparent);
-  color: color-mix(in oklab, var(--lime) 65%, var(--text));
-}
-[data-active-filter="completed"] .pitch-type-tag .pitch-type-dot {
-  background: var(--lime);
-}
+/* ── completed → lime everywhere ──────────────────────────────────────────────
+   When the user clicks Completed, three pills must read as the same
+   colour family so the eye groups them: the Completed filter chip
+   (toolbar), the ASTRO 4G chip (table row), and the Completed status
+   pill (table row). All three get the same translucent-lime treatment.
+   The success-toned filter palette is overridden — only inside Sessions,
+   because [data-active-filter] is scoped to that panel. Players,
+   Attendance, Payments etc. keep their original tone-success styling. */
+[data-active-filter="completed"] .pitch-type-tag,
+[data-active-filter="completed"] .filter-button.active[data-filter-tone="success"],
 [data-active-filter="completed"] .status-pill.session-completed {
   background: color-mix(in oklab, var(--lime) 22%, transparent);
   border-color: color-mix(in oklab, var(--lime) 55%, transparent);
   color: color-mix(in oklab, var(--lime) 65%, var(--text));
+}
+[data-active-filter="completed"] .pitch-type-tag .pitch-type-dot,
+[data-active-filter="completed"] .filter-button.active[data-filter-tone="success"]::before {
+  background: var(--lime);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--lime) 25%, transparent);
 }
 
 /* ── cancelled → attention orange ─────────────────────────────────────── */
