@@ -4004,10 +4004,6 @@ function Sessions({
 }) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"all" | SessionState>("all");
-  // "recent" hides aged-out sessions (anything that ended more than 7 days
-  // ago). "all" shows everything ever scheduled. Default "recent" so coaches
-  // landing on the Sessions tab see today + a rolling week, not months.
-  const [dateScope, setDateScope] = useState<"recent" | "all">("recent");
   // The QR check-in dialog — we capture both the session and which scan type
   // to pre-select. Phase "departure" → Departure tab pre-selected; otherwise
   // (arrival or fall-through) Arrival is the default.
@@ -4072,31 +4068,19 @@ function Sessions({
   const cancelled = sessions.filter((s) => stateOf(s) === "cancelled").length;
 
   const filtered = useMemo(() => {
-    // "recent" cutoff: include any session whose date is on or after 7 days
-    // ago. Future sessions always pass. Older completed/cancelled sessions are
-    // hidden behind the All time toggle.
-    const cutoff = new Date();
-    cutoff.setHours(0, 0, 0, 0);
-    cutoff.setDate(cutoff.getDate() - 7);
-    const cutoffMs = cutoff.getTime();
     return sessions
       .filter((s) => {
         const matchesFilter = filter === "all" || stateOf(s) === filter;
         const matchesQuery = `${s.name} ${s.team} ${s.ageGroup} ${s.location} ${s.coach}`
           .toLowerCase()
           .includes(query.toLowerCase());
-        let matchesScope = true;
-        if (dateScope === "recent") {
-          const sessionMs = new Date(s.date).getTime();
-          matchesScope = Number.isFinite(sessionMs) && sessionMs >= cutoffMs;
-        }
-        return matchesFilter && matchesQuery && matchesScope;
+        return matchesFilter && matchesQuery;
       })
       .slice()
       .sort((a, b) => a.date.localeCompare(b.date));
     // stateOf is derived from stateById; including stateById in deps keeps it stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filter, query, sessions, stateById, dateScope]);
+  }, [filter, query, sessions, stateById]);
 
   return (
     <>
@@ -4126,22 +4110,6 @@ function Sessions({
           </label>
         </div>
         <div className="filter-row" aria-label="Session filters">
-          {([
-            { value: "recent", label: "Recent" },
-            { value: "all", label: "All time" },
-          ] as const).map(({ value, label }) => (
-            <button
-              key={`scope-${value}`}
-              type="button"
-              className={`filter-button ${dateScope === value ? "active" : ""}`}
-              data-filter-tone="neutral"
-              onClick={() => setDateScope(value)}
-              data-testid={`button-session-scope-${value}`}
-            >
-              {label}
-            </button>
-          ))}
-          <span className="filter-row-divider" aria-hidden="true" />
           {([
             { value: "all", label: "All", tone: "neutral" },
             { value: "scheduled", label: "Upcoming", tone: "media-lavender" },

@@ -2000,14 +2000,6 @@
     flex: 1 1 auto;
     min-width: var(--space-2);
   }
-  /* Vertical divider between scope chips (Recent / All time) and state */
-  /* chips (All / Upcoming / Completed / Cancelled) on the Sessions tab. */
-  .filter-row-divider {
-    align-self: stretch;
-    width: 1px;
-    background: var(--border-subtle, rgba(255, 255, 255, 0.12));
-    margin: var(--space-1) var(--space-1);
-  }
   .schedule-session-button {
     display: inline-flex;
     align-items: center;
