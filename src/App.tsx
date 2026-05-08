@@ -4090,7 +4090,11 @@ function Sessions({
         <KpiCard label="Cancelled" value={cancelled} foot="Cancelled or rained off" icon={X} tone="attention" />
         <KpiCard label="Total tracked" value={sessions.length} foot="All session records" icon={ClipboardCheck} tone="neutral" />
       </section>
-      <section className="panel player-table-card" aria-labelledby="sessions-title">
+      <section
+        className="panel player-table-card"
+        aria-labelledby="sessions-title"
+        data-active-filter={filter}
+      >
         <div className="toolbar">
           <div>
             <div className="page-kicker">Sessions</div>

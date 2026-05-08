@@ -4517,3 +4517,146 @@ textarea.portal-input {
   border-color: var(--warning);
   color: var(--warning);
 }
+
+/* ---------------------------------------------------------------------------
+   Sessions dashboard — "mood ring" filter tint.
+
+   The active filter chip at the top of the Sessions panel sets the mood for
+   the rest of the toolbar + each row's accents, so the dashboard reads as
+   one coherent colour story instead of a collage of unrelated chip hues.
+
+   Per-filter mapping (locked with the user):
+     all        → success-green   (matches the Completed chip — "healthy default")
+     scheduled  → media-lavender  (matches the Upcoming chip)
+     completed  → lime            (everything goes lime, including the Completed status pill)
+     cancelled  → attention-orange(matches the Cancelled chip)
+
+   Tinted surfaces:
+     - .schedule-session-button (the "+ Schedule a session" CTA)
+     - .pitch-type-tag (the ASTRO 4G / GRASS chip on each row)
+     - .session-completed status pill (only when filter="completed", so the
+       "Completed" pill rides the lime mood with the rest of the row)
+
+   Implementation note: rules are scoped under the [data-active-filter] attribute
+   on the Sessions <section>, so they automatically scope to that panel only.
+   --------------------------------------------------------------------------- */
+
+/* ── all → success green (default "healthy" tint) ────────────────────── */
+[data-active-filter="all"] .schedule-session-button {
+  background: var(--tone-success-bg);
+  border-color: color-mix(in oklab, var(--tone-success-accent) 55%, transparent);
+  color: var(--tone-success-accent);
+  box-shadow: 0 2px 0 color-mix(in oklab, var(--tone-success-accent) 22%, transparent),
+    0 8px 18px color-mix(in oklab, var(--tone-success-accent) 14%, transparent);
+}
+[data-active-filter="all"] .schedule-session-button > svg {
+  color: var(--tone-success-accent);
+}
+[data-active-filter="all"] .schedule-session-button:hover {
+  background: color-mix(in oklab, var(--tone-success-bg) 80%, var(--success));
+}
+[data-active-filter="all"] .pitch-type-tag {
+  background: var(--tone-success-bg);
+  border-color: color-mix(in oklab, var(--tone-success-accent) 45%, transparent);
+  color: var(--tone-success-accent);
+}
+[data-active-filter="all"] .pitch-type-tag .pitch-type-dot {
+  background: var(--tone-success-accent);
+}
+
+/* ── scheduled (Upcoming) → media-lavender purple ─────────────────────── */
+[data-active-filter="scheduled"] .schedule-session-button {
+  background: var(--tone-media-lavender-bg);
+  border-color: color-mix(in oklab, var(--tone-media-lavender-accent) 55%, transparent);
+  color: var(--tone-media-lavender-accent);
+  box-shadow: 0 2px 0 color-mix(in oklab, var(--tone-media-lavender-accent) 22%, transparent),
+    0 8px 18px color-mix(in oklab, var(--tone-media-lavender-accent) 14%, transparent);
+}
+[data-active-filter="scheduled"] .schedule-session-button > svg {
+  color: var(--tone-media-lavender-accent);
+}
+[data-active-filter="scheduled"] .schedule-session-button:hover {
+  background: color-mix(in oklab, var(--tone-media-lavender-bg) 75%, var(--tone-media-lavender-accent));
+}
+[data-active-filter="scheduled"] .pitch-type-tag {
+  background: var(--tone-media-lavender-bg);
+  border-color: color-mix(in oklab, var(--tone-media-lavender-accent) 45%, transparent);
+  color: var(--tone-media-lavender-accent);
+}
+[data-active-filter="scheduled"] .pitch-type-tag .pitch-type-dot {
+  background: var(--tone-media-lavender-accent);
+}
+
+/* ── completed → lime everywhere (incl. the Completed status pill) ───── */
+[data-active-filter="completed"] .schedule-session-button {
+  background: var(--lime);
+  border-color: color-mix(in oklab, var(--lime) 60%, transparent);
+  color: #1a2110;
+  box-shadow: 0 2px 0 color-mix(in oklab, var(--lime) 35%, transparent),
+    0 8px 18px color-mix(in oklab, var(--lime) 20%, transparent);
+}
+[data-active-filter="completed"] .schedule-session-button > svg {
+  color: #1a2110;
+}
+[data-active-filter="completed"] .pitch-type-tag {
+  background: color-mix(in oklab, var(--lime) 22%, transparent);
+  border-color: color-mix(in oklab, var(--lime) 55%, transparent);
+  color: color-mix(in oklab, var(--lime) 65%, var(--text));
+}
+[data-active-filter="completed"] .pitch-type-tag .pitch-type-dot {
+  background: var(--lime);
+}
+[data-active-filter="completed"] .status-pill.session-completed {
+  background: color-mix(in oklab, var(--lime) 22%, transparent);
+  border-color: color-mix(in oklab, var(--lime) 55%, transparent);
+  color: color-mix(in oklab, var(--lime) 65%, var(--text));
+}
+
+/* ── cancelled → attention orange ─────────────────────────────────────── */
+[data-active-filter="cancelled"] .schedule-session-button {
+  background: var(--tone-attention-bg);
+  border-color: color-mix(in oklab, var(--tone-attention-accent) 55%, transparent);
+  color: var(--tone-attention-accent);
+  box-shadow: 0 2px 0 color-mix(in oklab, var(--tone-attention-accent) 22%, transparent),
+    0 8px 18px color-mix(in oklab, var(--tone-attention-accent) 14%, transparent);
+}
+[data-active-filter="cancelled"] .schedule-session-button > svg {
+  color: var(--tone-attention-accent);
+}
+[data-active-filter="cancelled"] .schedule-session-button:hover {
+  background: color-mix(in oklab, var(--tone-attention-bg) 75%, var(--tone-attention-accent));
+}
+[data-active-filter="cancelled"] .pitch-type-tag {
+  background: var(--tone-attention-bg);
+  border-color: color-mix(in oklab, var(--tone-attention-accent) 45%, transparent);
+  color: var(--tone-attention-accent);
+}
+[data-active-filter="cancelled"] .pitch-type-tag .pitch-type-dot {
+  background: var(--tone-attention-accent);
+}
+
+/* ---------------------------------------------------------------------------
+   Mobile only: full-row banner alignment for the ASTRO 4G chip + status pill.
+
+   On phones the sessions table collapses into stacked cards (see the rules
+   in the @media (max-width: 760px) block above). The Type cell renders the
+   pitch chip and the Status cell renders the session-state pill. By default
+   both pills are width: fit-content / inline, so they don't line up — one is
+   short, one is long, and the card looks ragged.
+
+   Stretch them both to full row width inside session cards so the eye reads
+   a clean stack of equal-width banners (Type → Status) under the session name.
+   Centred contents keep the pill shape and the leading dot/letter visually
+   anchored.
+   --------------------------------------------------------------------------- */
+@media (max-width: 760px) {
+  .sessions-table .pitch-type-tag,
+  .sessions-table .status-pill {
+    display: flex;
+    width: 100%;
+    justify-content: center;
+    box-sizing: border-box;
+    padding-top: var(--space-2);
+    padding-bottom: var(--space-2);
+  }
+}
