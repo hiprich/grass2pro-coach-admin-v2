@@ -4637,6 +4637,18 @@ textarea.portal-input {
      3. We want this surface to feel "of the coach", not "of the admin app"
    ============================================================================ */
 
+html[data-surface="coach-landing"],
+html[data-surface="coach-landing"] body {
+  /* The admin app locks <html> and <body> to overflow:hidden + height:100% so
+     its sidebar/main split scrolls internally. Public landing pages need
+     normal document scroll, otherwise the registration form gets clipped at
+     the viewport edge with no way to reach the submit button. Reset both. */
+  height: auto;
+  min-height: 100%;
+  overflow: visible;
+  overflow-y: auto;
+}
+
 html[data-surface="coach-landing"] body {
   /* Stop the admin background bleeding through behind the landing page. */
   background: #0b0d0a;
