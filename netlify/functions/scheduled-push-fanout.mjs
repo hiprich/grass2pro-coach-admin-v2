@@ -727,8 +727,10 @@ export default async (req) => {
   const realTraces = [];
   const tracePush = (entry) => { if (isStats2) realTraces.push(entry); };
   tracePush({ at: "sentRecordsListed", count: sentRecords.length });
+  tracePush({ at: "loopStart", candidateCount: candidates.length, isArray: Array.isArray(candidates), kinds: candidates.map((c) => c.kind) });
 
   for (const candidate of candidates) {
+    tracePush({ at: "iterEnter", kind: candidate.kind, sessionId: candidate.sessionId });
     const { sessionId, sessionFields, kind, requiresOpenAttendance, requiresRsvpComingNoArrival } = candidate;
     let playerHits;
     try {
@@ -945,6 +947,7 @@ export default async (req) => {
     }
   }
 
+  tracePush({ at: "loopEnd" });
   console.log("[scheduled-push-fanout] done", { candidates: candidates.length, attempted, sent, failed, skipped });
   // Stats probe: ?stats=1 reports the run summary as JSON instead of the
   // silent 204. Lets us see what the REAL path actually does (vs debug=1
