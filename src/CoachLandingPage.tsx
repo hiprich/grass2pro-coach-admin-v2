@@ -15,6 +15,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { CoachProfile } from "./coachProfiles";
+import { renderTagline } from "./coachProfiles";
 
 type RegistrationStatus =
   | { state: "idle" }
@@ -156,7 +157,7 @@ export default function CoachLandingPage({ coach }: { coach: CoachProfile }) {
           <div className="coach-landing-hero-text">
             <div className="coach-landing-kicker">Head of Recruitment | PurePro Elite</div>
             <h1 className="coach-landing-name">{coach.name}</h1>
-            <p className="coach-landing-tagline">{coach.tagline}</p>
+            <p className="coach-landing-tagline">{renderTagline(coach)}</p>
             {coach.credentials && coach.credentials.length > 0 ? (
               <ul className="coach-landing-credentials" aria-label="Credentials">
                 {coach.credentials.map((credential) => (

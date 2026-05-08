@@ -14,7 +14,18 @@
 export type CoachProfile = {
   slug: string;                  // URL slug, e.g. "hope" → /c/hope
   name: string;                  // Public display name
-  tagline: string;               // One-liner under the name (qualifications + years)
+  // Static tagline. Used as a literal fallback when `taglinePrefix` /
+  // `experienceSinceISO` aren't provided. Prefer the dynamic pair below for
+  // anything time-sensitive so the page ages gracefully without manual edits.
+  tagline: string;
+  // Optional dynamic-tagline pair. If both are set, the rendered tagline is
+  // computed at view time as `"${taglinePrefix} · ${N} year(s) experience"`,
+  // where N rolls over on the anniversary of `experienceSinceISO`. Example:
+  // taglinePrefix = "FA Talent ID Level 2 Scout", experienceSinceISO =
+  // "2023-05-01" → renders "3 years experience" today (May 2026), "4" on
+  // 1 May 2027, and so on. Singular guard keeps "1 year experience" clean.
+  taglinePrefix?: string;
+  experienceSinceISO?: string;   // ISO 8601 date string YYYY-MM-DD
   bio: string;                   // 1-3 sentence intro paragraph
   specialisms: string[];         // Bullet list of "what I do"
   ageGroups: string;             // Display string e.g. "U7-U12"
@@ -35,10 +46,12 @@ export const COACH_PROFILES: Record<string, CoachProfile> = {
     slug: "hope",
     name: "Hope Bouhe",
     tagline: "FA Talent ID Level 2 Scout · 3 years experience",
+    taglinePrefix: "FA Talent ID Level 2 Scout",
+    experienceSinceISO: "2023-05-01",
     bio: "I'm Hope — Tottenham Hotspur scout and co-founder of PurePro Elite. We run elite small-group sessions that develop in-game effectiveness and prepare players for academy football.",
     credentials: [
       "Tottenham Hotspur Scout",
-      "Co-founder, PurePro Elite",
+      "Spurs scout · academy pathway",
     ],
     specialisms: [
       "Elite small-group sessions",
@@ -61,6 +74,34 @@ export const COACH_PROFILES: Record<string, CoachProfile> = {
 export function getCoachProfile(slug: string): CoachProfile | null {
   const key = slug.toLowerCase().trim();
   return COACH_PROFILES[key] ?? null;
+}
+
+// Compute whole years between an ISO start date and now, rolling over on the
+// anniversary (not on the calendar year boundary). Pure function, defensive:
+// returns 0 for invalid input or future dates so the UI never shows "-1 years".
+export function computeYearsOfExperience(
+  sinceISO: string,
+  now: Date = new Date(),
+): number {
+  const start = new Date(sinceISO);
+  if (Number.isNaN(start.getTime()) || start.getTime() > now.getTime()) return 0;
+  let years = now.getFullYear() - start.getFullYear();
+  const beforeAnniversary =
+    now.getMonth() < start.getMonth() ||
+    (now.getMonth() === start.getMonth() && now.getDate() < start.getDate());
+  if (beforeAnniversary) years -= 1;
+  return Math.max(0, years);
+}
+
+// Build the rendered tagline. Uses the dynamic prefix + computed years when
+// both are set, otherwise falls back to the static tagline string.
+export function renderTagline(coach: CoachProfile, now: Date = new Date()): string {
+  if (coach.taglinePrefix && coach.experienceSinceISO) {
+    const years = computeYearsOfExperience(coach.experienceSinceISO, now);
+    const noun = years === 1 ? "year" : "years";
+    return `${coach.taglinePrefix} · ${years} ${noun} experience`;
+  }
+  return coach.tagline;
 }
 
 // All currently-registered slugs, used by /c/:slug router fallback to render
