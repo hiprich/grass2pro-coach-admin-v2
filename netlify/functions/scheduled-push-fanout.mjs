@@ -491,8 +491,18 @@ export default async (req) => {
   }
   console.log("[scheduled-push-fanout] tick", { nextRun, ts: new Date().toISOString() });
 
+  // Debug probe: ?debug=1 returns the candidate selection state as JSON
+  // without sending anything. Lets us confirm the cron is parsing sessions
+  // correctly when end-to-end tests don't fire as expected.
+  let isDebug = false;
+  try {
+    const url = new URL(req.url);
+    isDebug = url.searchParams.get("debug") === "1";
+  } catch { /* manual invocations may not have a parseable URL */ }
+
   if (!hasAirtableConfig()) {
     console.warn("[scheduled-push-fanout] Airtable not configured; skipping.");
+    if (isDebug) return new Response(JSON.stringify({ error: "airtable-not-configured" }), { status: 200, headers: { "content-type": "application/json" } });
     return new Response(null, { status: 204 });
   }
 
@@ -505,11 +515,60 @@ export default async (req) => {
 
   const nowMs = Date.now();
   let candidates;
+  let debugAllSessions = null;
   try {
+    if (isDebug) {
+      // In debug mode, also pull every session and show how each was
+      // evaluated against each window so we can see exactly why the
+      // candidate didn't match.
+      const records = await airtableList(sessionsTable(), { pageSize: PAGE_SIZE });
+      debugAllSessions = records.map((record) => {
+        const fields = record?.fields || {};
+        const date = String(fields.Date || fields["Session Date"] || "");
+        const start = String(fields["Start Time"] || fields.Start || "");
+        const end = String(fields["End Time"] || fields.End || "");
+        const status = String(fields.Status || fields.State || "");
+        const startAt = combineLondonDateTime(date, start);
+        const endAt = combineLondonDateTime(date, end);
+        const evaluations = WINDOWS.map((window) => {
+          const edgeAt = window.edge === "start" ? startAt : endAt;
+          if (!edgeAt) return { kind: window.kind, reason: "no-edge-date" };
+          const targetMs = edgeAt.getTime() - window.offsetMin * 60_000;
+          const inWindow = isInWindow(nowMs, targetMs, window.toleranceMin);
+          return {
+            kind: window.kind,
+            targetISO: new Date(targetMs).toISOString(),
+            deltaMin: Math.round((nowMs - targetMs) / 60_000),
+            inWindow,
+          };
+        });
+        return {
+          id: record.id,
+          name: String(fields["Session Name"] || fields.Name || ""),
+          date,
+          start,
+          end,
+          status,
+          startAtISO: startAt ? startAt.toISOString() : null,
+          endAtISO: endAt ? endAt.toISOString() : null,
+          windows: evaluations,
+        };
+      });
+    }
     candidates = await findCandidateSessions(nowMs);
   } catch (error) {
     console.error("[scheduled-push-fanout] Session lookup failed:", error);
+    if (isDebug) return new Response(JSON.stringify({ error: String(error?.message || error) }), { status: 500, headers: { "content-type": "application/json" } });
     return new Response(null, { status: 500 });
+  }
+
+  if (isDebug) {
+    return new Response(JSON.stringify({
+      nowISO: new Date(nowMs).toISOString(),
+      candidateCount: candidates.length,
+      candidates: candidates.map((c) => ({ sessionId: c.sessionId, kind: c.kind, targetAt: c.targetAt })),
+      allSessions: debugAllSessions,
+    }, null, 2), { status: 200, headers: { "content-type": "application/json" } });
   }
 
   if (candidates.length === 0) {
