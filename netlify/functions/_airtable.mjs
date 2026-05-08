@@ -269,6 +269,27 @@ export async function airtableCreate(table, fields, options = {}) {
   return response.json();
 }
 
+// Delete a single record by id. Used by debug paths to roll back rows
+// they create so the dedupe table doesn't accumulate test cruft.
+export async function airtableDelete(table, recordId) {
+  if (!hasAirtableConfig()) {
+    return { id: recordId, deleted: true, demo: true };
+  }
+  const response = await fetch(`${AIRTABLE_API}/${process.env.AIRTABLE_BASE_ID}/${encodeTable(table)}/${encodeURIComponent(recordId)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token()}` },
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new AirtableHttpError(`Airtable delete failed for ${table}: ${body}`, {
+      status: response.status,
+      body,
+      table,
+    });
+  }
+  return response.json();
+}
+
 function firstAttachmentUrl(value) {
   if (Array.isArray(value) && value.length > 0) {
     return value[0]?.url || value[0]?.thumbnails?.large?.url || "";

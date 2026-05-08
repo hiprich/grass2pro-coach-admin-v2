@@ -35,6 +35,7 @@ import webpush from "web-push";
 import {
   TABLE_IDS,
   airtableCreate,
+  airtableDelete,
   airtableGet,
   airtableList,
   airtableUpdate,
@@ -495,15 +496,38 @@ export default async (req) => {
   // without sending anything. Lets us confirm the cron is parsing sessions
   // correctly when end-to-end tests don't fire as expected.
   let isDebug = false;
+  let isCleanup = false;
   try {
     const url = new URL(req.url);
     isDebug = url.searchParams.get("debug") === "1";
+    isCleanup = url.searchParams.get("cleanup") === "1";
   } catch { /* manual invocations may not have a parseable URL */ }
 
   if (!hasAirtableConfig()) {
     console.warn("[scheduled-push-fanout] Airtable not configured; skipping.");
     if (isDebug) return new Response(JSON.stringify({ error: "airtable-not-configured" }), { status: 200, headers: { "content-type": "application/json" } });
     return new Response(null, { status: 204 });
+  }
+
+  // Cleanup probe: ?cleanup=1 wipes the Notifications Sent table so we can
+  // re-test the fan-out from a clean slate. Test base only \u2014 do not ship
+  // this to a base with real audit history.
+  if (isCleanup) {
+    try {
+      const rows = await airtableList(notificationsSentTable(), { pageSize: PAGE_SIZE });
+      const results = [];
+      for (const row of rows) {
+        try {
+          await airtableDelete(notificationsSentTable(), row.id);
+          results.push({ id: row.id, deleted: true });
+        } catch (error) {
+          results.push({ id: row.id, deleted: false, error: String(error?.message || error) });
+        }
+      }
+      return new Response(JSON.stringify({ scanned: rows.length, results }, null, 2), { status: 200, headers: { "content-type": "application/json" } });
+    } catch (error) {
+      return new Response(JSON.stringify({ error: String(error?.message || error) }), { status: 500, headers: { "content-type": "application/json" } });
+    }
   }
 
   try {
@@ -638,6 +662,17 @@ export default async (req) => {
               Status: "Skipped",
             });
             trace.steps.push({ at: "dedupeRowCreate", ok: true, id: created.id, returnedFields: Object.keys(created.fields || {}) });
+            // Roll back immediately so debug=1 doesn't pollute the dedupe
+            // table. Without this, every debug call leaves a row that
+            // makes the next real cron tick think the parent was already
+            // notified \u2014 which is exactly the false-positive bug we hit
+            // earlier (real path saw alreadySent=true and bailed silently).
+            try {
+              await airtableDelete(notificationsSentTable(), created.id);
+              trace.steps.push({ at: "dedupeRowRollback", ok: true, id: created.id });
+            } catch (delError) {
+              trace.steps.push({ at: "dedupeRowRollback", ok: false, error: String(delError?.message || delError) });
+            }
           } catch (error) {
             trace.steps.push({ at: "dedupeRowCreate", ok: false, error: String(error?.message || error) });
           }
