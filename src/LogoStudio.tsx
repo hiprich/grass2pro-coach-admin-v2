@@ -625,45 +625,13 @@ export default function LogoStudio() {
   return (
     <div className="logo-studio" data-testid="logo-studio">
       <header className="logo-studio-topbar">
-        <div className="logo-studio-topbar-row">
-          <a
-            className="logo-studio-back"
-            href="/admin"
-            data-testid="link-studio-to-admin"
-          >
-            ← Coach dashboard
-          </a>
-          <button
-            type="button"
-            className="logo-studio-undo"
-            onClick={handleUndo}
-            disabled={undoStack.length === 0}
-            aria-label={`Undo${undoStack.length ? ` (${undoStack.length} step${undoStack.length === 1 ? "" : "s"})` : ""}`}
-            title="Undo last change (⌘Z)"
-            data-testid="btn-undo"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              width="16"
-              height="16"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M9 14L4 9l5-5" />
-              <path d="M4 9h11a5 5 0 0 1 0 10h-4" />
-            </svg>
-            <span className="logo-studio-undo-label">Undo</span>
-            {undoStack.length > 0 && (
-              <span className="logo-studio-undo-count" aria-hidden="true">
-                {undoStack.length}
-              </span>
-            )}
-          </button>
-        </div>
+        <a
+          className="logo-studio-back"
+          href="/admin"
+          data-testid="link-studio-to-admin"
+        >
+          ← Coach dashboard
+        </a>
         <div className="logo-studio-title-block">
           <h1 className="logo-studio-title">Logo Studio</h1>
           <p className="logo-studio-subtitle">
@@ -1114,9 +1082,44 @@ export default function LogoStudio() {
 
             {/* Tagline colour — same shortcut row pattern. Default mode
                 is "accent" so behaviour is unchanged from v1.2 unless
-                the coach explicitly picks White or a custom hex. */}
-            <fieldset className="logo-studio-fieldset">
+                the coach explicitly picks White or a custom hex.
+                v1.5: Undo button lives in this card's header so coaches
+                can rewind their last change without scrolling back to
+                the top. Tagline colour was chosen because it tends to
+                be the last thing coaches tweak before exporting — if
+                they second-guess a choice, undo is right there. */}
+            <fieldset className="logo-studio-fieldset logo-studio-fieldset--with-action">
               <legend>Tagline colour</legend>
+              <button
+                type="button"
+                className="logo-studio-undo logo-studio-undo--in-card"
+                onClick={handleUndo}
+                disabled={undoStack.length === 0}
+                aria-label={`Undo${undoStack.length ? ` (${undoStack.length} step${undoStack.length === 1 ? "" : "s"})` : ""}`}
+                title="Undo last change (⌘Z)"
+                data-testid="btn-undo"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  width="16"
+                  height="16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M9 14L4 9l5-5" />
+                  <path d="M4 9h11a5 5 0 0 1 0 10h-4" />
+                </svg>
+                <span className="logo-studio-undo-label">Undo</span>
+                {undoStack.length > 0 && (
+                  <span className="logo-studio-undo-count" aria-hidden="true">
+                    {undoStack.length}
+                  </span>
+                )}
+              </button>
               <div className="logo-studio-styles">
                 {([
                   { id: "accent", label: "Match accent" },

@@ -5868,7 +5868,13 @@ html[data-surface="logo-studio"] body {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
   gap: 32px;
-  align-items: start;
+  /* IMPORTANT: We deliberately do NOT use align-items: start here.
+     The default (stretch) makes the preview column track the form
+     column's height so position: sticky on the inner preview wrapper
+     has enough vertical room to travel the full length of the form.
+     With align-items: start the preview column collapses to its own
+     content height and sticky disengages once you scroll past it —
+     which was the v1.4 bug Cobby spotted on desktop Safari. */
 }
 @media (max-width: 900px) {
   .logo-studio-grid {
@@ -6423,13 +6429,10 @@ html[data-surface="logo-studio"] body {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  position: sticky;
-  top: 28px;
-}
-@media (max-width: 900px) {
-  .logo-studio-preview-col {
-    position: static;
-  }
+  /* No sticky here — sticky is applied to .logo-studio-preview-sticky
+     below so the dark preview pins inside the column rather than the
+     whole column trying to pin (which broke once the form column
+     grew past the preview's intrinsic height). */
 }
 .logo-studio-preview {
   border: 1px solid #2a2f24;
@@ -6649,31 +6652,51 @@ html[data-surface="logo-studio"] body {
   }
 }
 
-/* Sticky preview wrapper. The whole preview-col is already sticky on
-   desktop (>900px) so this wrapper is essentially a pass-through there.
-   Below 900px the layout collapses to a single column and the preview-col
-   reverts to position:static — which is the bug the user hit on iPhone:
-   you scroll down to tweak a colour and the preview disappears off the
-   top of the viewport. We make this inner wrapper sticky on mobile so
-   the dark preview stays pinned while the form scrolls underneath.
-   The light preview deliberately stays in flow so the sticky frame
-   doesn't get too tall and eat half the viewport. */
+/* In-card undo variant (v1.5): pinned to the top-right corner of the
+   fieldset that hosts it. We rely on the fieldset itself being a
+   positioning context (added below) and the button being a flow child
+   that gets pulled out via position: absolute. The legend stays where
+   it always was — top-left, valid HTML — and the button visually
+   right-aligns alongside it. */
+.logo-studio-fieldset--with-action {
+  position: relative;
+}
+.logo-studio-undo--in-card {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  /* Slight visual recede so the button doesn't compete with the
+     legend label. The hover state restores full punch. */
+  background: transparent;
+}
+
+/* Sticky preview wrapper.
+
+   On both desktop and mobile this wrapper pins the dark preview to the
+   top of the viewport while the user scrolls through the form. The
+   parent .logo-studio-preview-col stretches to match the form column's
+   height (default grid align-items: stretch) so this sticky element
+   has the full form height as its travel range. The light preview
+   underneath stays in flow so the sticky frame doesn't grow too tall
+   on mobile.
+
+   v1.4 bug: previously sticky was only set on mobile and on
+   .logo-studio-preview-col itself. With align-items:start that column
+   collapsed to its content height, so sticky disengaged once the form
+   column grew past it on desktop. This rule on the inner wrapper +
+   align-items:stretch on the grid is the correct fix. */
 .logo-studio-preview-sticky {
-  /* Default (desktop): no-op. Parent .logo-studio-preview-col already
-     handles sticky positioning. */
+  position: sticky;
+  top: 28px;
+  z-index: 5;
 }
 @media (max-width: 900px) {
   .logo-studio-preview-sticky {
-    position: sticky;
+    /* On mobile, hug the very top of the viewport with a soft fade so
+       form content doesn't visually butt up against the sticky edge. */
     top: 0;
-    z-index: 5;
-    /* Slight inset so the rounded preview card visually breathes
-       against the page edge while pinned. */
     padding-top: 8px;
     margin-top: -8px;
-    /* Subtle gradient fade from the page background so content
-       scrolling under the sticky preview doesn't visually butt up
-       against its edge. */
     background: linear-gradient(
       to bottom,
       #0b0d0a 0%,
