@@ -289,6 +289,184 @@ export default function LogoStudio() {
   const [exportError, setExportError] = useState<string | null>(null);
   const previewRef = useRef<HTMLDivElement | null>(null);
 
+  // ---- Undo (v1.4) ---------------------------------------------------------
+  // We snapshot every form-driven value into a single FormState object and
+  // push a copy onto an undo stack whenever the user pauses for ~400ms.
+  // That debouncing matters: typing into Brand name shouldn't push a
+  // snapshot per keystroke ("P", "Pu", "Pur"...) — that would make undo
+  // useless because one tap rolls back a single letter. We push the
+  // pre-edit state, so undo restores what was on screen before the user
+  // started fiddling with the latest control. Stack capped at 50 to keep
+  // memory bounded; FormState is tiny (~12 strings + a few numbers/bools)
+  // so 50 entries is well under 10KB.
+  type FormState = {
+    brandName: string;
+    monogramOverride: string;
+    tagline: string;
+    accent: string;
+    customHex: string;
+    gradientPresetId: string | null;
+    style: Style;
+    shape: PartnerLogoShape;
+    autoInk: boolean;
+    manualInk: string;
+    proMode: boolean;
+    outlineWidth: number;
+    outlineColor: string;
+    wordmarkMode: TextColourMode;
+    wordmarkCustom: string;
+    taglineMode: TextColourMode;
+    taglineCustom: string;
+  };
+  const [undoStack, setUndoStack] = useState<FormState[]>([]);
+  // Ref used to suppress snapshot pushes while we're applying an undo —
+  // otherwise the restored state would itself be pushed onto the stack,
+  // making undo a no-op on the next tap.
+  const isRestoringRef = useRef(false);
+  // Latest snapshot that we've already pushed. Compared against the
+  // current state when the debounce fires; equal means nothing
+  // meaningfully changed (e.g. the user typed a letter and then deleted
+  // it within the debounce window) so we skip pushing.
+  const lastSnapshotRef = useRef<FormState | null>(null);
+
+  const currentState = useMemo<FormState>(
+    () => ({
+      brandName,
+      monogramOverride,
+      tagline,
+      accent,
+      customHex,
+      gradientPresetId,
+      style,
+      shape,
+      autoInk,
+      manualInk,
+      proMode,
+      outlineWidth,
+      outlineColor,
+      wordmarkMode,
+      wordmarkCustom,
+      taglineMode,
+      taglineCustom,
+    }),
+    [
+      brandName,
+      monogramOverride,
+      tagline,
+      accent,
+      customHex,
+      gradientPresetId,
+      style,
+      shape,
+      autoInk,
+      manualInk,
+      proMode,
+      outlineWidth,
+      outlineColor,
+      wordmarkMode,
+      wordmarkCustom,
+      taglineMode,
+      taglineCustom,
+    ],
+  );
+
+  // Seed the baseline snapshot once on mount so that the very first edit
+  // pushes the initial state and undo can roll back to the defaults.
+  useEffect(() => {
+    lastSnapshotRef.current = currentState;
+    // We deliberately depend on nothing — this runs once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Debounced push: schedule a snapshot 400ms after the latest change. If
+  // another change arrives, the timer resets so we only push when the
+  // user pauses. We push the *previous* snapshot (lastSnapshotRef) so
+  // that the stack contains pre-edit states and undo restores them.
+  useEffect(() => {
+    if (isRestoringRef.current) {
+      // Clear the flag and skip pushing — we just restored a snapshot.
+      isRestoringRef.current = false;
+      lastSnapshotRef.current = currentState;
+      return;
+    }
+    const id = setTimeout(() => {
+      const prev = lastSnapshotRef.current;
+      if (!prev) {
+        lastSnapshotRef.current = currentState;
+        return;
+      }
+      // Cheap deep-equal via JSON — FormState is flat primitives only.
+      if (JSON.stringify(prev) === JSON.stringify(currentState)) return;
+      setUndoStack((stack) => {
+        const next = [...stack, prev];
+        // Cap stack at 50 entries — drop oldest first.
+        if (next.length > 50) next.shift();
+        return next;
+      });
+      lastSnapshotRef.current = currentState;
+    }, 400);
+    return () => clearTimeout(id);
+  }, [currentState]);
+
+  function applySnapshot(s: FormState) {
+    isRestoringRef.current = true;
+    setBrandName(s.brandName);
+    setMonogramOverride(s.monogramOverride);
+    setTagline(s.tagline);
+    setAccent(s.accent);
+    setCustomHex(s.customHex);
+    setGradientPresetId(s.gradientPresetId);
+    setStyle(s.style);
+    setShape(s.shape);
+    setAutoInk(s.autoInk);
+    setManualInk(s.manualInk);
+    setProMode(s.proMode);
+    setOutlineWidth(s.outlineWidth);
+    setOutlineColor(s.outlineColor);
+    setWordmarkMode(s.wordmarkMode);
+    setWordmarkCustom(s.wordmarkCustom);
+    setTaglineMode(s.taglineMode);
+    setTaglineCustom(s.taglineCustom);
+  }
+
+  function handleUndo() {
+    setUndoStack((stack) => {
+      if (stack.length === 0) return stack;
+      const next = stack.slice(0, -1);
+      const top = stack[stack.length - 1];
+      applySnapshot(top);
+      return next;
+    });
+  }
+
+  // Cmd/Ctrl+Z keyboard shortcut. Skip when focus is inside an editable
+  // text field so the browser's native undo on the input still works as
+  // expected — coaches typing into Brand name expect Cmd+Z to undo a
+  // letter, not the whole field swap.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const isUndo =
+        (e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "z";
+      if (!isUndo) return;
+      const t = e.target as HTMLElement | null;
+      const tag = t?.tagName;
+      const editable =
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        (t?.isContentEditable ?? false);
+      if (editable) return;
+      e.preventDefault();
+      handleUndo();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+    // handleUndo is a stable closure over setUndoStack/applySnapshot;
+    // exhaustive-deps would re-add the listener every render which is
+    // fine but wasteful, so we intentionally omit it here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // -------------------------------------------------------------------------
+
   // Use the data-surface pattern so this page can opt into custom global
   // overrides without bleeding into the rest of admin.
   useEffect(() => {
@@ -447,13 +625,45 @@ export default function LogoStudio() {
   return (
     <div className="logo-studio" data-testid="logo-studio">
       <header className="logo-studio-topbar">
-        <a
-          className="logo-studio-back"
-          href="/admin"
-          data-testid="link-studio-to-admin"
-        >
-          ← Coach dashboard
-        </a>
+        <div className="logo-studio-topbar-row">
+          <a
+            className="logo-studio-back"
+            href="/admin"
+            data-testid="link-studio-to-admin"
+          >
+            ← Coach dashboard
+          </a>
+          <button
+            type="button"
+            className="logo-studio-undo"
+            onClick={handleUndo}
+            disabled={undoStack.length === 0}
+            aria-label={`Undo${undoStack.length ? ` (${undoStack.length} step${undoStack.length === 1 ? "" : "s"})` : ""}`}
+            title="Undo last change (⌘Z)"
+            data-testid="btn-undo"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width="16"
+              height="16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M9 14L4 9l5-5" />
+              <path d="M4 9h11a5 5 0 0 1 0 10h-4" />
+            </svg>
+            <span className="logo-studio-undo-label">Undo</span>
+            {undoStack.length > 0 && (
+              <span className="logo-studio-undo-count" aria-hidden="true">
+                {undoStack.length}
+              </span>
+            )}
+          </button>
+        </div>
         <div className="logo-studio-title-block">
           <h1 className="logo-studio-title">Logo Studio</h1>
           <p className="logo-studio-subtitle">
@@ -964,17 +1174,26 @@ export default function LogoStudio() {
 
         {/* Preview + export column */}
         <section className="logo-studio-preview-col" aria-label="Preview and export">
-          <div
-            ref={previewRef}
-            className="logo-studio-preview logo-studio-preview-dark"
-            data-testid="preview-dark"
-          >
-            <span className="logo-studio-preview-label">On dark background</span>
+          {/* The dark preview is wrapped in a sticky container so that on
+              narrow screens (where the layout collapses to a single column)
+              the live preview stays pinned to the top of the viewport while
+              the user scrolls through the form below. On desktop the whole
+              preview-col is already sticky, so this wrapper is a no-op
+              there. */}
+          <div className="logo-studio-preview-sticky">
             <div
-              className="logo-studio-preview-svg"
-              dangerouslySetInnerHTML={{ __html: svg }}
-            />
+              ref={previewRef}
+              className="logo-studio-preview logo-studio-preview-dark"
+              data-testid="preview-dark"
+            >
+              <span className="logo-studio-preview-label">On dark background</span>
+              <div
+                className="logo-studio-preview-svg"
+                dangerouslySetInnerHTML={{ __html: svg }}
+              />
+            </div>
           </div>
+
           <div
             className="logo-studio-preview logo-studio-preview-light"
             data-testid="preview-light"

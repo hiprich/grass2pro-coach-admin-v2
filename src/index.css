@@ -5813,6 +5813,16 @@ html[data-surface="logo-studio"] body {
   gap: 16px;
   margin-bottom: 32px;
 }
+/* Top row of the topbar: holds the back link on the left and the
+   Undo button on the right. Wraps on very narrow screens so the
+   undo button drops below the back link rather than overlapping it. */
+.logo-studio-topbar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
 .logo-studio-back {
   display: inline-flex;
   align-items: center;
@@ -6557,7 +6567,8 @@ html[data-surface="logo-studio"] body {
   .logo-studio-style-btn,
   .logo-studio-btn,
   .logo-studio-details summary::before,
-  .logo-studio-field input {
+  .logo-studio-field input,
+  .logo-studio-undo {
     transition: none;
   }
   .logo-studio-btn:hover,
@@ -6565,3 +6576,117 @@ html[data-surface="logo-studio"] body {
     transform: none;
   }
 }
+
+/* ===== v1.4: Undo button + sticky mobile preview =========================
+
+   The Undo button lives top-right of the topbar. It mirrors the visual
+   weight of the back link (small chip, lime-on-dark) but uses a slightly
+   stronger border so it reads as an action rather than a navigation
+   affordance. The numeric badge tells the user how deep their history
+   is — a tiny power-user signal without being noisy. */
+.logo-studio-undo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid #2a2f24;
+  border-radius: 8px;
+  background: #11150e;
+  color: #cdd2c4;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: background 220ms ease, border-color 220ms ease, color 220ms ease,
+    opacity 220ms ease;
+  font-family: inherit;
+}
+.logo-studio-undo:hover:not(:disabled) {
+  background: rgba(201, 233, 112, 0.08);
+  border-color: rgba(201, 233, 112, 0.5);
+  color: #f3f5ee;
+}
+.logo-studio-undo:active:not(:disabled) {
+  background: rgba(201, 233, 112, 0.14);
+}
+.logo-studio-undo:focus-visible {
+  outline: 2px solid #c9e970;
+  outline-offset: 2px;
+}
+.logo-studio-undo:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.logo-studio-undo svg {
+  flex-shrink: 0;
+  /* Slight optical lift so the curved arrow head sits on the text
+     baseline instead of below it. */
+  margin-top: -1px;
+}
+.logo-studio-undo-label {
+  /* Hidden on extremely narrow screens, restored on tablet+ — keeps the
+     button compact when the topbar is tight on iPhone SE-class widths. */
+}
+.logo-studio-undo-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: rgba(201, 233, 112, 0.14);
+  color: #c9e970;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+@media (max-width: 380px) {
+  /* On very narrow phones, drop the word and just show the icon
+     + count. The aria-label still announces "Undo" to screen readers. */
+  .logo-studio-undo-label {
+    display: none;
+  }
+}
+
+/* Sticky preview wrapper. The whole preview-col is already sticky on
+   desktop (>900px) so this wrapper is essentially a pass-through there.
+   Below 900px the layout collapses to a single column and the preview-col
+   reverts to position:static — which is the bug the user hit on iPhone:
+   you scroll down to tweak a colour and the preview disappears off the
+   top of the viewport. We make this inner wrapper sticky on mobile so
+   the dark preview stays pinned while the form scrolls underneath.
+   The light preview deliberately stays in flow so the sticky frame
+   doesn't get too tall and eat half the viewport. */
+.logo-studio-preview-sticky {
+  /* Default (desktop): no-op. Parent .logo-studio-preview-col already
+     handles sticky positioning. */
+}
+@media (max-width: 900px) {
+  .logo-studio-preview-sticky {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    /* Slight inset so the rounded preview card visually breathes
+       against the page edge while pinned. */
+    padding-top: 8px;
+    margin-top: -8px;
+    /* Subtle gradient fade from the page background so content
+       scrolling under the sticky preview doesn't visually butt up
+       against its edge. */
+    background: linear-gradient(
+      to bottom,
+      #0b0d0a 0%,
+      #0b0d0a 80%,
+      rgba(11, 13, 10, 0) 100%
+    );
+    padding-bottom: 12px;
+  }
+  /* Compact the dark preview on mobile so the sticky chrome doesn't
+     eat half the viewport. The light preview underneath is full-size. */
+  .logo-studio-preview-sticky .logo-studio-preview-dark {
+    min-height: 140px;
+    padding: 18px;
+  }
+}
+/* ===== end v1.4 ========================================================= */
