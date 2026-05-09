@@ -5950,13 +5950,16 @@ html[data-surface="homepage"] body {
      player's body or face. The aspect-ratio: 1 makes the photo card
      a perfect square (matches the 900x900 source), then text uses
      padding-top to start ~62% down. */
+  /* Portrait crops are 900x1125 (4:5). Use that exact aspect ratio so
+     iPhone 12-class viewports (390x844) don't crop the sides — the
+     photo card is now ~125vw tall, framing the full diverse cast. */
   .homepage-hero-photo {
-    aspect-ratio: 1 / 1;
+    aspect-ratio: 4 / 5;
     height: auto;
     inset: 0 0 auto 0;
   }
   .homepage-hero-text {
-    padding: 78vw 0 16px;
+    padding: 96vw 0 16px;
   }
   .homepage-cta {
     flex: 1 1 100%;
