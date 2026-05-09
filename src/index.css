@@ -5647,6 +5647,239 @@ html[data-surface="homepage"] body {
   color: #8a9078;
 }
 
+/* ============================================================
+   Book-cover flip on the public homepage (/home).
+   ============================================================
+   Visitors land on a single full-bleed photo overlay (the closed
+   cover). Tapping flips it open like the front cover of a book,
+   revealing the underlying page with headline + CTAs + sections.
+
+   Mechanics:
+   - .homepage-book sets the 3D perspective so the rotation reads
+     as depth, not flatness.
+   - .homepage-book-cover is a fixed full-bleed button. It rotates
+     -180° around its left edge (transform-origin: left center) when
+     .homepage-book.is-open is set, swinging out to the left.
+   - The page underneath renders in normal flow and is fully
+     interactive once the cover is rotated away.
+   - While closed, body scroll is locked from JS so visitors can't
+     scroll past without engaging.
+   - Reduced-motion users get a fast crossfade instead of a 3D flip.
+   ============================================================ */
+.homepage-book {
+  perspective: 1800px;
+  perspective-origin: 50% 50%;
+}
+.homepage-book-cover {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  z-index: 50;
+  transform-style: preserve-3d;
+  transform-origin: left center;
+  transform: rotateY(0deg);
+  transition: transform 900ms cubic-bezier(0.65, 0.05, 0.25, 1),
+              box-shadow 900ms cubic-bezier(0.65, 0.05, 0.25, 1);
+  will-change: transform;
+  /* Tactile shadow that deepens as the cover lifts. */
+  box-shadow:
+    0 0 0 0 rgba(0, 0, 0, 0),
+    0 0 0 0 rgba(0, 0, 0, 0);
+  -webkit-tap-highlight-color: transparent;
+}
+.homepage-book.is-open .homepage-book-cover {
+  /* Flip 175° (not full 180°) so a sliver stays visible at the left
+     edge — reads as 'an open book' rather than 'cover vanished'. */
+  transform: rotateY(-175deg);
+  pointer-events: auto;
+  box-shadow:
+    -40px 30px 80px rgba(0, 0, 0, 0.55),
+    -10px 0 30px rgba(0, 0, 0, 0.35);
+}
+.homepage-book-cover-inner {
+  position: absolute;
+  inset: 0;
+  display: block;
+  overflow: hidden;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  background: #0b0d0a;
+}
+.homepage-book-cover picture,
+.homepage-book-cover img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.homepage-book-cover img {
+  object-fit: cover;
+  object-position: center 38%;
+}
+.homepage-book-cover-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(11, 13, 10, 0.10) 0%,
+    rgba(11, 13, 10, 0.18) 30%,
+    rgba(11, 13, 10, 0.45) 65%,
+    rgba(11, 13, 10, 0.78) 100%
+  );
+  pointer-events: none;
+}
+.homepage-book-cover-brand {
+  position: absolute;
+  top: 28px;
+  left: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  z-index: 2;
+}
+.homepage-book-cover-brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+  background: #c9e970;
+  color: #0b0d0a;
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: -0.01em;
+}
+.homepage-book-cover-brand-text {
+  font-weight: 700;
+  font-size: 18px;
+  color: #ffffff;
+  letter-spacing: -0.01em;
+}
+.homepage-book-cover-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 18%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+  pointer-events: none;
+  z-index: 2;
+  transition: opacity 280ms ease;
+}
+.homepage-book.is-open .homepage-book-cover-hint {
+  opacity: 0;
+}
+.homepage-book-cover-hint-pulse {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: #ffffff;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.55);
+  animation: homepage-book-pulse 2.2s ease-in-out infinite;
+  padding: 12px 22px;
+  border: 1.5px solid rgba(201, 233, 112, 0.55);
+  border-radius: 999px;
+  background: rgba(11, 13, 10, 0.32);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.homepage-book-cover-hint-sub {
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: #c9e970;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
+}
+@keyframes homepage-book-pulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(201, 233, 112, 0.55); }
+  50%      { transform: scale(1.04); box-shadow: 0 0 0 12px rgba(201, 233, 112, 0); }
+}
+.homepage-book-cover-close {
+  position: absolute;
+  top: 28px;
+  right: 28px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(11, 13, 10, 0.55);
+  border: 1px solid rgba(201, 233, 112, 0.35);
+  color: #c9e970;
+  z-index: 2;
+  opacity: 0;
+  transition: opacity 220ms ease 600ms;
+  pointer-events: none;
+}
+.homepage-book.is-open .homepage-book-cover-close {
+  opacity: 1;
+}
+.homepage-book-cover-spine {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 6px;
+  background: linear-gradient(
+    90deg,
+    rgba(201, 233, 112, 0.0) 0%,
+    rgba(201, 233, 112, 0.55) 50%,
+    rgba(11, 13, 10, 0.6) 100%
+  );
+  opacity: 0;
+  transition: opacity 400ms ease 400ms;
+  pointer-events: none;
+}
+.homepage-book.is-open .homepage-book-cover-spine {
+  opacity: 1;
+}
+.homepage-book-cover:focus-visible {
+  outline: 3px solid #c9e970;
+  outline-offset: -6px;
+}
+/* Page-underneath fade-in: keep the page slightly dim until the cover
+   has flipped most of the way out, so visitors don't see two layers
+   competing during the animation. */
+.homepage-book.is-closed .homepage-topbar,
+.homepage-book.is-closed .homepage-hero,
+.homepage-book.is-closed .homepage-benefits,
+.homepage-book.is-closed .homepage-benefits-alt,
+.homepage-book.is-closed .homepage-footer {
+  opacity: 0;
+  transition: opacity 0ms;
+}
+.homepage-book.is-open .homepage-topbar,
+.homepage-book.is-open .homepage-hero,
+.homepage-book.is-open .homepage-benefits,
+.homepage-book.is-open .homepage-benefits-alt,
+.homepage-book.is-open .homepage-footer {
+  opacity: 1;
+  transition: opacity 500ms ease 450ms;
+}
+@media (prefers-reduced-motion: reduce) {
+  .homepage-book-cover {
+    transition: opacity 240ms ease;
+  }
+  .homepage-book.is-open .homepage-book-cover {
+    transform: none;
+    opacity: 0;
+    pointer-events: none;
+  }
+}
+
 /* Mobile tweaks — tighten padding, force CTAs full-width so a thumb
    tap target hits the whole row, drop the hero min-height slightly. */
 @media (max-width: 640px) {

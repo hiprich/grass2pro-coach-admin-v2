@@ -14,7 +14,7 @@
 // matches /home (case-insensitive). The current admin dashboard stays at
 // "/" so existing bookmarks keep working.
 
-import { useEffect } from "react";
+import { useEffect, useState, useCallback } from "react";
 
 // Marketing benefit cards. Each one is a single-sentence promise, written
 // for a parent skim-reading on a phone. Order matters: scan-in/out is the
@@ -56,6 +56,14 @@ export default function HomepageCover() {
   // Use the same data-surface pattern as the coach landing page so global
   // overrides in index.css can flip the surface to dark/brand without
   // bleeding into the admin dashboard.
+  // Book-cover state: visitors land on a single full-bleed photo (the
+  // "closed cover"). Tapping anywhere flips the cover open like the
+  // front of a book, revealing the headline, CTAs, and the For-parents
+  // / For-coaches sections behind it. Tapping the (now-open) cover
+  // again flips it closed. While closed we lock body scroll so the
+  // visitor can't scroll past without engaging — the flip IS the entry.
+  const [isOpen, setIsOpen] = useState(false);
+
   useEffect(() => {
     const previous = document.documentElement.dataset.surface;
     document.documentElement.dataset.surface = "homepage";
@@ -66,10 +74,92 @@ export default function HomepageCover() {
     };
   }, []);
 
+  // Lock scroll while the cover is closed; restore on open. Also handle
+  // unmount cleanup so we never leave the body scroll-locked.
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = isOpen ? "" : "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [isOpen]);
+
+  const toggleCover = useCallback(() => {
+    setIsOpen((v) => !v);
+  }, []);
+
+  // Keyboard a11y: Enter/Space on the cover toggles it.
+  const onCoverKey = useCallback(
+    (e: React.KeyboardEvent<HTMLButtonElement>) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        toggleCover();
+      }
+    },
+    [toggleCover],
+  );
+
   return (
-    <div className="homepage" data-testid="homepage-cover">
-      {/* Top bar — minimal: just the brand mark. We deliberately omit a
-          nav menu on the cover so the eye lands on the headline + CTAs. */}
+    <div
+      className={`homepage homepage-book ${isOpen ? "is-open" : "is-closed"}`}
+      data-testid="homepage-cover"
+    >
+      {/* Book cover — fixed full-bleed overlay. Sits ABOVE the page when
+          closed, flips out on rotateY to reveal the page underneath when
+          open. The cover lives outside the page flow (position: fixed)
+          so the page below renders normally and reads correctly once
+          revealed. The 3D perspective lives on .homepage-book itself so
+          the rotation pivots crisply around the cover's left edge. */}
+      <button
+        type="button"
+        className="homepage-book-cover"
+        aria-label={isOpen ? "Close cover" : "Open cover — tap to enter"}
+        aria-pressed={isOpen}
+        onClick={toggleCover}
+        onKeyDown={onCoverKey}
+        data-testid="book-cover"
+      >
+        <span className="homepage-book-cover-inner">
+          <picture>
+            <source
+              media="(max-width: 640px)"
+              srcSet="/g2p-hero-portrait.jpg"
+            />
+            <img
+              src="/g2p-hero.jpg"
+              alt="Young grassroots footballers in G2P kit at sunset"
+              loading="eager"
+              decoding="async"
+            />
+          </picture>
+          {/* Subtle dark gradient at the bottom for the overlay copy. */}
+          <span className="homepage-book-cover-overlay" aria-hidden="true" />
+          {/* Brand mark on the cover so the closed state still reads as
+              Grass2Pro at a glance. Sits top-left, lime on dark. */}
+          <span className="homepage-book-cover-brand" aria-hidden="true">
+            <span className="homepage-book-cover-brand-mark">G2P</span>
+            <span className="homepage-book-cover-brand-text">Grass2Pro</span>
+          </span>
+          {/* Closed-state hint: pulsing 'Tap anywhere' overlay. Hidden
+              once the cover is open so it doesn't compete with the page. */}
+          <span className="homepage-book-cover-hint" aria-hidden="true">
+            <span className="homepage-book-cover-hint-pulse">Tap anywhere</span>
+            <span className="homepage-book-cover-hint-sub">to open</span>
+          </span>
+          {/* Open-state hint: tiny 'Close' chip in the top-right so the
+              visitor knows the cover can be flipped back. */}
+          <span className="homepage-book-cover-close" aria-hidden="true">
+            ✕ Close
+          </span>
+        </span>
+        {/* Spine — thin lime line at the rotation axis (left edge) that
+            reads as a book spine when the cover is open. */}
+        <span className="homepage-book-cover-spine" aria-hidden="true" />
+      </button>
+
+      {/* Top bar — minimal: just the brand mark. Hidden while the cover
+          is closed (the cover has its own brand mark) and revealed once
+          the cover flips open. */}
       <header className="homepage-topbar">
         <div className="homepage-brand">
           <span className="homepage-brand-mark">G2P</span>
