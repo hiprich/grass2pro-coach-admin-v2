@@ -5763,3 +5763,383 @@ html[data-surface="homepage"] body {
     transition: none;
   }
 }
+
+/* ---------------------------------------------------------------------- */
+/* Logo Studio (/admin/logo-studio) — in-product brand watermark generator. */
+/* Lime-on-black palette, mirrors the admin dashboard so the studio feels */
+/* native to /admin even though it lives at a sub-route.                   */
+/*                                                                         */
+/* Palette tokens (kept inline rather than as :root vars to scope them     */
+/* tightly to this surface):                                               */
+/*   #0b0d0a  page background                                              */
+/*   #11150e  card background                                              */
+/*   #2a2f24  border / hairline                                            */
+/*   #c9e970  G2P lime (accent / primary action)                           */
+/*   #1a2110  deep G2P green (ink on lime)                                 */
+/*   #f3f5ee  body text                                                    */
+/*   #cdd2c4  muted text                                                   */
+/* ---------------------------------------------------------------------- */
+[data-surface="logo-studio"] {
+  background: #0b0d0a;
+  color: #f3f5ee;
+}
+[data-surface="logo-studio"] body {
+  background: #0b0d0a;
+}
+.logo-studio {
+  min-height: 100vh;
+  background: #0b0d0a;
+  color: #f3f5ee;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  padding: 28px clamp(20px, 5vw, 56px) 80px;
+  box-sizing: border-box;
+}
+.logo-studio-topbar {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 32px;
+}
+.logo-studio-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  text-decoration: none;
+  color: #cdd2c4;
+  font-size: 14px;
+  font-weight: 500;
+  padding: 6px 12px;
+  margin-left: -12px;
+  border-radius: 8px;
+  transition: background 220ms ease, color 220ms ease;
+}
+.logo-studio-back::before {
+  content: "←";
+  font-size: 16px;
+  line-height: 1;
+}
+.logo-studio-back:hover {
+  background: rgba(201, 233, 112, 0.08);
+  color: #f3f5ee;
+}
+.logo-studio-back:focus-visible {
+  outline: 2px solid #c9e970;
+  outline-offset: 2px;
+}
+.logo-studio-title-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.logo-studio-title {
+  margin: 0;
+  font-size: clamp(28px, 4vw, 36px);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: #f3f5ee;
+}
+.logo-studio-subtitle {
+  margin: 0;
+  font-size: 15px;
+  color: #cdd2c4;
+  max-width: 60ch;
+  line-height: 1.5;
+}
+.logo-studio-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  gap: 32px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .logo-studio-grid {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+}
+.logo-studio-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.logo-studio-fieldset {
+  margin: 0;
+  padding: 20px;
+  border: 1px solid #2a2f24;
+  border-radius: 14px;
+  background: #11150e;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.logo-studio-fieldset legend {
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #c9e970;
+}
+.logo-studio-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #cdd2c4;
+}
+.logo-studio-field input[type="text"],
+.logo-studio-field input:not([type]) {
+  appearance: none;
+  background: #0b0d0a;
+  border: 1px solid #2a2f24;
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: #f3f5ee;
+  font-size: 14px;
+  font-family: inherit;
+  transition: border-color 180ms ease, box-shadow 180ms ease;
+}
+.logo-studio-field input:focus {
+  outline: none;
+  border-color: #c9e970;
+  box-shadow: 0 0 0 3px rgba(201, 233, 112, 0.18);
+}
+.logo-studio-field input::placeholder {
+  color: #6a7060;
+}
+.logo-studio-field-inline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-direction: row;
+  font-size: 13px;
+  color: #cdd2c4;
+  cursor: pointer;
+  user-select: none;
+}
+.logo-studio-field-inline input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #c9e970;
+  cursor: pointer;
+}
+.logo-studio-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+/* The component paints inline `background: preset.value` on the button
+   itself — these swatches are pure colour discs with no label text. The
+   accessible name comes from aria-label + native title. */
+.logo-studio-swatch {
+  appearance: none;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+  position: relative;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
+  transition: transform 180ms ease, box-shadow 180ms ease;
+}
+.logo-studio-swatch:hover {
+  transform: translateY(-1px);
+}
+.logo-studio-swatch.is-active {
+  border-color: #f3f5ee;
+  box-shadow: 0 0 0 2px #c9e970, 0 0 0 1px rgba(0, 0, 0, 0.4) inset;
+}
+.logo-studio-swatch:focus-visible {
+  outline: 2px solid #c9e970;
+  outline-offset: 3px;
+}
+.logo-studio-styles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.logo-studio-style-btn {
+  appearance: none;
+  background: #0b0d0a;
+  border: 1px solid #2a2f24;
+  border-radius: 10px;
+  padding: 10px 14px;
+  color: #cdd2c4;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 180ms ease, color 180ms ease, background 180ms ease;
+}
+.logo-studio-style-btn:hover {
+  border-color: #c9e970;
+  color: #f3f5ee;
+}
+.logo-studio-style-btn.is-active {
+  background: rgba(201, 233, 112, 0.1);
+  border-color: #c9e970;
+  color: #f3f5ee;
+}
+.logo-studio-style-btn:focus-visible {
+  outline: 2px solid #c9e970;
+  outline-offset: 2px;
+}
+.logo-studio-preview-col {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  position: sticky;
+  top: 28px;
+}
+@media (max-width: 900px) {
+  .logo-studio-preview-col {
+    position: static;
+  }
+}
+.logo-studio-preview {
+  border: 1px solid #2a2f24;
+  border-radius: 14px;
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 180px;
+}
+.logo-studio-preview-dark {
+  background: #11150e;
+}
+.logo-studio-preview-light {
+  background: #f3f5ee;
+}
+.logo-studio-preview-light .logo-studio-preview-label {
+  color: #1a2110;
+  opacity: 0.7;
+}
+.logo-studio-preview-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #cdd2c4;
+  opacity: 0.8;
+}
+.logo-studio-preview-svg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  width: 100%;
+  min-height: 100px;
+}
+.logo-studio-preview-svg svg {
+  max-width: 100%;
+  height: auto;
+}
+.logo-studio-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-top: 8px;
+}
+.logo-studio-btn {
+  appearance: none;
+  border: 1px solid #2a2f24;
+  border-radius: 10px;
+  padding: 11px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: transform 160ms ease, background 180ms ease, border-color 180ms ease, color 180ms ease;
+}
+.logo-studio-btn:hover {
+  transform: translateY(-1px);
+}
+.logo-studio-btn:focus-visible {
+  outline: 2px solid #c9e970;
+  outline-offset: 2px;
+}
+.logo-studio-btn-primary {
+  background: #c9e970;
+  border-color: #c9e970;
+  color: #1a2110;
+}
+.logo-studio-btn-primary:hover {
+  background: #d6ef88;
+  border-color: #d6ef88;
+}
+.logo-studio-btn-secondary {
+  background: #11150e;
+  color: #f3f5ee;
+}
+.logo-studio-btn-secondary:hover {
+  border-color: #c9e970;
+  color: #c9e970;
+}
+.logo-studio-error {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border: 1px solid #b91c1c;
+  background: rgba(185, 28, 28, 0.12);
+  border-radius: 10px;
+  color: #fecaca;
+  font-size: 13px;
+  font-weight: 500;
+}
+.logo-studio-details {
+  margin-top: 8px;
+  padding: 14px 16px;
+  background: #11150e;
+  border: 1px solid #2a2f24;
+  border-radius: 12px;
+  color: #cdd2c4;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.logo-studio-details summary {
+  cursor: pointer;
+  color: #c9e970;
+  font-weight: 600;
+  font-size: 13px;
+  list-style: none;
+  user-select: none;
+}
+.logo-studio-details summary::-webkit-details-marker {
+  display: none;
+}
+.logo-studio-details summary::before {
+  content: "▸ ";
+  display: inline-block;
+  margin-right: 4px;
+  transition: transform 180ms ease;
+}
+.logo-studio-details[open] summary::before {
+  transform: rotate(90deg);
+}
+.logo-studio-details pre {
+  margin: 12px 0 0;
+  padding: 12px;
+  background: #0b0d0a;
+  border: 1px solid #2a2f24;
+  border-radius: 8px;
+  font-size: 12px;
+  overflow-x: auto;
+  color: #cdd2c4;
+}
+@media (prefers-reduced-motion: reduce) {
+  .logo-studio-back,
+  .logo-studio-swatch,
+  .logo-studio-style-btn,
+  .logo-studio-btn,
+  .logo-studio-details summary::before,
+  .logo-studio-field input {
+    transition: none;
+  }
+  .logo-studio-btn:hover,
+  .logo-studio-swatch:hover {
+    transform: none;
+  }
+}

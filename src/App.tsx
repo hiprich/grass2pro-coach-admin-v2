@@ -38,6 +38,7 @@ import type { FormEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { PushCapability, PushSubscriptionRow } from "./lib/pushClient";
 import CoachLandingPage, { CoachNotFoundPage } from "./CoachLandingPage";
 import HomepageCover from "./HomepageCover";
+import LogoStudio from "./LogoStudio";
 import { getCoachProfile } from "./coachProfiles";
 import {
   getPushCapability,
@@ -7079,6 +7080,17 @@ function shouldRenderParentPortal(): boolean {
   return /^\/portal(\/|\?|$)/i.test(window.location.pathname + window.location.search);
 }
 
+// `/admin/logo-studio` is the in-product brand watermark generator. Matched
+// BEFORE shouldRenderCoachDashboard() in AppRoot because /admin/logo-studio
+// is more specific than /admin and would otherwise be swallowed by the
+// dashboard matcher.
+function shouldRenderLogoStudio(): boolean {
+  if (typeof window === "undefined") return false;
+  return /^\/admin\/logo-studio(\/|\?|$)/i.test(
+    window.location.pathname + window.location.search,
+  );
+}
+
 // `/admin` (case-insensitive, with optional trailing slash or query string)
 // routes through CoachDashboard. The parent-facing homepage now lives at
 // "/", so cold visitors who type grass2pro.com land on the cover, and the
@@ -7130,6 +7142,9 @@ function AppRoot() {
     return <CoachLandingPage coach={coach} />;
   }
   if (shouldRenderParentPortal()) return <ParentPortal />;
+  // Specificity: /admin/logo-studio MUST be matched before /admin so the
+  // dashboard matcher doesn't swallow the studio route.
+  if (shouldRenderLogoStudio()) return <LogoStudio />;
   if (shouldRenderCoachDashboard()) return <CoachDashboard />;
   // Default surface for cold visitors at "/" (and any path we haven't
   // claimed yet) is the parent-facing homepage cover.
