@@ -5647,6 +5647,38 @@ html[data-surface="homepage"] body {
   color: #8a9078;
 }
 
+/* Page 2 — the surface revealed when the cover flips open. The whole
+   hero is itself a giant tap target that flips the book back closed,
+   so we add cursor: pointer + a soft hover lift on the bottom-right
+   close chip. CTAs and the brand link inside still work normally
+   because the click handler walks up the DOM and bails on a/button. */
+.homepage-hero-page2 {
+  cursor: pointer;
+}
+.homepage-page2-back {
+  position: absolute;
+  top: 22px;
+  right: 22px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(11, 13, 10, 0.55);
+  border: 1px solid rgba(201, 233, 112, 0.4);
+  color: #c9e970;
+  pointer-events: none;
+  z-index: 4;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  animation: homepage-page2-back-fade 600ms ease 700ms backwards;
+}
+@keyframes homepage-page2-back-fade {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 /* ============================================================
    Book-cover flip on the public homepage (/home).
    ============================================================

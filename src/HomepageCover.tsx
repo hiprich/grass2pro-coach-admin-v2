@@ -120,14 +120,18 @@ export default function HomepageCover() {
         data-testid="book-cover"
       >
         <span className="homepage-book-cover-inner">
+          {/* Page 1 photo: parents handing their kids over at the gate of
+              the pitch. Sets up the narrative — 'parents drop off, coach
+              takes over' — which resolves on page 2 inside. Mobile gets
+              a 9:16 portrait crop centred on the lead handoff. */}
           <picture>
             <source
               media="(max-width: 640px)"
-              srcSet="/g2p-hero-portrait.jpg"
+              srcSet="/g2p-page1-portrait.jpg"
             />
             <img
-              src="/g2p-hero.jpg"
-              alt="Young grassroots footballers in G2P kit at sunset"
+              src="/g2p-page1.jpg"
+              alt="Parents arriving at the pitch with their kids in G2P kit at sunset"
               loading="eager"
               decoding="async"
             />
@@ -167,30 +171,47 @@ export default function HomepageCover() {
         </div>
       </header>
 
-      {/* Hero — full-width photo with lime gradient overlay, headline,
-          subhead, two CTAs (parent + coach). The photo carries the brand
-          visually (lime-stripe kits, G2P crest baked in). */}
-      <section className="homepage-hero">
+      {/* Hero — page 2 of the book. When the cover flips open the visitor
+          lands here on a full-bleed photo of the coach instructing the
+          team — the visual sequel to the parent-handoff cover. The whole
+          hero is itself tappable: tapping anywhere flips the cover back
+          closed (story reverses), so the visitor can play with the
+          metaphor freely. */}
+      <section
+        className="homepage-hero homepage-hero-page2"
+        onClick={(e) => {
+          // Don't close if the visitor is clicking a CTA link — that
+          // should navigate, not flip back. Close only on photo/empty
+          // background taps.
+          const target = e.target as HTMLElement;
+          if (target.closest("a, button")) return;
+          setIsOpen(false);
+        }}
+      >
         <div className="homepage-hero-photo" aria-hidden="true">
-          {/* Mobile gets a square 900x900 crop of the same scene that
-              keeps the hero kid + ball + all four players + cheering
-              parents in frame. The full-bleed landscape was cropping
-              parents and the left-side runner off on iPhone. Desktop
-              keeps the cinematic landscape. */}
+          {/* Page 2 photo: same pitch, same Shard skyline, same kit —
+              continuity with the cover so the flip reads as turning
+              ONE page in ONE story. Mobile uses a 9:16-friendly
+              portrait crop, desktop keeps the cinematic landscape. */}
           <picture>
             <source
               media="(max-width: 640px)"
-              srcSet="/g2p-hero-portrait.jpg"
+              srcSet="/g2p-page2-portrait.jpg"
             />
             <img
-              src="/g2p-hero.jpg"
-              alt=""
+              src="/g2p-page2.jpg"
+              alt="Coach instructing five young players in lime-and-black kit at golden hour"
               loading="eager"
               decoding="async"
             />
           </picture>
           <div className="homepage-hero-overlay" />
         </div>
+        {/* Tiny chip in the top-right that hints page 2 is also tappable.
+            Hidden on the inner CTAs/links so they still work normally. */}
+        <span className="homepage-page2-back" aria-hidden="true">
+          ← Tap to close
+        </span>
 
         <div className="homepage-hero-text">
           <p className="homepage-kicker">UK grassroots football, organised.</p>
