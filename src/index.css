@@ -5927,11 +5927,21 @@ html[data-surface="homepage"] body {
     min-height: 0;
     align-items: flex-end;
   }
-  /* Mobile uses a square 900x900 portrait variant (see HomepageCover
-     <picture>) that already shows the full scene. Centre it so the
-     hero kid sits left-of-centre and the cheering parents sit right. */
+  /* Mobile: show the WHOLE photo (no side-crop) so the diverse cast —
+     parents on one side, kids on the other — is visible end-to-end on
+     iPhone-class viewports. object-fit: contain letterboxes top/bottom
+     against the dark surface, which reads as a deliberate frame. */
   .homepage-hero-photo img {
+    object-fit: contain;
     object-position: center center;
+    background: #0b0d0a;
+  }
+  /* Same treatment on the closed cover (page 1) so the parent-handoff
+     scene shows in full instead of half-cropped. */
+  .homepage-book-cover img {
+    object-fit: contain;
+    object-position: center center;
+    background: #0b0d0a;
   }
   /* Vertical gradient: clear at the top so the kicker reads on the
      soft sky, dark at the bottom so the headline + subhead + CTAs
