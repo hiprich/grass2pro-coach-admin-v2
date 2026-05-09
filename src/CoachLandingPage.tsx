@@ -198,6 +198,7 @@ export default function CoachLandingPage({ coach }: { coach: CoachProfile }) {
         >
           <span className="coach-landing-brand-mark">G2P</span>
           <span className="coach-landing-brand-text">Grass2Pro</span>
+          <span className="coach-landing-brand-suffix" aria-hidden="true">Homepage</span>
         </a>
         {/* Optional partner lockup. Renders nothing when coach.partner is
             unset, so coaches without a club affiliation see the G2P brand
@@ -430,6 +431,7 @@ export function CoachNotFoundPage({ slug }: { slug: string }) {
         >
           <span className="coach-landing-brand-mark">G2P</span>
           <span className="coach-landing-brand-text">Grass2Pro</span>
+          <span className="coach-landing-brand-suffix" aria-hidden="true">Homepage</span>
         </a>
       </header>
       <main className="coach-landing-main coach-landing-empty">

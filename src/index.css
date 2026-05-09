@@ -4722,10 +4722,47 @@ html[data-surface="coach-landing"] body {
 .coach-landing-brand:hover .coach-landing-brand-text {
   color: #ffffff;
 }
+/* 'Homepage' suffix — makes the back-link affordance unmistakable for
+   cold visitors. Lighter weight + muted colour so the wordmark stays
+   the dominant element of the lockup. Separator pip drawn with
+   ::before so we don't need extra DOM. */
+.coach-landing-brand-suffix {
+  position: relative;
+  font-weight: 500;
+  font-size: 14px;
+  letter-spacing: 0.01em;
+  color: #cdd2c4;
+  padding-left: 12px;
+  margin-left: 4px;
+  transition: color 220ms ease;
+}
+.coach-landing-brand-suffix::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #2a2f24;
+  transform: translateY(-50%);
+}
+.coach-landing-brand:hover .coach-landing-brand-suffix {
+  color: #f3f5ee;
+}
+@media (max-width: 380px) {
+  /* Hide the suffix on the narrowest phones so the partner lockup on
+     the right doesn't get pushed off-screen. The mark + 'Grass2Pro'
+     wordmark + aria-label still make this a clear back-link. */
+  .coach-landing-brand-suffix {
+    display: none;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .coach-landing-brand,
   .coach-landing-brand-mark,
-  .coach-landing-brand-text {
+  .coach-landing-brand-text,
+  .coach-landing-brand-suffix {
     transition: none;
   }
   .coach-landing-brand:hover .coach-landing-brand-mark {
