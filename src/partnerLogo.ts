@@ -29,6 +29,14 @@ export type PartnerLogoConfig = {
   // the partner sits inside the same visual system. Coaches will be able to
   // override this in the future Logo Studio.
   accent?: string;
+  // Optional gradient fill for the mark. When set, takes precedence over
+  // `accent` for the silhouette \u2014 the tagline still uses `accent` so the
+  // wordmark+tagline pair remains coherent. Used by the studio's Pride
+  // preset (6-stripe rainbow) and any future custom-gradient builder.
+  // Stops are rendered as evenly-spaced bands when `kind` is "stripes",
+  // or smooth blends when "blend". Direction defaults to vertical for
+  // stripes (reads as a flag) and 45-deg for blends (reads as a sheen).
+  accentGradient?: AccentGradient;
   // Hex colour for the mark's monogram glyph + the wordmark on dark
   // surfaces. Defaults to the deep G2P green for crispness on the lime.
   ink?: string;
@@ -61,7 +69,27 @@ export type PartnerLogoShape =
   | "triangle"
   | "hexagon";
 
-const DEFAULTS: Required<Omit<PartnerLogoConfig, "monogram" | "tagline">> = {
+// Multi-colour fill for the mark. Two flavours:
+//   - "stripes" \u2014 each colour gets an equal hard-edged band. Used for
+//     the Pride preset (6-colour rainbow flag).
+//   - "blend"   \u2014 colours blend smoothly into each other. Useful for
+//     bi/trans/non-binary flag styles where the bands are blurred,
+//     and for any "sunset" / "ocean" custom builds in v2.
+// `direction` is the gradient axis: "vertical" stacks bands top-to-bottom
+// (matches a flag), "horizontal" left-to-right, "diagonal" 45 degrees.
+export type AccentGradient = {
+  kind: "stripes" | "blend";
+  colors: string[];
+  direction?: "vertical" | "horizontal" | "diagonal";
+  // Optional id used to namespace the SVG <linearGradient> id. Defaults to
+  // a stable hash of the colour list so two logos with the same gradient
+  // share a single defs entry when rendered side-by-side.
+  id?: string;
+};
+
+const DEFAULTS: Required<
+  Omit<PartnerLogoConfig, "monogram" | "tagline" | "accentGradient">
+> = {
   brandName: "",
   accent: "#c9e970",
   ink: "#1a2110",
@@ -69,6 +97,19 @@ const DEFAULTS: Required<Omit<PartnerLogoConfig, "monogram" | "tagline">> = {
   style: "wordmark-with-mark",
   shape: "squircle",
 };
+
+// Stable namespace for gradient ids \u2014 stops collisions when multiple
+// PartnerLogos render on the same page (the partner lockup AND the studio
+// preview). Hash is djb2 over the joined colour list so identical
+// gradients dedupe naturally.
+function gradientHash(colors: string[]): string {
+  const joined = colors.join(",");
+  let h = 5381;
+  for (let i = 0; i < joined.length; i++) {
+    h = ((h << 5) + h + joined.charCodeAt(i)) & 0xffffffff;
+  }
+  return Math.abs(h).toString(36);
+}
 
 // Derive a monogram from a brand name. "PurePro Elite" \u2192 "PE",
 // "Tottenham Hotspur" \u2192 "TH", "FC United Manchester" \u2192 "FUM" (capped at 3
@@ -204,6 +245,52 @@ function shapeGeometry(
   }
 }
 
+// Build a <linearGradient> defs block + the fill reference for it. Returns
+// the empty string + the literal accent colour when no gradient is set, so
+// the silhouette renderer can blindly use the returned fill string.
+function buildGradientFill(
+  gradient: AccentGradient | undefined,
+  fallbackAccent: string,
+): { defs: string; fill: string } {
+  if (!gradient || gradient.colors.length === 0) {
+    return { defs: "", fill: fallbackAccent };
+  }
+  const id = gradient.id ?? `pmg-${gradientHash(gradient.colors)}`;
+  // Direction \u2192 SVG axis. SVG default is left-to-right; we override to
+  // top-to-bottom for stripes (reads as a flag) and 45-deg for diagonals.
+  const direction =
+    gradient.direction ?? (gradient.kind === "stripes" ? "vertical" : "diagonal");
+  const axis =
+    direction === "vertical"
+      ? { x1: "0%", y1: "0%", x2: "0%", y2: "100%" }
+      : direction === "horizontal"
+        ? { x1: "0%", y1: "0%", x2: "100%", y2: "0%" }
+        : { x1: "0%", y1: "0%", x2: "100%", y2: "100%" };
+
+  const n = gradient.colors.length;
+  // Stripes: emit each colour as TWO stops at the band boundaries so
+  // adjacent colours don't blur into each other (hard-edge bands).
+  // Blend: emit each colour at its proportional position with smooth
+  // interpolation between stops.
+  const stops: string[] = [];
+  if (gradient.kind === "stripes") {
+    for (let i = 0; i < n; i++) {
+      const start = (i / n) * 100;
+      const end = ((i + 1) / n) * 100;
+      stops.push(`<stop offset="${start}%" stop-color="${gradient.colors[i]}" />`);
+      stops.push(`<stop offset="${end}%" stop-color="${gradient.colors[i]}" />`);
+    }
+  } else {
+    for (let i = 0; i < n; i++) {
+      const offset = n === 1 ? 50 : (i / (n - 1)) * 100;
+      stops.push(`<stop offset="${offset}%" stop-color="${gradient.colors[i]}" />`);
+    }
+  }
+
+  const defs = `<defs><linearGradient id="${id}" x1="${axis.x1}" y1="${axis.y1}" x2="${axis.x2}" y2="${axis.y2}">${stops.join("")}</linearGradient></defs>`;
+  return { defs, fill: `url(#${id})` };
+}
+
 // Build the SVG string. Pure function, no DOM access, safe to call during
 // SSR or to use inside dangerouslySetInnerHTML.
 export function buildPartnerLogo(config: PartnerLogoConfig): string {
@@ -211,6 +298,15 @@ export function buildPartnerLogo(config: PartnerLogoConfig): string {
   const monogram = config.monogram ?? deriveMonogram(cfg.brandName);
   const showMark = cfg.style !== "wordmark-only";
   const showWordmark = cfg.style !== "mark-only";
+
+  // Resolve the mark fill: gradient takes precedence over solid accent
+  // when present. The tagline always uses the solid accent so the
+  // wordmark column reads as a coherent unit even when the mark is a
+  // multi-stripe Pride flag.
+  const { defs: gradientDefs, fill: markFill } = buildGradientFill(
+    config.accentGradient,
+    cfg.accent,
+  );
 
   // Layout constants. The viewBox height stays fixed at 50 so the lockup
   // height is consistent across shapes; the viewBox width grows when the
@@ -242,7 +338,7 @@ export function buildPartnerLogo(config: PartnerLogoConfig): string {
 
   const markSvg = showMark
     ? `<g>
-        ${geom.silhouette(cfg.accent)}
+        ${geom.silhouette(markFill)}
         <text
           x="${geom.labelCx}"
           y="${geom.labelCy}"
@@ -293,6 +389,7 @@ export function buildPartnerLogo(config: PartnerLogoConfig): string {
     role="img"
     aria-label="${escapeXml(cfg.brandName)}${config.tagline ? ` \u2014 ${escapeXml(config.tagline)}` : ""}"
   >
+    ${gradientDefs}
     ${markSvg}
     ${wordmark}
     ${tagline}

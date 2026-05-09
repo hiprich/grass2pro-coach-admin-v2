@@ -17,19 +17,66 @@
 // publicly until Phase G ships.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { PartnerLogoConfig, PartnerLogoShape } from "./partnerLogo";
+import type {
+  AccentGradient,
+  PartnerLogoConfig,
+  PartnerLogoShape,
+} from "./partnerLogo";
 import { buildPartnerLogo } from "./partnerLogo";
 
 // Preset accent colours so non-designers can pick something good without
 // thinking. Lime is the default (matches G2P), the rest cover the most
-// common UK club crest colours so a Sunday-league coach can almost always
-// find a one-click match. Custom hex input is also offered.
-const ACCENT_PRESETS: Array<{ label: string; value: string }> = [
+// common UK club crest colours plus a wider rainbow set so coaches can
+// match almost any kit without dropping into the custom hex field.
+// `border` is rendered as a 1px ring on the swatch so near-background
+// colours (white, lime on dark) don't disappear into the page.
+const ACCENT_PRESETS: Array<{
+  label: string;
+  value: string;
+  border?: string;
+}> = [
   { label: "Grass2Pro Lime", value: "#c9e970" },
   { label: "Pitch Green", value: "#2f7f3a" },
   { label: "Royal Blue", value: "#1d4ed8" },
+  { label: "Navy", value: "#1e3a8a" },
+  { label: "Teal", value: "#14b8a6" },
   { label: "Crimson", value: "#b91c1c" },
   { label: "Sunset Orange", value: "#ea580c" },
+  { label: "Yellow", value: "#facc15" },
+  { label: "Pink", value: "#ec4899" },
+  { label: "Purple", value: "#8b5cf6" },
+  { label: "Black", value: "#0b0d0a", border: "#2a2f24" },
+  { label: "White", value: "#ffffff", border: "#2a2f24" },
+];
+
+// Gradient presets. Today there's exactly one — the classic 6-stripe Pride
+// flag — but the data shape is set up for more (bi flag, trans flag,
+// custom builder) without restructuring the component.
+type GradientPreset = {
+  id: string;
+  label: string;
+  description: string;
+  gradient: AccentGradient;
+};
+
+const GRADIENT_PRESETS: GradientPreset[] = [
+  {
+    id: "pride",
+    label: "Pride",
+    description: "6-stripe rainbow — for LGBTQ+ partners and allyship logos.",
+    gradient: {
+      kind: "stripes",
+      colors: [
+        "#e40303", // red
+        "#ff8c00", // orange
+        "#ffed00", // yellow
+        "#008026", // green
+        "#004dff", // blue
+        "#750787", // purple
+      ],
+      direction: "vertical",
+    },
+  },
 ];
 
 // Ink (text inside the mark) auto-flips between dark green and white based
@@ -173,6 +220,10 @@ export default function LogoStudio() {
   const [tagline, setTagline] = useState("Talent Pathway");
   const [accent, setAccent] = useState(ACCENT_PRESETS[0].value);
   const [customHex, setCustomHex] = useState("");
+  // When a gradient preset is selected, it takes precedence over the
+  // solid accent for the mark silhouette. Picking any solid swatch or
+  // typing a custom hex clears the gradient. `null` = solid mode.
+  const [gradientPresetId, setGradientPresetId] = useState<string | null>(null);
   const [style, setStyle] = useState<Style>("wordmark-with-mark");
   const [shape, setShape] = useState<PartnerLogoShape>("squircle");
   const [autoInk, setAutoInk] = useState(true);
@@ -203,7 +254,22 @@ export default function LogoStudio() {
     return accent;
   }, [accent, customHex]);
 
-  const resolvedInk = autoInk ? autoInkFor(resolvedAccent) : manualInk;
+  // Resolve the active gradient (if any). Memoised so the config object
+  // identity stays stable when nothing relevant changes.
+  const activeGradient = useMemo<AccentGradient | undefined>(() => {
+    if (!gradientPresetId) return undefined;
+    return GRADIENT_PRESETS.find((p) => p.id === gradientPresetId)?.gradient;
+  }, [gradientPresetId]);
+
+  // Auto-ink: for solid accents we flip dark/light against luminance. For
+  // gradients (which mix light + dark stops, e.g. Pride yellow next to
+  // Pride purple) we hardcode white — it's the only ink that stays legible
+  // across every band of every flag in our preset list.
+  const resolvedInk = autoInk
+    ? activeGradient
+      ? "#ffffff"
+      : autoInkFor(resolvedAccent)
+    : manualInk;
 
   // Build the SVG once per render. Pure function, cheap.
   const config: PartnerLogoConfig = useMemo(() => {
@@ -214,12 +280,22 @@ export default function LogoStudio() {
       accent: resolvedAccent,
       ink: resolvedInk,
     };
+    if (activeGradient) cfg.accentGradient = activeGradient;
     const m = monogramOverride.trim().toUpperCase();
     if (m) cfg.monogram = m.slice(0, 3);
     const t = tagline.trim();
     if (t) cfg.tagline = t;
     return cfg;
-  }, [brandName, monogramOverride, tagline, style, shape, resolvedAccent, resolvedInk]);
+  }, [
+    brandName,
+    monogramOverride,
+    tagline,
+    style,
+    shape,
+    resolvedAccent,
+    resolvedInk,
+    activeGradient,
+  ]);
 
   const svg = useMemo(() => buildPartnerLogo(config), [config]);
 
@@ -253,7 +329,7 @@ export default function LogoStudio() {
   // profiles live in Airtable.
   async function handleCopyConfig() {
     setCopyState("idle");
-    const partnerConfig = {
+    const partnerConfig: Record<string, unknown> = {
       brandName: config.brandName,
       monogram: config.monogram,
       tagline: config.tagline,
@@ -262,6 +338,9 @@ export default function LogoStudio() {
       style: config.style,
       shape: config.shape,
     };
+    if (config.accentGradient) {
+      partnerConfig.accentGradient = config.accentGradient;
+    }
     const text = JSON.stringify(partnerConfig, null, 2);
     try {
       await navigator.clipboard.writeText(text);
@@ -340,23 +419,43 @@ export default function LogoStudio() {
           <fieldset className="logo-studio-fieldset">
             <legend>Accent colour</legend>
             <div className="logo-studio-swatches" role="radiogroup">
-              {ACCENT_PRESETS.map((preset) => (
-                <button
-                  key={preset.value}
-                  type="button"
-                  className={`logo-studio-swatch ${
-                    accent === preset.value && !customHex ? "is-active" : ""
-                  }`}
-                  style={{ background: preset.value }}
-                  onClick={() => {
-                    setAccent(preset.value);
-                    setCustomHex("");
-                  }}
-                  aria-label={preset.label}
-                  aria-pressed={accent === preset.value && !customHex}
-                  title={preset.label}
-                />
-              ))}
+              {ACCENT_PRESETS.map((preset) => {
+                const isActive =
+                  !gradientPresetId &&
+                  accent === preset.value &&
+                  !customHex;
+                // Near-background colours (pure white, near-black) need a
+                // visible inner ring so the swatch reads as a chip not a
+                // hole. We use a modifier class so the active-state
+                // box-shadow (lime ring) doesn't get clobbered by an
+                // inline style override.
+                const className = [
+                  "logo-studio-swatch",
+                  preset.border ? "logo-studio-swatch--bordered" : "",
+                  isActive ? "is-active" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ");
+                return (
+                  <button
+                    key={preset.value}
+                    type="button"
+                    className={className}
+                    style={{ background: preset.value }}
+                    onClick={() => {
+                      setAccent(preset.value);
+                      setCustomHex("");
+                      setGradientPresetId(null);
+                    }}
+                    aria-label={preset.label}
+                    aria-pressed={isActive}
+                    title={preset.label}
+                    data-testid={`btn-accent-${preset.label
+                      .toLowerCase()
+                      .replace(/\s+/g, "-")}`}
+                  />
+                );
+              })}
             </div>
             <label className="logo-studio-field">
               <span>
@@ -365,13 +464,84 @@ export default function LogoStudio() {
               <input
                 type="text"
                 value={customHex}
-                onChange={(e) => setCustomHex(e.target.value)}
+                onChange={(e) => {
+                  setCustomHex(e.target.value);
+                  // Typing a custom hex implies solid mode — drop any
+                  // active gradient so the preview reflects the input.
+                  if (e.target.value.trim()) setGradientPresetId(null);
+                }}
                 placeholder="#1d4ed8"
                 data-testid="input-custom-hex"
                 maxLength={7}
                 spellCheck={false}
               />
             </label>
+
+            {/* Gradient presets \u2014 sit below the solid swatches so the
+                primary path stays one-click solid colour, but coaches /
+                clubs that want a flag-style mark (Pride today, others
+                later) can pick one with a single tap. Selecting clears
+                the solid accent's active state but keeps the underlying
+                accent value so the tagline still gets a coherent colour. */}
+            <div className="logo-studio-gradients">
+              <span className="logo-studio-gradients-label">
+                Or pick a gradient
+              </span>
+              <div
+                className="logo-studio-gradient-list"
+                role="radiogroup"
+                aria-label="Gradient presets"
+              >
+                {GRADIENT_PRESETS.map((preset) => {
+                  const isActive = gradientPresetId === preset.id;
+                  // Build a CSS linear-gradient mirroring the SVG output
+                  // for the chip preview \u2014 hard-edge bands for stripes,
+                  // smooth blend otherwise.
+                  const stops =
+                    preset.gradient.kind === "stripes"
+                      ? preset.gradient.colors
+                          .map((c, i, arr) => {
+                            const start = (i / arr.length) * 100;
+                            const end = ((i + 1) / arr.length) * 100;
+                            return `${c} ${start}%, ${c} ${end}%`;
+                          })
+                          .join(", ")
+                      : preset.gradient.colors.join(", ");
+                  const angle =
+                    preset.gradient.direction === "horizontal"
+                      ? "to right"
+                      : preset.gradient.direction === "diagonal"
+                        ? "135deg"
+                        : "to bottom";
+                  return (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      className={`logo-studio-gradient-btn ${
+                        isActive ? "is-active" : ""
+                      }`}
+                      onClick={() =>
+                        setGradientPresetId(isActive ? null : preset.id)
+                      }
+                      aria-pressed={isActive}
+                      data-testid={`btn-gradient-${preset.id}`}
+                      title={preset.description}
+                    >
+                      <span
+                        className="logo-studio-gradient-swatch"
+                        style={{
+                          backgroundImage: `linear-gradient(${angle}, ${stops})`,
+                        }}
+                        aria-hidden="true"
+                      />
+                      <span className="logo-studio-gradient-label">
+                        {preset.label}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </fieldset>
 
           <fieldset className="logo-studio-fieldset">

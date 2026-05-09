@@ -5960,9 +5960,82 @@ html[data-surface="logo-studio"] body {
   border-color: #f3f5ee;
   box-shadow: 0 0 0 2px #c9e970, 0 0 0 1px rgba(0, 0, 0, 0.4) inset;
 }
+/* Near-background colours (pure white, near-black) need an extra inner
+   ring so the swatch reads as a discrete chip rather than disappearing
+   into the panel. Combined with the existing box-shadow when active so
+   the lime ring still wins visually on selection. */
+.logo-studio-swatch--bordered {
+  box-shadow: 0 0 0 1px #2a2f24 inset;
+}
+.logo-studio-swatch--bordered.is-active {
+  box-shadow:
+    0 0 0 2px #c9e970,
+    0 0 0 1px #2a2f24 inset;
+}
 .logo-studio-swatch:focus-visible {
   outline: 2px solid #c9e970;
   outline-offset: 3px;
+}
+
+/* Gradient preset list \u2014 sits below the solid swatch grid. Today the
+   only entry is the Pride flag chip, but the list is shaped to grow
+   (bi/trans/non-binary flags, custom builds) without re-styling. */
+.logo-studio-gradients {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.logo-studio-gradients-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #8a8f80;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+.logo-studio-gradient-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.logo-studio-gradient-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: #0b0d0a;
+  border: 1px solid #2a2f24;
+  border-radius: 12px;
+  padding: 6px 12px 6px 6px;
+  color: #cdd2c4;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 180ms ease, color 180ms ease, background 180ms ease;
+}
+.logo-studio-gradient-btn:hover {
+  border-color: #c9e970;
+  color: #f3f5ee;
+}
+.logo-studio-gradient-btn.is-active {
+  border-color: #c9e970;
+  color: #f3f5ee;
+  box-shadow: 0 0 0 2px rgba(201, 233, 112, 0.25);
+}
+.logo-studio-gradient-btn:focus-visible {
+  outline: 2px solid #c9e970;
+  outline-offset: 3px;
+}
+.logo-studio-gradient-swatch {
+  display: inline-block;
+  width: 32px;
+  height: 22px;
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
+}
+.logo-studio-gradient-label {
+  letter-spacing: 0.3px;
 }
 .logo-studio-styles {
   display: flex;
