@@ -5691,7 +5691,7 @@ html[data-surface="homepage"] body {
     inset: 0 0 auto 0;
   }
   .homepage-hero-text {
-    padding: 62vw 0 28px;
+    padding: 78vw 0 16px;
   }
   .homepage-cta {
     flex: 1 1 100%;
@@ -5699,7 +5699,7 @@ html[data-surface="homepage"] body {
   }
   .homepage-benefits,
   .homepage-benefits-alt {
-    padding: 48px 20px;
+    padding: 28px 20px 48px;
   }
   .homepage-footer {
     padding: 24px 20px;
