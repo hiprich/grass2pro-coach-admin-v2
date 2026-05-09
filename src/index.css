@@ -5927,21 +5927,16 @@ html[data-surface="homepage"] body {
     min-height: 0;
     align-items: flex-end;
   }
-  /* Mobile: show the WHOLE photo (no side-crop) so the diverse cast —
-     parents on one side, kids on the other — is visible end-to-end on
-     iPhone-class viewports. object-fit: contain letterboxes top/bottom
-     against the dark surface, which reads as a deliberate frame. */
+  /* Mobile portrait photos are now true 9:16 (720x1280), matching
+     iPhone aspect ratio — use object-fit: cover so they fill the
+     viewport edge-to-edge with no letterbox bars. */
   .homepage-hero-photo img {
-    object-fit: contain;
+    object-fit: cover;
     object-position: center center;
-    background: #0b0d0a;
   }
-  /* Same treatment on the closed cover (page 1) so the parent-handoff
-     scene shows in full instead of half-cropped. */
   .homepage-book-cover img {
-    object-fit: contain;
+    object-fit: cover;
     object-position: center center;
-    background: #0b0d0a;
   }
   /* Vertical gradient: clear at the top so the kicker reads on the
      soft sky, dark at the bottom so the headline + subhead + CTAs
@@ -5960,16 +5955,16 @@ html[data-surface="homepage"] body {
      player's body or face. The aspect-ratio: 1 makes the photo card
      a perfect square (matches the 900x900 source), then text uses
      padding-top to start ~62% down. */
-  /* Portrait crops are 900x1125 (4:5). Use that exact aspect ratio so
-     iPhone 12-class viewports (390x844) don't crop the sides — the
-     photo card is now ~125vw tall, framing the full diverse cast. */
+  /* Portrait crops are now true 9:16 (720x1280) matching iPhone
+     viewports. Photo card fills the viewport top-to-bottom on mobile;
+     text overlays the lower third over a dark gradient. */
   .homepage-hero-photo {
-    aspect-ratio: 4 / 5;
+    aspect-ratio: 9 / 16;
     height: auto;
     inset: 0 0 auto 0;
   }
   .homepage-hero-text {
-    padding: 96vw 0 16px;
+    padding: 130vw 0 16px;
   }
   .homepage-cta {
     flex: 1 1 100%;
