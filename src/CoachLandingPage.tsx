@@ -16,6 +16,60 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CoachProfile } from "./coachProfiles";
 import { renderTagline } from "./coachProfiles";
+import { buildPartnerLogo } from "./partnerLogo";
+
+// Render a coach's optional partner lockup as a top-right header element.
+// Pure UI helper, kept here rather than its own file because it's only
+// rendered in this one place. The SVG is built via buildPartnerLogo so the
+// future Logo Studio in /admin can drive the exact same renderer.
+function PartnerLockup({ coach }: { coach: CoachProfile }) {
+  const partner = coach.partner;
+  if (!partner) return null;
+
+  const svg = buildPartnerLogo({
+    brandName: partner.brandName,
+    monogram: partner.monogram,
+    tagline: partner.tagline,
+  });
+
+  // The lockup is a visual lockup with an "in partnership with" eyebrow.
+  // We split the eyebrow text from the SVG so the eyebrow stays selectable
+  // and screen-readable, and the SVG carries its own aria-label.
+  const inner = (
+    <>
+      <span className="coach-landing-partner-eyebrow">in partnership with</span>
+      <span
+        className="coach-landing-partner-mark"
+        // dangerouslySetInnerHTML is safe here because buildPartnerLogo
+        // escapes all string interpolations — see partnerLogo.ts.
+        dangerouslySetInnerHTML={{ __html: svg }}
+      />
+    </>
+  );
+
+  // Click-through if the partner has a public site, otherwise render as a
+  // plain visual mark. rel=noopener prevents window.opener leakage and
+  // noreferrer keeps the partner's analytics blind to which Grass2Pro page
+  // referred them — we'll relax that later if a partner asks for it.
+  if (partner.href) {
+    return (
+      <a
+        className="coach-landing-partner coach-landing-partner-link"
+        href={partner.href}
+        target="_blank"
+        rel="noopener noreferrer"
+        data-testid="link-partner"
+      >
+        {inner}
+      </a>
+    );
+  }
+  return (
+    <div className="coach-landing-partner" data-testid="partner-lockup">
+      {inner}
+    </div>
+  );
+}
 
 type RegistrationStatus =
   | { state: "idle" }
@@ -145,6 +199,10 @@ export default function CoachLandingPage({ coach }: { coach: CoachProfile }) {
           <span className="coach-landing-brand-mark">G2P</span>
           <span className="coach-landing-brand-text">Grass2Pro</span>
         </a>
+        {/* Optional partner lockup. Renders nothing when coach.partner is
+            unset, so coaches without a club affiliation see the G2P brand
+            alone with no awkward empty box. */}
+        <PartnerLockup coach={coach} />
       </header>
 
       <main className="coach-landing-main">

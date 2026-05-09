@@ -39,6 +39,21 @@ export type CoachProfile = {
   // Hotspur scout"). Kept separate from `bio` so it can be styled as small
   // pill-shaped credentials.
   credentials?: string[];
+  // Optional partner / club affiliation surfaced as a top-right lockup on
+  // the coach landing header. Lets coaches show their club/network alongside
+  // Grass2Pro so the page reads as a partnership, not solo branding.
+  // All fields optional so coaches without a partner show G2P alone.
+  partner?: {
+    // Brand name. Drives the wordmark + the auto-derived monogram.
+    brandName: string;
+    // Optional 2-3 letter override if the auto-derived monogram is wrong.
+    monogram?: string;
+    // Optional supporting line under the wordmark, e.g. "Talent Pathway".
+    tagline?: string;
+    // Optional click-through. When set, the lockup becomes an <a> opening
+    // in a new tab. Omit to render as a visual mark only.
+    href?: string;
+  };
 };
 
 export const COACH_PROFILES: Record<string, CoachProfile> = {
@@ -68,6 +83,14 @@ export const COACH_PROFILES: Record<string, CoachProfile> = {
     heroSrc: "/coaches/hope-hero.jpg",
     whatsappE164: "447918950309",
     airtableRecordId: "rect8JRrno85KaRNG",
+    partner: {
+      brandName: "PurePro Elite",
+      monogram: "PE",
+      tagline: "Talent Pathway",
+      // No href yet — PurePro Elite doesn't have a public site. Add this
+      // field when they do and the lockup will auto-become a clickable
+      // anchor opening in a new tab.
+    },
   },
 };
 

@@ -5646,3 +5646,83 @@ html[data-surface="homepage"] body {
     grid-column: 1 / -1;
   }
 }
+
+/* =====================================================================
+   Partner lockup on coach landing pages.
+   Sits in the top-right of .coach-landing-topbar opposite the G2P brand
+   block. Reads as a partnership ("in partnership with PUREPRO ELITE")
+   so the page doesn't feel like solo Grass2Pro branding.
+   ===================================================================== */
+
+.coach-landing-partner {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  text-decoration: none;
+  /* Subtle pill so the lockup reads as a discrete unit even on a busy
+     hero photo behind a future translucent header. */
+  padding: 6px 12px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  transition: border-color 220ms ease, background 220ms ease;
+}
+.coach-landing-partner-eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #8a9078;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.coach-landing-partner-mark {
+  display: inline-flex;
+  align-items: center;
+}
+.coach-landing-partner-mark svg {
+  /* Fixed height keeps the lockup visually balanced with the G2P brand
+     block (34px mark + wordmark) on the left. The SVG width flexes via
+     viewBox so longer brand names stretch the wordmark, not squash it. */
+  height: 38px;
+  width: auto;
+  display: block;
+}
+
+/* When the partner has a click-through, give it a soft hover treatment
+   to telegraph it's interactive without competing with the registration
+   CTA further down the page. */
+.coach-landing-partner-link:hover {
+  border-color: rgba(201, 233, 112, 0.35);
+  background: rgba(201, 233, 112, 0.05);
+}
+.coach-landing-partner-link:focus-visible {
+  outline: 2px solid #c9e970;
+  outline-offset: 2px;
+}
+
+/* Mobile: the eyebrow gets too wordy at narrow widths and the lockup
+   fights the G2P brand for space. Stack the topbar vertically so each
+   brand has its own row, and shrink the eyebrow to a single word. */
+@media (max-width: 640px) {
+  .coach-landing-topbar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .coach-landing-partner {
+    padding: 6px 10px;
+    gap: 10px;
+  }
+  .coach-landing-partner-eyebrow {
+    font-size: 9px;
+    letter-spacing: 0.14em;
+  }
+  .coach-landing-partner-mark svg {
+    height: 32px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .coach-landing-partner {
+    transition: none;
+  }
+}
