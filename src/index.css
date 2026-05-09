@@ -5785,14 +5785,22 @@ html[data-surface="homepage"] body {
    needs normal page scroll — otherwise the form gets clipped at the
    viewport edge with no way to reach the Style fieldset or the preview
    actions on shorter screens. Mirrors the homepage / coach-landing reset. */
-html[data-surface="logo-studio"],
-html[data-surface="logo-studio"] body {
+/* Reset the admin app's locked viewport for the Logo Studio surface so
+   the page scrolls naturally on <html>. <body> deliberately stays as
+   overflow: visible — if both html AND body have overflow:auto, position:
+   sticky inside the body fails to pin because the sticky element binds
+   to body's scroll container which never actually scrolls. (Spent
+   v1.4/v1.5 chasing this; logging here so we don't reintroduce it.) */
+html[data-surface="logo-studio"] {
   height: auto;
   min-height: 100%;
   overflow: visible;
   overflow-y: auto;
 }
 html[data-surface="logo-studio"] body {
+  height: auto;
+  min-height: 100%;
+  overflow: visible;
   background: #0b0d0a;
 }
 [data-surface="logo-studio"] {

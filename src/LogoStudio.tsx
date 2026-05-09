@@ -328,6 +328,10 @@ export default function LogoStudio() {
   // meaningfully changed (e.g. the user typed a letter and then deleted
   // it within the debounce window) so we skip pushing.
   const lastSnapshotRef = useRef<FormState | null>(null);
+  // Live mirror of the current state so we can push synchronous
+  // snapshots from event handlers without waiting for React to flush.
+  // The debounced effect updates this every render.
+  const currentStateRef = useRef<FormState | null>(null);
 
   const currentState = useMemo<FormState>(
     () => ({
@@ -370,18 +374,29 @@ export default function LogoStudio() {
     ],
   );
 
-  // Seed the baseline snapshot once on mount so that the very first edit
-  // pushes the initial state and undo can roll back to the defaults.
+  // Seed the baseline snapshot + the live state mirror once on mount.
   useEffect(() => {
     lastSnapshotRef.current = currentState;
+    currentStateRef.current = currentState;
     // We deliberately depend on nothing — this runs once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Debounced push: schedule a snapshot 400ms after the latest change. If
-  // another change arrives, the timer resets so we only push when the
-  // user pauses. We push the *previous* snapshot (lastSnapshotRef) so
-  // that the stack contains pre-edit states and undo restores them.
+  // Keep the live state mirror current every render so flushSnapshot()
+  // (called synchronously from event handlers below) can read the
+  // pre-update state without waiting for React's commit phase.
+  useEffect(() => {
+    currentStateRef.current = currentState;
+  }, [currentState]);
+
+  // Debounced push: schedule a snapshot 220ms after the latest change.
+  // The timer resets on every change so a continuous drag of the colour
+  // picker doesn't fragment into dozens of micro-undos. We push the
+  // *previous* snapshot (lastSnapshotRef) so the stack contains
+  // pre-edit states and undo restores them. 220ms is shorter than v1.4's
+  // 400ms so that a single colour drag commits to history quicker —
+  // important for the popover where the user expects each settled
+  // colour to be one undo step.
   useEffect(() => {
     if (isRestoringRef.current) {
       // Clear the flag and skip pushing — we just restored a snapshot.
@@ -404,9 +419,30 @@ export default function LogoStudio() {
         return next;
       });
       lastSnapshotRef.current = currentState;
-    }, 400);
+    }, 220);
     return () => clearTimeout(id);
   }, [currentState]);
+
+  // Synchronously flush any pending edit into the undo stack. Called
+  // from discrete action handlers (mode buttons, picker open/close) so
+  // each meaningful step is its own undo entry. Without this, when the
+  // user clicks "Custom" and immediately drags the colour picker, the
+  // debounce timer keeps resetting and only one combined snapshot ever
+  // gets pushed — so a single undo jumps back past both the mode change
+  // AND the drag, which is the bug Cobby reported in v1.5.
+  function flushSnapshot() {
+    if (isRestoringRef.current) return;
+    const live = currentStateRef.current;
+    const prev = lastSnapshotRef.current;
+    if (!live || !prev) return;
+    if (JSON.stringify(prev) === JSON.stringify(live)) return;
+    setUndoStack((stack) => {
+      const next = [...stack, prev];
+      if (next.length > 50) next.shift();
+      return next;
+    });
+    lastSnapshotRef.current = live;
+  }
 
   function applySnapshot(s: FormState) {
     isRestoringRef.current = true;
@@ -713,6 +749,7 @@ export default function LogoStudio() {
                     className={className}
                     style={{ background: preset.value }}
                     onClick={() => {
+                      flushSnapshot();
                       setAccent(preset.value);
                       setCustomHex("");
                       setGradientPresetId(null);
@@ -747,11 +784,12 @@ export default function LogoStudio() {
                     className={`logo-studio-gradient-btn ${
                       customHex && !gradientPresetId ? "is-active" : ""
                     }`}
-                    onClick={() =>
+                    onClick={() => {
+                      flushSnapshot();
                       setActivePicker(
                         activePicker === "accent" ? null : "accent",
-                      )
-                    }
+                      );
+                    }}
                     aria-pressed={activePicker === "accent"}
                     aria-haspopup="dialog"
                     aria-expanded={activePicker === "accent"}
@@ -808,6 +846,7 @@ export default function LogoStudio() {
                         isActive ? "is-active" : ""
                       }`}
                       onClick={() => {
+                        flushSnapshot();
                         setGradientPresetId(isActive ? null : preset.id);
                         // Clear any active custom hex when switching
                         // into a gradient — the gradient owns the mark.
@@ -870,7 +909,10 @@ export default function LogoStudio() {
                   className={`logo-studio-style-btn ${
                     style === opt.value ? "is-active" : ""
                   }`}
-                  onClick={() => setStyle(opt.value)}
+                  onClick={() => {
+                    flushSnapshot();
+                    setStyle(opt.value);
+                  }}
                   aria-pressed={style === opt.value}
                   data-testid={`btn-style-${opt.value}`}
                 >
@@ -895,7 +937,10 @@ export default function LogoStudio() {
                   className={`logo-studio-shape-btn ${
                     shape === opt.value ? "is-active" : ""
                   }`}
-                  onClick={() => setShape(opt.value)}
+                  onClick={() => {
+                    flushSnapshot();
+                    setShape(opt.value);
+                  }}
                   aria-pressed={shape === opt.value}
                   aria-label={opt.label}
                   title={opt.label}
@@ -945,7 +990,10 @@ export default function LogoStudio() {
                     className={`logo-studio-style-btn ${
                       outlineWidth === opt.value ? "is-active" : ""
                     }`}
-                    onClick={() => setOutlineWidth(opt.value)}
+                    onClick={() => {
+                      flushSnapshot();
+                      setOutlineWidth(opt.value);
+                    }}
                     aria-pressed={outlineWidth === opt.value}
                     data-testid={`btn-outline-${opt.label.toLowerCase()}`}
                   >
@@ -1040,6 +1088,7 @@ export default function LogoStudio() {
                       wordmarkMode === opt.id ? "is-active" : ""
                     }`}
                     onClick={() => {
+                      flushSnapshot();
                       setWordmarkMode(opt.id);
                       if (opt.id === "custom") setActivePicker("wordmark");
                       else if (activePicker === "wordmark")
@@ -1133,6 +1182,10 @@ export default function LogoStudio() {
                       taglineMode === opt.id ? "is-active" : ""
                     }`}
                     onClick={() => {
+                      // Flush before mode change so undo can step back to
+                      // "before I clicked Custom" as one entry, then
+                      // separately undo subsequent colour drags.
+                      flushSnapshot();
                       setTaglineMode(opt.id);
                       if (opt.id === "custom") setActivePicker("tagline");
                       else if (activePicker === "tagline")
