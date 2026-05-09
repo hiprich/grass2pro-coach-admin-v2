@@ -5653,27 +5653,45 @@ html[data-surface="homepage"] body {
   .homepage-topbar {
     padding: 18px 20px;
   }
+  /* Mobile hero: align-items flex-end so the text block sits at the
+     BOTTOM of the photo (kicker just above the leading player's head,
+     CTAs near the lower edge), and let height grow to fit content so
+     there's no big black gap between the CTAs and the next section. */
   .homepage-hero {
     padding: 0 20px;
-    min-height: clamp(520px, 80vh, 700px);
+    min-height: 0;
+    align-items: flex-end;
   }
   /* Mobile uses a square 900x900 portrait variant (see HomepageCover
-     <picture>) that already shows the full scene. Keep cover so it
-     fills the hero, and centre it horizontally so the hero kid stays
-     roughly mid-frame. */
+     <picture>) that already shows the full scene. Centre it so the
+     hero kid sits left-of-centre and the cheering parents sit right. */
   .homepage-hero-photo img {
     object-position: center center;
   }
-  /* Soften the left-side gradient on phones so the parents/kids on
-     the right of the (now centred) crop don't get washed out, and
-     drop a darker bottom band to keep the headline legible. */
+  /* Vertical gradient: clear at the top so the kicker reads on the
+     soft sky, dark at the bottom so the headline + subhead + CTAs
+     stay legible over the pitch. */
   .homepage-hero-overlay {
-    background:
-      linear-gradient(180deg, rgba(11, 13, 10, 0.18) 0%, rgba(11, 13, 10, 0.32) 38%, rgba(11, 13, 10, 0.86) 100%),
-      radial-gradient(ellipse at 50% 100%, rgba(201, 233, 112, 0.16) 0%, transparent 60%);
+    background: linear-gradient(
+      180deg,
+      rgba(11, 13, 10, 0.10) 0%,
+      rgba(11, 13, 10, 0.18) 32%,
+      rgba(11, 13, 10, 0.55) 58%,
+      rgba(11, 13, 10, 0.92) 100%
+    );
+  }
+  /* Push the text down so the kicker lands above the hero player's
+     head and the rest of the copy sits over the pitch — not over the
+     player's body or face. The aspect-ratio: 1 makes the photo card
+     a perfect square (matches the 900x900 source), then text uses
+     padding-top to start ~62% down. */
+  .homepage-hero-photo {
+    aspect-ratio: 1 / 1;
+    height: auto;
+    inset: 0 0 auto 0;
   }
   .homepage-hero-text {
-    padding: 36px 0;
+    padding: 62vw 0 28px;
   }
   .homepage-cta {
     flex: 1 1 100%;
