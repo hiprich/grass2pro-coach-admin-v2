@@ -23,6 +23,40 @@ import type {
   PartnerLogoShape,
 } from "./partnerLogo";
 import { buildPartnerLogo } from "./partnerLogo";
+import ColourPopover from "./ColourPopover";
+
+// Outline thickness presets. Width is in viewBox units; the mark is ~38u
+// across so 0/1.5/3 reads as none/thin/thick crest border. Three buttons
+// keeps the control one-tap and prevents weird in-between values.
+const OUTLINE_PRESETS: Array<{
+  value: number;
+  label: string;
+}> = [
+  { value: 0, label: "None" },
+  { value: 1.5, label: "Thin" },
+  { value: 3, label: "Thick" },
+];
+
+// Compact swatch palette reused for outline / wordmark / tagline
+// shortcuts. Same hex set as ACCENT_PRESETS but rendered as a smaller
+// inline strip beside the "Match accent" / "White" / "Custom" choices.
+const MARK_OUTLINE_COLOURS: string[] = [
+  "#0b0d0a",
+  "#ffffff",
+  "#c9e970",
+  "#1d4ed8",
+  "#b91c1c",
+  "#ea580c",
+  "#facc15",
+  "#ec4899",
+  "#8b5cf6",
+];
+
+// Choices for the wordmark + tagline colour shortcut control. "accent"
+// means inherit the resolved accent at render time. "custom" hands off to
+// the colour popover. "white" is a hardcoded shortcut because it's the
+// most-requested wordmark on dark backgrounds.
+type TextColourMode = "accent" | "white" | "custom";
 
 // Preset accent colours so non-designers can pick something good without
 // thinking. Lime is the default (matches G2P), the rest cover the most
@@ -228,6 +262,29 @@ export default function LogoStudio() {
   const [shape, setShape] = useState<PartnerLogoShape>("squircle");
   const [autoInk, setAutoInk] = useState(true);
   const [manualInk, setManualInk] = useState("#1a2110");
+  // v1.3 — "Pro mode" advanced controls. Collapsed by default so the
+  // first-run experience stays clean (Apple instinct: simple by default,
+  // depth on tap). When closed, none of the advanced fields are visible
+  // even if they hold non-default values — the values are still applied
+  // to the preview, which is the right behaviour: open Pro mode → see
+  // exactly what's driving the look.
+  const [proMode, setProMode] = useState(false);
+  const [outlineWidth, setOutlineWidth] = useState(0);
+  const [outlineColor, setOutlineColor] = useState("#0b0d0a");
+  // Wordmark colour mode. "accent" → use the resolved accent (so the
+  // wordmark colour-pairs with the mark). "white" → hardcoded #f3f5ee
+  // (the original default). "custom" → a user-picked hex.
+  const [wordmarkMode, setWordmarkMode] = useState<TextColourMode>("white");
+  const [wordmarkCustom, setWordmarkCustom] = useState("#f3f5ee");
+  // Tagline colour mode — default "accent" so the tagline colour-pairs
+  // with the mark exactly like before this change (no behaviour drift).
+  const [taglineMode, setTaglineMode] = useState<TextColourMode>("accent");
+  const [taglineCustom, setTaglineCustom] = useState("#facc15");
+  // Which colour control currently owns the popover, if any. Single
+  // popover instance — only one picker open at a time.
+  const [activePicker, setActivePicker] = useState<
+    null | "accent" | "outline" | "wordmark" | "tagline"
+  >(null);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
   const [exportError, setExportError] = useState<string | null>(null);
   const previewRef = useRef<HTMLDivElement | null>(null);
@@ -271,6 +328,25 @@ export default function LogoStudio() {
       : autoInkFor(resolvedAccent)
     : manualInk;
 
+  // Resolve wordmark + tagline colours from their mode + custom values.
+  // "accent" branches return undefined for the override so the renderer
+  // falls back to its built-in inheritance (wordmark uses the existing
+  // light wordmarkColor default, tagline inherits accent).
+  const resolvedWordmarkColor = useMemo<string | undefined>(() => {
+    if (wordmarkMode === "white") return "#f3f5ee";
+    if (wordmarkMode === "custom") return wordmarkCustom;
+    // "accent" — use the resolved accent so the wordmark colour-pairs
+    // with the mark on dark surfaces. The light-bg preview overrides
+    // this with its own dark colour for legibility.
+    return resolvedAccent;
+  }, [wordmarkMode, wordmarkCustom, resolvedAccent]);
+
+  const resolvedTaglineColor = useMemo<string | undefined>(() => {
+    if (taglineMode === "accent") return undefined; // renderer inherits
+    if (taglineMode === "white") return "#f3f5ee";
+    return taglineCustom;
+  }, [taglineMode, taglineCustom]);
+
   // Build the SVG once per render. Pure function, cheap.
   const config: PartnerLogoConfig = useMemo(() => {
     const cfg: PartnerLogoConfig = {
@@ -281,6 +357,12 @@ export default function LogoStudio() {
       ink: resolvedInk,
     };
     if (activeGradient) cfg.accentGradient = activeGradient;
+    if (resolvedWordmarkColor) cfg.wordmarkColor = resolvedWordmarkColor;
+    if (resolvedTaglineColor) cfg.taglineColor = resolvedTaglineColor;
+    if (outlineWidth > 0) {
+      cfg.outlineWidth = outlineWidth;
+      cfg.outlineColor = outlineColor;
+    }
     const m = monogramOverride.trim().toUpperCase();
     if (m) cfg.monogram = m.slice(0, 3);
     const t = tagline.trim();
@@ -295,6 +377,10 @@ export default function LogoStudio() {
     resolvedAccent,
     resolvedInk,
     activeGradient,
+    resolvedWordmarkColor,
+    resolvedTaglineColor,
+    outlineWidth,
+    outlineColor,
   ]);
 
   const svg = useMemo(() => buildPartnerLogo(config), [config]);
@@ -340,6 +426,12 @@ export default function LogoStudio() {
     };
     if (config.accentGradient) {
       partnerConfig.accentGradient = config.accentGradient;
+    }
+    if (config.wordmarkColor) partnerConfig.wordmarkColor = config.wordmarkColor;
+    if (config.taglineColor) partnerConfig.taglineColor = config.taglineColor;
+    if (config.outlineWidth) {
+      partnerConfig.outlineWidth = config.outlineWidth;
+      partnerConfig.outlineColor = config.outlineColor;
     }
     const text = JSON.stringify(partnerConfig, null, 2);
     try {
@@ -457,41 +549,58 @@ export default function LogoStudio() {
                 );
               })}
             </div>
-            <label className="logo-studio-field">
-              <span>
-                Custom hex <em>(overrides preset)</em>
-              </span>
-              <input
-                type="text"
-                value={customHex}
-                onChange={(e) => {
-                  setCustomHex(e.target.value);
-                  // Typing a custom hex implies solid mode — drop any
-                  // active gradient so the preview reflects the input.
-                  if (e.target.value.trim()) setGradientPresetId(null);
-                }}
-                placeholder="#1d4ed8"
-                data-testid="input-custom-hex"
-                maxLength={7}
-                spellCheck={false}
-              />
-            </label>
-
-            {/* Gradient presets \u2014 sit below the solid swatches so the
-                primary path stays one-click solid colour, but coaches /
-                clubs that want a flag-style mark (Pride today, others
-                later) can pick one with a single tap. Selecting clears
-                the solid accent's active state but keeps the underlying
-                accent value so the tagline still gets a coherent colour. */}
+            {/* Gradient presets + custom picker \u2014 sit below the solid
+                swatches so the primary path stays one-click solid colour.
+                The Custom chip opens a full HSV picker; picking from it
+                drops gradient mode and applies the picked hex as the
+                solid accent. */}
             <div className="logo-studio-gradients">
               <span className="logo-studio-gradients-label">
-                Or pick a gradient
+                Or pick a gradient / custom colour
               </span>
               <div
                 className="logo-studio-gradient-list"
                 role="radiogroup"
-                aria-label="Gradient presets"
+                aria-label="Gradient and custom colour presets"
               >
+                <div className="logo-studio-gradient-btn-wrap">
+                  <button
+                    type="button"
+                    className={`logo-studio-gradient-btn ${
+                      customHex && !gradientPresetId ? "is-active" : ""
+                    }`}
+                    onClick={() =>
+                      setActivePicker(
+                        activePicker === "accent" ? null : "accent",
+                      )
+                    }
+                    aria-pressed={activePicker === "accent"}
+                    aria-haspopup="dialog"
+                    aria-expanded={activePicker === "accent"}
+                    data-testid="btn-accent-custom"
+                    title="Pick any custom colour with hue + saturation"
+                  >
+                    <span
+                      className="logo-studio-gradient-swatch logo-studio-gradient-swatch--custom"
+                      style={{
+                        background: customHex || resolvedAccent,
+                      }}
+                      aria-hidden="true"
+                    />
+                    <span className="logo-studio-gradient-label">Custom</span>
+                  </button>
+                  {activePicker === "accent" && (
+                    <ColourPopover
+                      title="Custom accent"
+                      value={customHex || resolvedAccent}
+                      onChange={(hex) => {
+                        setCustomHex(hex);
+                        setGradientPresetId(null);
+                      }}
+                      onClose={() => setActivePicker(null)}
+                    />
+                  )}
+                </div>
                 {GRADIENT_PRESETS.map((preset) => {
                   const isActive = gradientPresetId === preset.id;
                   // Build a CSS linear-gradient mirroring the SVG output
@@ -520,9 +629,12 @@ export default function LogoStudio() {
                       className={`logo-studio-gradient-btn ${
                         isActive ? "is-active" : ""
                       }`}
-                      onClick={() =>
-                        setGradientPresetId(isActive ? null : preset.id)
-                      }
+                      onClick={() => {
+                        setGradientPresetId(isActive ? null : preset.id);
+                        // Clear any active custom hex when switching
+                        // into a gradient — the gradient owns the mark.
+                        if (!isActive) setCustomHex("");
+                      }}
                       aria-pressed={isActive}
                       data-testid={`btn-gradient-${preset.id}`}
                       title={preset.description}
@@ -620,6 +732,234 @@ export default function LogoStudio() {
               ))}
             </div>
           </fieldset>
+
+          {/* Pro mode \u2014 advanced controls hidden behind a disclosure so
+              the first-run form stays one-page and unintimidating. Apple
+              instinct: simple by default, depth on tap. When closed, the
+              underlying values still apply to the preview, so the user
+              isn't surprised by a sudden style shift on toggling. */}
+          <details
+            className="logo-studio-pro"
+            open={proMode}
+            onToggle={(e) => setProMode((e.target as HTMLDetailsElement).open)}
+            data-testid="logo-studio-pro"
+          >
+            <summary className="logo-studio-pro-summary">
+              <span className="logo-studio-pro-summary-label">Pro mode</span>
+              <span className="logo-studio-pro-summary-hint">
+                outline, wordmark colour, tagline colour
+              </span>
+            </summary>
+
+            {/* Outline — None / Thin / Thick + a swatch row for the
+                stroke colour. Disabled when the wordmark-only style is
+                selected (no mark to outline). */}
+            <fieldset
+              className="logo-studio-fieldset"
+              disabled={style === "wordmark-only"}
+            >
+              <legend>Mark outline</legend>
+              <div className="logo-studio-styles">
+                {OUTLINE_PRESETS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    className={`logo-studio-style-btn ${
+                      outlineWidth === opt.value ? "is-active" : ""
+                    }`}
+                    onClick={() => setOutlineWidth(opt.value)}
+                    aria-pressed={outlineWidth === opt.value}
+                    data-testid={`btn-outline-${opt.label.toLowerCase()}`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              {outlineWidth > 0 && (
+                <>
+                  <div
+                    className="logo-studio-mini-swatches"
+                    role="radiogroup"
+                    aria-label="Outline colour"
+                  >
+                    {MARK_OUTLINE_COLOURS.map((hex) => {
+                      const isActive =
+                        outlineColor.toLowerCase() === hex.toLowerCase();
+                      const needsBorder =
+                        hex.toLowerCase() === "#ffffff" ||
+                        hex.toLowerCase() === "#0b0d0a";
+                      const cls = [
+                        "logo-studio-swatch",
+                        "logo-studio-swatch--mini",
+                        needsBorder ? "logo-studio-swatch--bordered" : "",
+                        isActive ? "is-active" : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" ");
+                      return (
+                        <button
+                          key={hex}
+                          type="button"
+                          className={cls}
+                          style={{ background: hex }}
+                          onClick={() => setOutlineColor(hex)}
+                          aria-pressed={isActive}
+                          aria-label={`Outline colour ${hex}`}
+                          title={hex}
+                        />
+                      );
+                    })}
+                    <div className="logo-studio-gradient-btn-wrap">
+                      <button
+                        type="button"
+                        className={`logo-studio-swatch logo-studio-swatch--mini logo-studio-swatch--custom ${
+                          activePicker === "outline" ? "is-active" : ""
+                        }`}
+                        style={{ background: outlineColor }}
+                        onClick={() =>
+                          setActivePicker(
+                            activePicker === "outline" ? null : "outline",
+                          )
+                        }
+                        aria-haspopup="dialog"
+                        aria-expanded={activePicker === "outline"}
+                        aria-label="Custom outline colour"
+                        title="Custom outline colour"
+                      >
+                        <span className="logo-studio-swatch-custom-mark">
+                          …
+                        </span>
+                      </button>
+                      {activePicker === "outline" && (
+                        <ColourPopover
+                          title="Outline colour"
+                          value={outlineColor}
+                          onChange={(hex) => setOutlineColor(hex)}
+                          onClose={() => setActivePicker(null)}
+                        />
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+            </fieldset>
+
+            {/* Wordmark colour — Match accent / White / Custom shortcut
+                row. Custom opens the popover (same component as accent
+                custom) and the picked hex feeds into wordmarkCustom. */}
+            <fieldset className="logo-studio-fieldset">
+              <legend>Wordmark colour</legend>
+              <div className="logo-studio-styles">
+                {([
+                  { id: "accent", label: "Match accent" },
+                  { id: "white", label: "White" },
+                  { id: "custom", label: "Custom" },
+                ] as Array<{ id: TextColourMode; label: string }>).map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    className={`logo-studio-style-btn ${
+                      wordmarkMode === opt.id ? "is-active" : ""
+                    }`}
+                    onClick={() => {
+                      setWordmarkMode(opt.id);
+                      if (opt.id === "custom") setActivePicker("wordmark");
+                      else if (activePicker === "wordmark")
+                        setActivePicker(null);
+                    }}
+                    aria-pressed={wordmarkMode === opt.id}
+                    data-testid={`btn-wordmark-${opt.id}`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              {wordmarkMode === "custom" && (
+                <div className="logo-studio-gradient-btn-wrap">
+                  <button
+                    type="button"
+                    className="logo-studio-swatch-trigger"
+                    onClick={() =>
+                      setActivePicker(
+                        activePicker === "wordmark" ? null : "wordmark",
+                      )
+                    }
+                    aria-haspopup="dialog"
+                    aria-expanded={activePicker === "wordmark"}
+                    style={{ background: wordmarkCustom }}
+                  >
+                    <span>{wordmarkCustom}</span>
+                  </button>
+                  {activePicker === "wordmark" && (
+                    <ColourPopover
+                      title="Wordmark colour"
+                      value={wordmarkCustom}
+                      onChange={(hex) => setWordmarkCustom(hex)}
+                      onClose={() => setActivePicker(null)}
+                    />
+                  )}
+                </div>
+              )}
+            </fieldset>
+
+            {/* Tagline colour — same shortcut row pattern. Default mode
+                is "accent" so behaviour is unchanged from v1.2 unless
+                the coach explicitly picks White or a custom hex. */}
+            <fieldset className="logo-studio-fieldset">
+              <legend>Tagline colour</legend>
+              <div className="logo-studio-styles">
+                {([
+                  { id: "accent", label: "Match accent" },
+                  { id: "white", label: "White" },
+                  { id: "custom", label: "Custom" },
+                ] as Array<{ id: TextColourMode; label: string }>).map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    className={`logo-studio-style-btn ${
+                      taglineMode === opt.id ? "is-active" : ""
+                    }`}
+                    onClick={() => {
+                      setTaglineMode(opt.id);
+                      if (opt.id === "custom") setActivePicker("tagline");
+                      else if (activePicker === "tagline")
+                        setActivePicker(null);
+                    }}
+                    aria-pressed={taglineMode === opt.id}
+                    data-testid={`btn-tagline-${opt.id}`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              {taglineMode === "custom" && (
+                <div className="logo-studio-gradient-btn-wrap">
+                  <button
+                    type="button"
+                    className="logo-studio-swatch-trigger"
+                    onClick={() =>
+                      setActivePicker(
+                        activePicker === "tagline" ? null : "tagline",
+                      )
+                    }
+                    aria-haspopup="dialog"
+                    aria-expanded={activePicker === "tagline"}
+                    style={{ background: taglineCustom }}
+                  >
+                    <span>{taglineCustom}</span>
+                  </button>
+                  {activePicker === "tagline" && (
+                    <ColourPopover
+                      title="Tagline colour"
+                      value={taglineCustom}
+                      onChange={(hex) => setTaglineCustom(hex)}
+                      onClose={() => setActivePicker(null)}
+                    />
+                  )}
+                </div>
+              )}
+            </fieldset>
+          </details>
         </section>
 
         {/* Preview + export column */}

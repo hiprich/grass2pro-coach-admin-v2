@@ -6037,6 +6037,273 @@ html[data-surface="logo-studio"] body {
 .logo-studio-gradient-label {
   letter-spacing: 0.3px;
 }
+.logo-studio-gradient-btn-wrap {
+  position: relative;
+  display: inline-flex;
+}
+/* The Custom accent chip uses a checkerboard fade behind the chosen
+   colour so a white pick is still visible against the dark panel. */
+.logo-studio-gradient-swatch--custom {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.18) inset;
+}
+
+/* Mini swatches — used for outline colour rows. Smaller than accent
+   swatches (24px vs 36px) so the row sits inside a Pro mode fieldset
+   without crowding. Reuses the bordered modifier for white/black. */
+.logo-studio-mini-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+  align-items: center;
+}
+.logo-studio-swatch--mini {
+  width: 24px;
+  height: 24px;
+}
+.logo-studio-swatch--custom {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+.logo-studio-swatch-custom-mark {
+  font-size: 12px;
+  font-weight: 800;
+  color: #f3f5ee;
+  mix-blend-mode: difference;
+  letter-spacing: 0;
+  line-height: 1;
+}
+
+/* Custom-colour trigger chip used for wordmark/tagline custom modes —
+   shows the picked hex on a coloured background so coaches can see the
+   value at a glance without opening the popover. */
+.logo-studio-swatch-trigger {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 6px 12px;
+  border-radius: 10px;
+  border: 1px solid #2a2f24;
+  font-family: "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: #11140e;
+  cursor: pointer;
+  text-shadow: 0 0 2px rgba(255, 255, 255, 0.6);
+  transition: border-color 180ms ease, transform 180ms ease;
+}
+.logo-studio-swatch-trigger:hover {
+  border-color: #c9e970;
+  transform: translateY(-1px);
+}
+.logo-studio-swatch-trigger:focus-visible {
+  outline: 2px solid #c9e970;
+  outline-offset: 3px;
+}
+
+/* Pro mode disclosure — the <details> wraps the advanced fieldsets. We
+   restyle the marker and turn the summary into a tappable chip so it
+   reads as a deliberate UI affordance rather than a debug-y arrow. */
+.logo-studio-pro {
+  margin-top: 6px;
+  border-top: 1px dashed #2a2f24;
+  padding-top: 18px;
+}
+.logo-studio-pro > summary {
+  list-style: none;
+  cursor: pointer;
+}
+.logo-studio-pro > summary::-webkit-details-marker {
+  display: none;
+}
+.logo-studio-pro-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid #2a2f24;
+  border-radius: 10px;
+  background: #0b0d0a;
+  transition: border-color 180ms ease, color 180ms ease;
+}
+.logo-studio-pro > summary:hover .logo-studio-pro-summary {
+  border-color: #c9e970;
+}
+.logo-studio-pro[open] > summary .logo-studio-pro-summary {
+  border-color: #c9e970;
+  color: #f3f5ee;
+}
+.logo-studio-pro-summary-label {
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  color: #f3f5ee;
+}
+.logo-studio-pro-summary-label::before {
+  content: "▸ ";
+  display: inline-block;
+  margin-right: 4px;
+  color: #c9e970;
+  transition: transform 180ms ease;
+}
+.logo-studio-pro[open] .logo-studio-pro-summary-label::before {
+  content: "▾ ";
+}
+.logo-studio-pro-summary-hint {
+  font-size: 12px;
+  color: #8a8f80;
+}
+.logo-studio-pro > .logo-studio-fieldset {
+  margin-top: 14px;
+}
+
+/* Custom colour popover — floats above its trigger chip. Position is
+   absolute so it doesn't reflow the form. We anchor below the chip and
+   nudge slightly off the edge to keep visual continuity with the
+   trigger. The popover is ~240x320 — fits comfortably inside the form
+   column even on narrow viewports. */
+.logo-studio-colour-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  width: 240px;
+  background: #14170f;
+  border: 1px solid #2a2f24;
+  border-radius: 14px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
+  padding: 12px;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.logo-studio-colour-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: #cdd2c4;
+}
+.logo-studio-colour-popover-close {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: #8a8f80;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+.logo-studio-colour-popover-close:hover {
+  color: #f3f5ee;
+  background: #0b0d0a;
+}
+.logo-studio-colour-popover-body {
+  display: grid;
+  grid-template-columns: 1fr 18px;
+  gap: 10px;
+}
+/* Saturation/value square. Hue is set inline (the pure red→hue colour);
+   we overlay a horizontal white→transparent gradient on top, then a
+   vertical transparent→black gradient, to produce the classic SV
+   square. */
+.logo-studio-colour-square {
+  position: relative;
+  width: 100%;
+  height: 180px;
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+}
+.logo-studio-colour-square-overlay-x {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to right, #ffffff, rgba(255, 255, 255, 0));
+}
+.logo-studio-colour-square-overlay-y {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0), #000000);
+}
+.logo-studio-colour-square-handle,
+.logo-studio-colour-hue-handle {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 1px 4px rgba(0, 0, 0, 0.6);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.logo-studio-colour-hue {
+  position: relative;
+  width: 100%;
+  height: 180px;
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: ns-resize;
+  touch-action: none;
+  user-select: none;
+  background: linear-gradient(
+    to bottom,
+    #ff0000 0%,
+    #ffff00 17%,
+    #00ff00 33%,
+    #00ffff 50%,
+    #0000ff 67%,
+    #ff00ff 83%,
+    #ff0000 100%
+  );
+}
+.logo-studio-colour-hue-handle {
+  left: 50%;
+  width: 18px;
+  height: 8px;
+  border-radius: 4px;
+}
+.logo-studio-colour-popover-footer {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+.logo-studio-colour-hex {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: #8a8f80;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+.logo-studio-colour-hex input {
+  background: #0b0d0a;
+  border: 1px solid #2a2f24;
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: #f3f5ee;
+  font-family: "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 13px;
+  text-transform: lowercase;
+}
+.logo-studio-colour-hex input:focus {
+  outline: none;
+  border-color: #c9e970;
+}
+.logo-studio-colour-done {
+  flex: 0 0 auto;
+  padding: 8px 14px;
+  font-size: 12px;
+}
 .logo-studio-styles {
   display: flex;
   flex-wrap: wrap;

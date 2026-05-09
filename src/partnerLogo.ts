@@ -44,6 +44,19 @@ export type PartnerLogoConfig = {
   // surface we currently render on \u2014 the coach landing header). Light/dark
   // variants can be added once we surface this on light backgrounds too.
   wordmarkColor?: string;
+  // Optional override for the tagline colour. When unset the tagline
+  // inherits `accent` (so it pairs with the mark by default). The studio
+  // exposes this so coaches can run e.g. white wordmark + lime tagline
+  // pairings on dark backgrounds.
+  taglineColor?: string;
+  // Optional outline (stroke) painted around the silhouette. Lets coaches
+  // build crest-style logos: yellow fill + black border, or a Pride mark
+  // ringed in white for kit visibility. Width is in viewBox units — the
+  // mark is ~38 units across, so 1–3 reads as a thin→thick crest border.
+  // When `outlineWidth` is omitted or 0 the silhouette renders fill-only,
+  // matching every existing partner config unchanged.
+  outlineColor?: string;
+  outlineWidth?: number;
   // Visual style. "wordmark-with-mark" (default) shows monogram square +
   // wordmark side-by-side. "mark-only" hides the wordmark for tight spaces.
   // "wordmark-only" hides the square \u2014 useful as a small footer mark.
@@ -88,7 +101,15 @@ export type AccentGradient = {
 };
 
 const DEFAULTS: Required<
-  Omit<PartnerLogoConfig, "monogram" | "tagline" | "accentGradient">
+  Omit<
+    PartnerLogoConfig,
+    | "monogram"
+    | "tagline"
+    | "accentGradient"
+    | "taglineColor"
+    | "outlineColor"
+    | "outlineWidth"
+  >
 > = {
   brandName: "",
   accent: "#c9e970",
@@ -129,8 +150,9 @@ function deriveMonogram(brandName: string): string {
 type ShapeGeometry = {
   width: number;
   height: number;
-  // SVG element string for the silhouette. fill is interpolated separately.
-  silhouette: (fill: string) => string;
+  // SVG element string for the silhouette. fill + optional stroke attrs are
+  // interpolated by the caller so each shape stays geometry-only.
+  silhouette: (fill: string, strokeAttrs: string) => string;
   // Where the monogram <text> centres inside the mark. Some shapes (notably
   // triangles) need the label nudged off the geometric centre so it sits in
   // the visually weighted region.
@@ -158,8 +180,8 @@ function shapeGeometry(
       return {
         width: size,
         height: size,
-        silhouette: (fill) =>
-          `<rect x="0" y="${yOffset}" width="${size}" height="${size}" rx="${radius}" ry="${radius}" fill="${fill}" />`,
+        silhouette: (fill, stroke) =>
+          `<rect x="0" y="${yOffset}" width="${size}" height="${size}" rx="${radius}" ry="${radius}" fill="${fill}"${stroke} />`,
         labelCx: size / 2,
         labelCy: yOffset + size / 2,
       };
@@ -169,8 +191,8 @@ function shapeGeometry(
       return {
         width: size,
         height: size,
-        silhouette: (fill) =>
-          `<circle cx="${r}" cy="${yOffset + r}" r="${r}" fill="${fill}" />`,
+        silhouette: (fill, stroke) =>
+          `<circle cx="${r}" cy="${yOffset + r}" r="${r}" fill="${fill}"${stroke} />`,
         labelCx: r,
         labelCy: yOffset + r,
       };
@@ -181,8 +203,8 @@ function shapeGeometry(
       return {
         width: w,
         height: size,
-        silhouette: (fill) =>
-          `<rect x="0" y="${yOffset}" width="${w}" height="${size}" rx="${radius}" ry="${radius}" fill="${fill}" />`,
+        silhouette: (fill, stroke) =>
+          `<rect x="0" y="${yOffset}" width="${w}" height="${size}" rx="${radius}" ry="${radius}" fill="${fill}"${stroke} />`,
         labelCx: w / 2,
         labelCy: yOffset + size / 2,
       };
@@ -194,8 +216,8 @@ function shapeGeometry(
       return {
         width: w,
         height: size,
-        silhouette: (fill) =>
-          `<ellipse cx="${rx}" cy="${yOffset + ry}" rx="${rx}" ry="${ry}" fill="${fill}" />`,
+        silhouette: (fill, stroke) =>
+          `<ellipse cx="${rx}" cy="${yOffset + ry}" rx="${rx}" ry="${ry}" fill="${fill}"${stroke} />`,
         labelCx: rx,
         labelCy: yOffset + ry,
       };
@@ -210,8 +232,8 @@ function shapeGeometry(
       return {
         width: size,
         height: size,
-        silhouette: (fill) =>
-          `<polygon points="${apex} ${right} ${left}" fill="${fill}" />`,
+        silhouette: (fill, stroke) =>
+          `<polygon points="${apex} ${right} ${left}" fill="${fill}"${stroke} />`,
         labelCx: size / 2,
         labelCy: yOffset + size * 0.62, // weighted toward the wide base
         fontScale: 0.85,
@@ -236,8 +258,8 @@ function shapeGeometry(
       return {
         width: size,
         height: size,
-        silhouette: (fill) =>
-          `<polygon points="${points.join(" ")}" fill="${fill}" />`,
+        silhouette: (fill, stroke) =>
+          `<polygon points="${points.join(" ")}" fill="${fill}"${stroke} />`,
         labelCx: cx,
         labelCy: cy,
       };
@@ -319,6 +341,19 @@ export function buildPartnerLogo(config: PartnerLogoConfig): string {
   const fontStack =
     "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
 
+  // Outline (stroke) attributes — emitted only when an outline is
+  // configured. We use stroke-alignment via inset by half the stroke
+  // width? SVG doesn't actually support inside-stroke painting, so we
+  // accept that strokes paint half-outside / half-inside the geometry.
+  // For our viewBox sizes (≈38u shapes) that's invisibly small and
+  // matches how every UK club crest renders its border in the wild.
+  const outlineWidth = config.outlineWidth ?? 0;
+  const outlineColor = config.outlineColor ?? "#000000";
+  const strokeAttrs =
+    outlineWidth > 0
+      ? ` stroke="${outlineColor}" stroke-width="${outlineWidth}" stroke-linejoin="round"`
+      : "";
+
   const geom = shapeGeometry(cfg.shape, MARK_SIZE, MARK_Y);
   const markRenderedWidth = showMark ? geom.width : 0;
   const WORDMARK_X = showMark ? markRenderedWidth + 12 : 0;
@@ -338,7 +373,7 @@ export function buildPartnerLogo(config: PartnerLogoConfig): string {
 
   const markSvg = showMark
     ? `<g>
-        ${geom.silhouette(markFill)}
+        ${geom.silhouette(markFill, strokeAttrs)}
         <text
           x="${geom.labelCx}"
           y="${geom.labelCy}"
@@ -367,6 +402,9 @@ export function buildPartnerLogo(config: PartnerLogoConfig): string {
         fill="${cfg.wordmarkColor}"
       >${escapeXml(cfg.brandName.toUpperCase())}</text>`
     : "";
+  // Tagline colour: explicit override wins, else inherit accent so the
+  // mark + tagline read as a colour-paired unit by default.
+  const taglineFill = config.taglineColor ?? cfg.accent;
   const tagline = config.tagline && showWordmark
     ? `<text
         x="${WORDMARK_X}" y="40"
@@ -374,7 +412,7 @@ export function buildPartnerLogo(config: PartnerLogoConfig): string {
         font-weight="600"
         font-size="9"
         letter-spacing="2.4"
-        fill="${cfg.accent}"
+        fill="${taglineFill}"
         opacity="0.85"
       >${escapeXml(config.tagline.toUpperCase())}</text>`
     : "";
