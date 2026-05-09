@@ -4669,7 +4669,11 @@ html[data-surface="coach-landing"] body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 20px 28px;
+  /* Respect iPhone notch / Dynamic Island so the 'Grass2Pro Homepage'
+     back-link doesn't sit flush against the system status bar and
+     become fiddly to tap. env(safe-area-inset-top) is 0 on devices
+     without a notch so this is harmless on desktop. */
+  padding: calc(20px + env(safe-area-inset-top)) 28px 20px;
   border-bottom: 1px solid #1d2118;
 }
 
@@ -6050,6 +6054,10 @@ html[data-surface="homepage"] body {
     flex-direction: column;
     align-items: flex-start;
     gap: 10px;
+    /* On mobile, drop the topbar an extra 12px below the notch so the
+     'In partnership with' eyebrow + 'Grass2Pro Homepage' link both
+     clear the iPhone status bar comfortably. */
+    padding: calc(28px + env(safe-area-inset-top)) 20px 18px;
   }
   .coach-landing-partner {
     padding: 6px 10px;
