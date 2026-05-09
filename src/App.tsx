@@ -5931,7 +5931,7 @@ function ParentSignInScreen({ onRequestLink, status, error, lastEmail }: {
           </button>
         </form>
         <p className="portal-footnote">
-          Are you a coach? <a href="/" data-testid="link-portal-to-coach">Open coach dashboard</a>.
+          Are you a coach? <a href="/admin" data-testid="link-portal-to-coach">Open coach dashboard</a>.
         </p>
       </div>
     </div>
@@ -7079,13 +7079,28 @@ function shouldRenderParentPortal(): boolean {
   return /^\/portal(\/|\?|$)/i.test(window.location.pathname + window.location.search);
 }
 
-// `/home` (case-insensitive, with optional trailing slash or query string)
-// routes through HomepageCover. The admin dashboard stays at "/" so any
-// existing bookmarks keep working — this is the parent-facing book cover
-// people see when they discover Grass2Pro from outside.
-function shouldRenderHomepageCover(): boolean {
+// `/admin` (case-insensitive, with optional trailing slash or query string)
+// routes through CoachDashboard. The parent-facing homepage now lives at
+// "/", so cold visitors who type grass2pro.com land on the cover, and the
+// coach team bookmarks /admin for the dashboard.
+function shouldRenderCoachDashboard(): boolean {
+  if (typeof window === "undefined") return true; // SSR fallback
+  return /^\/admin(\/|\?|$)/i.test(window.location.pathname + window.location.search);
+}
+
+// /home was the temporary parent cover URL we shipped first. To avoid
+// breaking any links that may already be in the wild (WhatsApp, email,
+// social), we keep matching it and soft-redirect to "/" via
+// history.replaceState so the URL bar updates without a flash.
+function handleLegacyHomeRedirect(): boolean {
   if (typeof window === "undefined") return false;
-  return /^\/home(\/|\?|$)/i.test(window.location.pathname + window.location.search);
+  if (!/^\/home(\/|\?|$)/i.test(window.location.pathname + window.location.search)) {
+    return false;
+  }
+  // Preserve any query string the visitor was using (e.g. tracking params).
+  const newUrl = `/${window.location.search}${window.location.hash}`;
+  window.history.replaceState({}, "", newUrl);
+  return true;
 }
 
 // Detect /c/:slug coach landing pages. We extract the slug here so the
@@ -7104,15 +7119,21 @@ function matchCoachLandingSlug(): string | null {
 // dashboard. Wrapper component so each surface's hooks never run for
 // the others.
 function AppRoot() {
+  // Bounce /home → / before any other routing decisions so the rest of the
+  // matchers see the canonical URL. Returns true if we rewrote the URL.
+  handleLegacyHomeRedirect();
+
   const coachSlug = matchCoachLandingSlug();
   if (coachSlug !== null) {
     const coach = getCoachProfile(coachSlug);
     if (!coach) return <CoachNotFoundPage slug={coachSlug} />;
     return <CoachLandingPage coach={coach} />;
   }
-  if (shouldRenderHomepageCover()) return <HomepageCover />;
   if (shouldRenderParentPortal()) return <ParentPortal />;
-  return <CoachDashboard />;
+  if (shouldRenderCoachDashboard()) return <CoachDashboard />;
+  // Default surface for cold visitors at "/" (and any path we haven't
+  // claimed yet) is the parent-facing homepage cover.
+  return <HomepageCover />;
 }
 
 function CoachDashboard() {
