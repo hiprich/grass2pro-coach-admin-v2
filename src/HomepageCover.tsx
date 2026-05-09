@@ -82,12 +82,23 @@ export default function HomepageCover() {
           visually (lime-stripe kits, G2P crest baked in). */}
       <section className="homepage-hero">
         <div className="homepage-hero-photo" aria-hidden="true">
-          <img
-            src="/g2p-hero.jpg"
-            alt=""
-            loading="eager"
-            decoding="async"
-          />
+          {/* Mobile gets a square 900x900 crop of the same scene that
+              keeps the hero kid + ball + all four players + cheering
+              parents in frame. The full-bleed landscape was cropping
+              parents and the left-side runner off on iPhone. Desktop
+              keeps the cinematic landscape. */}
+          <picture>
+            <source
+              media="(max-width: 640px)"
+              srcSet="/g2p-hero-portrait.jpg"
+            />
+            <img
+              src="/g2p-hero.jpg"
+              alt=""
+              loading="eager"
+              decoding="async"
+            />
+          </picture>
           <div className="homepage-hero-overlay" />
         </div>
 

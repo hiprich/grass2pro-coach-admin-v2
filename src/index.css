@@ -5657,6 +5657,21 @@ html[data-surface="homepage"] body {
     padding: 0 20px;
     min-height: clamp(520px, 80vh, 700px);
   }
+  /* Mobile uses a square 900x900 portrait variant (see HomepageCover
+     <picture>) that already shows the full scene. Keep cover so it
+     fills the hero, and centre it horizontally so the hero kid stays
+     roughly mid-frame. */
+  .homepage-hero-photo img {
+    object-position: center center;
+  }
+  /* Soften the left-side gradient on phones so the parents/kids on
+     the right of the (now centred) crop don't get washed out, and
+     drop a darker bottom band to keep the headline legible. */
+  .homepage-hero-overlay {
+    background:
+      linear-gradient(180deg, rgba(11, 13, 10, 0.18) 0%, rgba(11, 13, 10, 0.32) 38%, rgba(11, 13, 10, 0.86) 100%),
+      radial-gradient(ellipse at 50% 100%, rgba(201, 233, 112, 0.16) 0%, transparent 60%);
+  }
   .homepage-hero-text {
     padding: 36px 0;
   }
