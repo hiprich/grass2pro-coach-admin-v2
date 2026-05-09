@@ -127,10 +127,10 @@ export default function HomepageCover() {
           <picture>
             <source
               media="(max-width: 640px)"
-              srcSet="/g2p-page1-portrait.jpg"
+              srcSet="/g2p-page1-portrait.jpg?v=3"
             />
             <img
-              src="/g2p-page1.jpg"
+              src="/g2p-page1.jpg?v=3"
               alt="Parents arriving at the pitch with their kids in G2P kit at sunset"
               loading="eager"
               decoding="async"
@@ -196,10 +196,10 @@ export default function HomepageCover() {
           <picture>
             <source
               media="(max-width: 640px)"
-              srcSet="/g2p-page2-portrait.jpg"
+              srcSet="/g2p-page2-portrait.jpg?v=3"
             />
             <img
-              src="/g2p-page2.jpg"
+              src="/g2p-page2.jpg?v=3"
               alt="Coach instructing five young players in lime-and-black kit at golden hour"
               loading="eager"
               decoding="async"
