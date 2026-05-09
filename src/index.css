@@ -5995,6 +5995,80 @@ html[data-surface="logo-studio"] body {
   outline: 2px solid #c9e970;
   outline-offset: 2px;
 }
+/* Mark-shape chips. Each chip is a vertical stack: mini SVG icon (filled
+   in lime so it reads at a glance) + label. Larger touch targets than the
+   style buttons since a coach's eye is doing more work picking a shape. */
+.logo-studio-shapes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+  gap: 8px;
+}
+.logo-studio-shape-btn {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 8px;
+  background: #0b0d0a;
+  border: 1px solid #2a2f24;
+  border-radius: 10px;
+  color: #cdd2c4;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 180ms ease, background 180ms ease,
+    color 180ms ease, transform 180ms ease;
+}
+.logo-studio-shape-btn:hover {
+  border-color: #c9e970;
+  color: #f3f5ee;
+  transform: translateY(-1px);
+}
+.logo-studio-shape-btn.is-active {
+  background: rgba(201, 233, 112, 0.1);
+  border-color: #c9e970;
+  color: #f3f5ee;
+}
+.logo-studio-shape-btn:focus-visible {
+  outline: 2px solid #c9e970;
+  outline-offset: 2px;
+}
+.logo-studio-shape-icon {
+  display: inline-flex;
+  width: 28px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+}
+.logo-studio-shape-icon svg {
+  width: 100%;
+  height: 100%;
+  fill: #cdd2c4;
+  transition: fill 180ms ease;
+}
+.logo-studio-shape-btn:hover .logo-studio-shape-icon svg,
+.logo-studio-shape-btn.is-active .logo-studio-shape-icon svg {
+  fill: #c9e970;
+}
+.logo-studio-shape-label {
+  letter-spacing: 0.02em;
+}
+/* When fieldset is disabled (wordmark-only style) the chips dim out so
+   it's obvious shape selection isn't relevant in that mode. */
+.logo-studio-fieldset:disabled .logo-studio-shape-btn {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.logo-studio-fieldset:disabled .logo-studio-shape-btn:hover {
+  transform: none;
+  border-color: #2a2f24;
+  color: #cdd2c4;
+}
+.logo-studio-fieldset:disabled legend {
+  opacity: 0.5;
+}
 .logo-studio-preview-col {
   display: flex;
   flex-direction: column;

@@ -17,7 +17,7 @@
 // publicly until Phase G ships.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { PartnerLogoConfig } from "./partnerLogo";
+import type { PartnerLogoConfig, PartnerLogoShape } from "./partnerLogo";
 import { buildPartnerLogo } from "./partnerLogo";
 
 // Preset accent colours so non-designers can pick something good without
@@ -54,6 +54,43 @@ const STYLE_OPTIONS: Array<{ value: Style; label: string }> = [
   { value: "wordmark-with-mark", label: "Mark + wordmark" },
   { value: "mark-only", label: "Mark only" },
   { value: "wordmark-only", label: "Wordmark only" },
+];
+
+// Shape options shown as a chip selector. Each chip renders a mini SVG
+// preview of the shape filled in lime so coaches can pick visually rather
+// than reading labels. Order: classic squircle first (familiar), then the
+// rest in roughly increasing exoticness.
+const SHAPE_OPTIONS: Array<{ value: PartnerLogoShape; label: string; icon: string }> = [
+  {
+    value: "squircle",
+    label: "Squircle",
+    icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="2" width="20" height="20" rx="5" /></svg>',
+  },
+  {
+    value: "circle",
+    label: "Circle",
+    icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" /></svg>',
+  },
+  {
+    value: "rectangle",
+    label: "Rectangle",
+    icon: '<svg viewBox="0 0 28 24" aria-hidden="true"><rect x="1" y="4" width="26" height="16" rx="2" /></svg>',
+  },
+  {
+    value: "oval",
+    label: "Oval",
+    icon: '<svg viewBox="0 0 28 24" aria-hidden="true"><ellipse cx="14" cy="12" rx="13" ry="8" /></svg>',
+  },
+  {
+    value: "triangle",
+    label: "Triangle",
+    icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><polygon points="12,2 22,21 2,21" /></svg>',
+  },
+  {
+    value: "hexagon",
+    label: "Hexagon",
+    icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><polygon points="12,2 21.66,7.5 21.66,16.5 12,22 2.34,16.5 2.34,7.5" /></svg>',
+  },
 ];
 
 // Slugify the brand name for use as a download filename. Strips
@@ -137,6 +174,7 @@ export default function LogoStudio() {
   const [accent, setAccent] = useState(ACCENT_PRESETS[0].value);
   const [customHex, setCustomHex] = useState("");
   const [style, setStyle] = useState<Style>("wordmark-with-mark");
+  const [shape, setShape] = useState<PartnerLogoShape>("squircle");
   const [autoInk, setAutoInk] = useState(true);
   const [manualInk, setManualInk] = useState("#1a2110");
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
@@ -172,6 +210,7 @@ export default function LogoStudio() {
     const cfg: PartnerLogoConfig = {
       brandName: brandName.trim() || "Your Brand",
       style,
+      shape,
       accent: resolvedAccent,
       ink: resolvedInk,
     };
@@ -180,7 +219,7 @@ export default function LogoStudio() {
     const t = tagline.trim();
     if (t) cfg.tagline = t;
     return cfg;
-  }, [brandName, monogramOverride, tagline, style, resolvedAccent, resolvedInk]);
+  }, [brandName, monogramOverride, tagline, style, shape, resolvedAccent, resolvedInk]);
 
   const svg = useMemo(() => buildPartnerLogo(config), [config]);
 
@@ -221,6 +260,7 @@ export default function LogoStudio() {
       accent: config.accent,
       ink: config.ink,
       style: config.style,
+      shape: config.shape,
     };
     const text = JSON.stringify(partnerConfig, null, 2);
     try {
@@ -375,6 +415,37 @@ export default function LogoStudio() {
                   data-testid={`btn-style-${opt.value}`}
                 >
                   {opt.label}
+                </button>
+              ))}
+            </div>
+          </fieldset>
+
+          {/* Mark shape \u2014 disabled when the wordmark-only style is
+              selected, since there's no mark to shape in that case. */}
+          <fieldset
+            className="logo-studio-fieldset"
+            disabled={style === "wordmark-only"}
+          >
+            <legend>Mark shape</legend>
+            <div className="logo-studio-shapes" role="radiogroup">
+              {SHAPE_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  className={`logo-studio-shape-btn ${
+                    shape === opt.value ? "is-active" : ""
+                  }`}
+                  onClick={() => setShape(opt.value)}
+                  aria-pressed={shape === opt.value}
+                  aria-label={opt.label}
+                  title={opt.label}
+                  data-testid={`btn-shape-${opt.value}`}
+                >
+                  <span
+                    className="logo-studio-shape-icon"
+                    dangerouslySetInnerHTML={{ __html: opt.icon }}
+                  />
+                  <span className="logo-studio-shape-label">{opt.label}</span>
                 </button>
               ))}
             </div>

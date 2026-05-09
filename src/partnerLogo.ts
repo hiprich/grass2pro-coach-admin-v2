@@ -40,7 +40,26 @@ export type PartnerLogoConfig = {
   // wordmark side-by-side. "mark-only" hides the wordmark for tight spaces.
   // "wordmark-only" hides the square \u2014 useful as a small footer mark.
   style?: "wordmark-with-mark" | "mark-only" | "wordmark-only";
+  // Mark shape. Grassroots clubs use a wild range of crest silhouettes \u2014
+  // not just rounded squares \u2014 so the studio offers six common picks.
+  // Defaults to "squircle" (the original lime tile) so existing partner
+  // configs render unchanged.
+  //   - squircle:  rounded square, the original (matches the G2P brand mark)
+  //   - circle:    classic medallion / coin
+  //   - rectangle: 1.4:1 horizontal banner, common on academy crests
+  //   - oval:      stretched medallion, vintage Sunday-league vibe
+  //   - triangle:  point-up pennant, used by lots of youth clubs
+  //   - hexagon:   honeycomb crest, popular with newer brands
+  shape?: PartnerLogoShape;
 };
+
+export type PartnerLogoShape =
+  | "squircle"
+  | "circle"
+  | "rectangle"
+  | "oval"
+  | "triangle"
+  | "hexagon";
 
 const DEFAULTS: Required<Omit<PartnerLogoConfig, "monogram" | "tagline">> = {
   brandName: "",
@@ -48,6 +67,7 @@ const DEFAULTS: Required<Omit<PartnerLogoConfig, "monogram" | "tagline">> = {
   ink: "#1a2110",
   wordmarkColor: "#f3f5ee",
   style: "wordmark-with-mark",
+  shape: "squircle",
 };
 
 // Derive a monogram from a brand name. "PurePro Elite" \u2192 "PE",
@@ -61,6 +81,129 @@ function deriveMonogram(brandName: string): string {
   return letters.slice(0, 3) || brandName.slice(0, 2).toUpperCase();
 }
 
+// Per-shape geometry. Each shape defines its bounding box width/height
+// (so wider shapes can push the wordmark right), the SVG path that paints
+// the silhouette, and where the monogram label should sit. Splitting it
+// out like this keeps buildPartnerLogo() readable as we add more shapes.
+type ShapeGeometry = {
+  width: number;
+  height: number;
+  // SVG element string for the silhouette. fill is interpolated separately.
+  silhouette: (fill: string) => string;
+  // Where the monogram <text> centres inside the mark. Some shapes (notably
+  // triangles) need the label nudged off the geometric centre so it sits in
+  // the visually weighted region.
+  labelCx: number;
+  labelCy: number;
+  // Some shapes (triangle) feel better with a slightly smaller monogram so
+  // it doesn't crowd the edges.
+  fontScale?: number;
+};
+
+function shapeGeometry(
+  shape: PartnerLogoShape,
+  size: number,
+  yOffset: number,
+): ShapeGeometry {
+  // For square-footprint shapes the mark width equals the mark height. For
+  // rectangle and oval we widen to 1.4:1 so they read as deliberately
+  // horizontal rather than "squashed circles". The 1.4 ratio matches the
+  // golden-ratio-ish aspect that most academy crests use in the wild.
+  const wideRatio = 1.4;
+
+  switch (shape) {
+    case "squircle": {
+      const radius = 9;
+      return {
+        width: size,
+        height: size,
+        silhouette: (fill) =>
+          `<rect x="0" y="${yOffset}" width="${size}" height="${size}" rx="${radius}" ry="${radius}" fill="${fill}" />`,
+        labelCx: size / 2,
+        labelCy: yOffset + size / 2,
+      };
+    }
+    case "circle": {
+      const r = size / 2;
+      return {
+        width: size,
+        height: size,
+        silhouette: (fill) =>
+          `<circle cx="${r}" cy="${yOffset + r}" r="${r}" fill="${fill}" />`,
+        labelCx: r,
+        labelCy: yOffset + r,
+      };
+    }
+    case "rectangle": {
+      const w = size * wideRatio;
+      const radius = 4;
+      return {
+        width: w,
+        height: size,
+        silhouette: (fill) =>
+          `<rect x="0" y="${yOffset}" width="${w}" height="${size}" rx="${radius}" ry="${radius}" fill="${fill}" />`,
+        labelCx: w / 2,
+        labelCy: yOffset + size / 2,
+      };
+    }
+    case "oval": {
+      const w = size * wideRatio;
+      const rx = w / 2;
+      const ry = size / 2;
+      return {
+        width: w,
+        height: size,
+        silhouette: (fill) =>
+          `<ellipse cx="${rx}" cy="${yOffset + ry}" rx="${rx}" ry="${ry}" fill="${fill}" />`,
+        labelCx: rx,
+        labelCy: yOffset + ry,
+      };
+    }
+    case "triangle": {
+      // Equilateral pointing up, inscribed in a `size` x `size` box.
+      // The visual weight (and the widest section to fit a label) is in the
+      // bottom third, so the monogram is nudged down from geometric centre.
+      const apex = `${size / 2},${yOffset}`;
+      const left = `0,${yOffset + size}`;
+      const right = `${size},${yOffset + size}`;
+      return {
+        width: size,
+        height: size,
+        silhouette: (fill) =>
+          `<polygon points="${apex} ${right} ${left}" fill="${fill}" />`,
+        labelCx: size / 2,
+        labelCy: yOffset + size * 0.62, // weighted toward the wide base
+        fontScale: 0.85,
+      };
+    }
+    case "hexagon": {
+      // Regular hexagon with flat sides on left/right (point-up vertices
+      // at top and bottom). Inscribed in `size` x `size`. The flat-top
+      // orientation reads more like a crest than a honeycomb cell.
+      const cx = size / 2;
+      const cy = yOffset + size / 2;
+      const r = size / 2;
+      // Six vertices at 30, 90, 150, 210, 270, 330 degrees \u2014 starting at
+      // the top point so two vertical sides flank the monogram.
+      const points: string[] = [];
+      for (let i = 0; i < 6; i++) {
+        const angle = (Math.PI / 3) * i + Math.PI / 2; // start at top
+        const x = cx + r * Math.cos(angle);
+        const y = cy + r * Math.sin(angle);
+        points.push(`${x.toFixed(2)},${y.toFixed(2)}`);
+      }
+      return {
+        width: size,
+        height: size,
+        silhouette: (fill) =>
+          `<polygon points="${points.join(" ")}" fill="${fill}" />`,
+        labelCx: cx,
+        labelCy: cy,
+      };
+    }
+  }
+}
+
 // Build the SVG string. Pure function, no DOM access, safe to call during
 // SSR or to use inside dangerouslySetInnerHTML.
 export function buildPartnerLogo(config: PartnerLogoConfig): string {
@@ -69,36 +212,40 @@ export function buildPartnerLogo(config: PartnerLogoConfig): string {
   const showMark = cfg.style !== "wordmark-only";
   const showWordmark = cfg.style !== "mark-only";
 
-  // Layout constants. The SVG is 200\u00d750 viewBox so it renders at any pixel
-  // size while keeping the mark and wordmark in proportion. Coaches don't
-  // need to think about pixels \u2014 CSS sets the rendered size via height.
-  const VB_W = 200;
+  // Layout constants. The viewBox height stays fixed at 50 so the lockup
+  // height is consistent across shapes; the viewBox width grows when the
+  // mark is a wide shape (rectangle, oval) so the wordmark doesn't collide
+  // with it. Coaches don't need to think about pixels \u2014 CSS sets the
+  // rendered size via height.
   const VB_H = 50;
   const MARK_SIZE = 38;
-  const MARK_X = 0;
   const MARK_Y = 6;
-  const MARK_RADIUS = 9;
-  const WORDMARK_X = showMark ? MARK_SIZE + 12 : 0;
-
   const fontStack =
     "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
 
-  // Monogram inside the mark. We size by character count so 2-letter and
-  // 3-letter monograms both feel balanced inside the square.
-  const monogramFontSize = monogram.length >= 3 ? 13 : 16;
+  const geom = shapeGeometry(cfg.shape, MARK_SIZE, MARK_Y);
+  const markRenderedWidth = showMark ? geom.width : 0;
+  const WORDMARK_X = showMark ? markRenderedWidth + 12 : 0;
+
+  // viewBox grows so wider shapes don't crowd the wordmark. We give the
+  // wordmark ~160 units of right-side space (matches the original layout)
+  // when present, else trim tightly around the mark.
+  const wordmarkSpace = showWordmark ? 160 : 0;
+  const VB_W = WORDMARK_X + wordmarkSpace || markRenderedWidth;
+
+  // Monogram inside the mark. Sized by character count so 2-letter and
+  // 3-letter monograms both feel balanced. Triangle gets a slight scale-down
+  // so it doesn't kiss the slanted edges.
+  const baseFontSize = monogram.length >= 3 ? 13 : 16;
+  const monogramFontSize = baseFontSize * (geom.fontScale ?? 1);
   const monogramLetterSpacing = monogram.length >= 3 ? 0.5 : 0.8;
 
   const markSvg = showMark
     ? `<g>
-        <rect
-          x="${MARK_X}" y="${MARK_Y}"
-          width="${MARK_SIZE}" height="${MARK_SIZE}"
-          rx="${MARK_RADIUS}" ry="${MARK_RADIUS}"
-          fill="${cfg.accent}"
-        />
+        ${geom.silhouette(cfg.accent)}
         <text
-          x="${MARK_X + MARK_SIZE / 2}"
-          y="${MARK_Y + MARK_SIZE / 2}"
+          x="${geom.labelCx}"
+          y="${geom.labelCy}"
           dominant-baseline="central"
           text-anchor="middle"
           font-family="${fontStack}"
