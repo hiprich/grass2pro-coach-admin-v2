@@ -4679,6 +4679,22 @@ html[data-surface="coach-landing"] body {
   gap: 10px;
   text-decoration: none;
   color: #f3f5ee;
+  /* The brand block is now a back-link to the homepage cover. Visitors
+     who land cold on a /c/:slug page (typically via a WhatsApp share)
+     need an obvious way out. The hover treatment is subtle on purpose:
+     brighten the wordmark, lift the mark slightly, but keep the
+     registration CTA as the page's primary action. */
+  padding: 4px 8px;
+  margin: -4px -8px;
+  border-radius: 10px;
+  transition: background 220ms ease;
+}
+.coach-landing-brand:hover {
+  background: rgba(201, 233, 112, 0.08);
+}
+.coach-landing-brand:focus-visible {
+  outline: 2px solid #c9e970;
+  outline-offset: 2px;
 }
 .coach-landing-brand-mark {
   display: inline-flex;
@@ -4692,11 +4708,29 @@ html[data-surface="coach-landing"] body {
   font-weight: 900;
   font-size: 13px;
   letter-spacing: 0.04em;
+  transition: transform 220ms ease;
+}
+.coach-landing-brand:hover .coach-landing-brand-mark {
+  transform: translateY(-1px);
 }
 .coach-landing-brand-text {
   font-weight: 700;
   font-size: 15px;
   letter-spacing: 0.02em;
+  transition: color 220ms ease;
+}
+.coach-landing-brand:hover .coach-landing-brand-text {
+  color: #ffffff;
+}
+@media (prefers-reduced-motion: reduce) {
+  .coach-landing-brand,
+  .coach-landing-brand-mark,
+  .coach-landing-brand-text {
+    transition: none;
+  }
+  .coach-landing-brand:hover .coach-landing-brand-mark {
+    transform: none;
+  }
 }
 
 .coach-landing-main {

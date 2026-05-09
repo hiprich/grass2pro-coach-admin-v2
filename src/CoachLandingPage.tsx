@@ -136,7 +136,12 @@ export default function CoachLandingPage({ coach }: { coach: CoachProfile }) {
   return (
     <div className="coach-landing">
       <header className="coach-landing-topbar">
-        <a className="coach-landing-brand" href="https://grass2pro.com" aria-label="Grass2Pro">
+        <a
+          className="coach-landing-brand"
+          href="/"
+          aria-label="Back to Grass2Pro homepage"
+          data-testid="link-coach-to-home"
+        >
           <span className="coach-landing-brand-mark">G2P</span>
           <span className="coach-landing-brand-text">Grass2Pro</span>
         </a>
@@ -359,7 +364,12 @@ export function CoachNotFoundPage({ slug }: { slug: string }) {
   return (
     <div className="coach-landing">
       <header className="coach-landing-topbar">
-        <a className="coach-landing-brand" href="https://grass2pro.com" aria-label="Grass2Pro">
+        <a
+          className="coach-landing-brand"
+          href="/"
+          aria-label="Back to Grass2Pro homepage"
+          data-testid="link-coach-to-home"
+        >
           <span className="coach-landing-brand-mark">G2P</span>
           <span className="coach-landing-brand-text">Grass2Pro</span>
         </a>
@@ -367,7 +377,7 @@ export function CoachNotFoundPage({ slug }: { slug: string }) {
       <main className="coach-landing-main coach-landing-empty">
         <h1>Coach not found</h1>
         <p>We couldn't find a coach for <code>/c/{slug}</code>. Check the link, or head back to the main site.</p>
-        <a className="coach-landing-cta" href="https://grass2pro.com">Go to Grass2Pro</a>
+        <a className="coach-landing-cta" href="/">Go to Grass2Pro</a>
       </main>
     </div>
   );
