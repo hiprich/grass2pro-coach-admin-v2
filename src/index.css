@@ -5251,3 +5251,364 @@ html[data-surface="coach-landing"] body {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 13px;
 }
+
+/* =====================================================================
+   Homepage cover (/home) — public book-cover surface.
+   Lime-on-black brand mirroring the coach landing pages so the system
+   reads as a single product. Scroll-fix applied identically to the
+   coach landing override because the admin app locks document scroll.
+   ===================================================================== */
+
+html[data-surface="homepage"],
+html[data-surface="homepage"] body {
+  height: auto;
+  min-height: 100%;
+  overflow: visible;
+  overflow-y: auto;
+}
+html[data-surface="homepage"] body {
+  background: #0b0d0a;
+}
+
+.homepage {
+  min-height: 100vh;
+  background: #0b0d0a;
+  color: #f3f5ee;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Topbar — matches the coach landing brand block so visitors crossing
+   between /home and /c/hope see continuity. */
+.homepage-topbar {
+  display: flex;
+  align-items: center;
+  padding: 22px 32px;
+  position: relative;
+  z-index: 5;
+}
+.homepage-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.homepage-brand-mark {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: #c9e970;
+  color: #1a2110;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+}
+.homepage-brand-text {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: #f3f5ee;
+}
+
+/* Hero — split layout. Photo lives behind a lime-tinted gradient that
+   keeps text legible on top regardless of the underlying image. The
+   text column uses a max-width so the headline always wraps cleanly. */
+.homepage-hero {
+  position: relative;
+  min-height: clamp(560px, 72vh, 760px);
+  display: flex;
+  align-items: center;
+  padding: 0 32px;
+  overflow: hidden;
+}
+.homepage-hero-photo {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+.homepage-hero-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 40%;
+  display: block;
+}
+.homepage-hero-overlay {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(110deg, rgba(11, 13, 10, 0.94) 0%, rgba(11, 13, 10, 0.78) 38%, rgba(11, 13, 10, 0.32) 70%, rgba(11, 13, 10, 0.18) 100%),
+    radial-gradient(ellipse at 18% 50%, rgba(201, 233, 112, 0.18) 0%, transparent 55%);
+  pointer-events: none;
+}
+.homepage-hero-text {
+  position: relative;
+  z-index: 1;
+  max-width: 640px;
+  padding: 48px 0;
+}
+.homepage-kicker {
+  margin: 0 0 14px;
+  font-size: 13px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: #c9e970;
+}
+.homepage-headline {
+  margin: 0 0 22px;
+  font-size: clamp(2.4rem, 1.6rem + 3.2vw, 4.4rem);
+  font-weight: 800;
+  line-height: 1.02;
+  letter-spacing: -0.02em;
+  color: #ffffff;
+}
+.homepage-headline-accent {
+  color: #c9e970;
+}
+.homepage-subhead {
+  margin: 0 0 32px;
+  font-size: clamp(1rem, 0.92rem + 0.4vw, 1.15rem);
+  line-height: 1.55;
+  color: #cdd2c4;
+  max-width: 540px;
+}
+
+/* CTA pair — primary lime button + secondary outlined button. Hover
+   uses the same lift+scale treatment as the coach landing chips so
+   the system feels coherent. */
+.homepage-cta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.homepage-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 22px;
+  border-radius: 999px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+  text-decoration: none;
+  transition: transform 220ms ease, box-shadow 220ms ease, background 220ms ease, color 220ms ease, border-color 220ms ease;
+  will-change: transform;
+}
+.homepage-cta-primary {
+  background: #c9e970;
+  color: #1a2110;
+  border: 2px solid #c9e970;
+  box-shadow: 0 6px 22px rgba(201, 233, 112, 0.18);
+}
+.homepage-cta-primary:hover {
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 14px 34px rgba(201, 233, 112, 0.32);
+}
+.homepage-cta-secondary {
+  background: transparent;
+  color: #f3f5ee;
+  border: 2px solid rgba(201, 233, 112, 0.45);
+}
+.homepage-cta-secondary:hover {
+  transform: translateY(-2px) scale(1.02);
+  border-color: #c9e970;
+  background: rgba(201, 233, 112, 0.08);
+}
+@media (prefers-reduced-motion: reduce) {
+  .homepage-cta:hover {
+    transform: none;
+  }
+}
+
+/* Benefits — three-up grid. Cards lift on hover with a lime border so
+   the page rewards exploration. The "alt" variant tints the section
+   background slightly to separate parents vs coaches without a hard
+   line. */
+.homepage-benefits {
+  padding: 72px 32px;
+  max-width: 1120px;
+  margin: 0 auto;
+}
+.homepage-benefits-alt {
+  background: #0e1109;
+  border-top: 1px solid #1d2218;
+  border-bottom: 1px solid #1d2218;
+  max-width: none;
+  padding-left: 32px;
+  padding-right: 32px;
+}
+.homepage-benefits-alt > * {
+  max-width: 1120px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.homepage-section-title {
+  margin: 0 0 28px;
+  font-size: clamp(1.4rem, 1.2rem + 0.8vw, 1.9rem);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: #ffffff;
+}
+.homepage-benefit-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+}
+.homepage-benefit-card {
+  background: #11150e;
+  border: 1px solid #2a2f24;
+  border-radius: 14px;
+  padding: 22px 22px 24px;
+  transition: transform 220ms ease, border-color 220ms ease, box-shadow 220ms ease;
+  will-change: transform;
+}
+.homepage-benefit-card:hover {
+  transform: translateY(-3px);
+  border-color: #c9e970;
+  box-shadow: 0 10px 26px rgba(201, 233, 112, 0.12);
+}
+.homepage-benefit-card h3 {
+  margin: 0 0 8px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #c9e970;
+  letter-spacing: -0.005em;
+}
+.homepage-benefit-card p {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: #cdd2c4;
+}
+@media (prefers-reduced-motion: reduce) {
+  .homepage-benefit-card:hover {
+    transform: none;
+  }
+}
+
+/* Featured coach — single anchor card, rich hover. Sits inside the
+   "for coaches" section as a proof point that the platform already
+   has live coaches running pages. */
+.homepage-featured-coach {
+  margin-top: 36px;
+}
+.homepage-featured-eyebrow {
+  margin: 0 0 10px;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #8a9078;
+}
+.homepage-featured-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 14px 24px;
+  background: #11150e;
+  border: 1px solid #2a2f24;
+  border-radius: 14px;
+  padding: 22px 24px;
+  text-decoration: none;
+  transition: transform 220ms ease, border-color 220ms ease, box-shadow 220ms ease;
+}
+.homepage-featured-card:hover {
+  transform: translateY(-3px);
+  border-color: #c9e970;
+  box-shadow: 0 10px 26px rgba(201, 233, 112, 0.14);
+}
+.homepage-featured-name {
+  display: block;
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #ffffff;
+  letter-spacing: -0.01em;
+}
+.homepage-featured-role {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.9rem;
+  color: #cdd2c4;
+  grid-column: 1 / 2;
+}
+.homepage-featured-cta {
+  grid-row: 1 / 3;
+  grid-column: 2 / 3;
+  font-size: 14px;
+  font-weight: 700;
+  color: #c9e970;
+  white-space: nowrap;
+}
+@media (prefers-reduced-motion: reduce) {
+  .homepage-featured-card:hover {
+    transform: none;
+  }
+}
+
+/* Footer — minimal. Not a sitemap; that lives on the marketing site
+   later. We just close the page with brand attribution. */
+.homepage-footer {
+  padding: 32px;
+  border-top: 1px solid #1d2218;
+}
+.homepage-footer-inner {
+  max-width: 1120px;
+  margin: 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.homepage-footer-brand {
+  font-size: 14px;
+  font-weight: 800;
+  color: #c9e970;
+  letter-spacing: 0.02em;
+}
+.homepage-footer-tag {
+  font-size: 13px;
+  color: #8a9078;
+}
+
+/* Mobile tweaks — tighten padding, force CTAs full-width so a thumb
+   tap target hits the whole row, drop the hero min-height slightly. */
+@media (max-width: 640px) {
+  .homepage-topbar {
+    padding: 18px 20px;
+  }
+  .homepage-hero {
+    padding: 0 20px;
+    min-height: clamp(520px, 80vh, 700px);
+  }
+  .homepage-hero-text {
+    padding: 36px 0;
+  }
+  .homepage-cta {
+    flex: 1 1 100%;
+    justify-content: center;
+  }
+  .homepage-benefits,
+  .homepage-benefits-alt {
+    padding: 48px 20px;
+  }
+  .homepage-footer {
+    padding: 24px 20px;
+  }
+  .homepage-footer-inner {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .homepage-featured-card {
+    grid-template-columns: 1fr;
+  }
+  .homepage-featured-cta {
+    grid-row: auto;
+    grid-column: 1 / -1;
+  }
+}

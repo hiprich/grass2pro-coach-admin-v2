@@ -37,6 +37,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { PushCapability, PushSubscriptionRow } from "./lib/pushClient";
 import CoachLandingPage, { CoachNotFoundPage } from "./CoachLandingPage";
+import HomepageCover from "./HomepageCover";
 import { getCoachProfile } from "./coachProfiles";
 import {
   getPushCapability,
@@ -7078,6 +7079,15 @@ function shouldRenderParentPortal(): boolean {
   return /^\/portal(\/|\?|$)/i.test(window.location.pathname + window.location.search);
 }
 
+// `/home` (case-insensitive, with optional trailing slash or query string)
+// routes through HomepageCover. The admin dashboard stays at "/" so any
+// existing bookmarks keep working — this is the parent-facing book cover
+// people see when they discover Grass2Pro from outside.
+function shouldRenderHomepageCover(): boolean {
+  if (typeof window === "undefined") return false;
+  return /^\/home(\/|\?|$)/i.test(window.location.pathname + window.location.search);
+}
+
 // Detect /c/:slug coach landing pages. We extract the slug here so the
 // router can fast-path render the matching coach without any state hooks
 // from the dashboard or portal firing in parallel. Trailing slashes,
@@ -7100,6 +7110,7 @@ function AppRoot() {
     if (!coach) return <CoachNotFoundPage slug={coachSlug} />;
     return <CoachLandingPage coach={coach} />;
   }
+  if (shouldRenderHomepageCover()) return <HomepageCover />;
   if (shouldRenderParentPortal()) return <ParentPortal />;
   return <CoachDashboard />;
 }
