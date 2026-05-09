@@ -5779,12 +5779,25 @@ html[data-surface="homepage"] body {
 /*   #f3f5ee  body text                                                    */
 /*   #cdd2c4  muted text                                                   */
 /* ---------------------------------------------------------------------- */
+/* Un-lock document scroll for the studio. The admin app pins <html> and
+   <body> to overflow:hidden + height:100% so its sidebar/main split can
+   scroll internally. The studio is a single full-document surface, so it
+   needs normal page scroll — otherwise the form gets clipped at the
+   viewport edge with no way to reach the Style fieldset or the preview
+   actions on shorter screens. Mirrors the homepage / coach-landing reset. */
+html[data-surface="logo-studio"],
+html[data-surface="logo-studio"] body {
+  height: auto;
+  min-height: 100%;
+  overflow: visible;
+  overflow-y: auto;
+}
+html[data-surface="logo-studio"] body {
+  background: #0b0d0a;
+}
 [data-surface="logo-studio"] {
   background: #0b0d0a;
   color: #f3f5ee;
-}
-[data-surface="logo-studio"] body {
-  background: #0b0d0a;
 }
 .logo-studio {
   min-height: 100vh;
