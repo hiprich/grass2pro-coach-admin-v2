@@ -74,13 +74,39 @@ export default function HomepageCover() {
     };
   }, []);
 
-  // Lock scroll while the cover is closed; restore on open. Also handle
-  // unmount cleanup so we never leave the body scroll-locked.
+  // Lock scroll only while the cover is closed (page 1) — the landing
+  // image is a single locked screen, so visitors can't scroll past
+  // the brand statement without flipping the cover. Once open (page 2)
+  // scroll unlocks so 'For parents', 'For coaches' and the featured
+  // Hope card are reachable.
+  //
+  // iOS Safari ignores `overflow: hidden` on body alone (rubber-band
+  // scroll still triggers), so we also lock <html> and pin <body> with
+  // position: fixed + width: 100% while closed. We restore the previous
+  // values on open / unmount so we never leave the page scroll-broken.
   useEffect(() => {
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = isOpen ? "" : "hidden";
+    const html = document.documentElement;
+    const body = document.body;
+    const prevHtmlOverflow = html.style.overflow;
+    const prevBodyOverflow = body.style.overflow;
+    const prevBodyPosition = body.style.position;
+    const prevBodyWidth = body.style.width;
+    if (!isOpen) {
+      html.style.overflow = "hidden";
+      body.style.overflow = "hidden";
+      body.style.position = "fixed";
+      body.style.width = "100%";
+    } else {
+      html.style.overflow = "";
+      body.style.overflow = "";
+      body.style.position = "";
+      body.style.width = "";
+    }
     return () => {
-      document.body.style.overflow = prev;
+      html.style.overflow = prevHtmlOverflow;
+      body.style.overflow = prevBodyOverflow;
+      body.style.position = prevBodyPosition;
+      body.style.width = prevBodyWidth;
     };
   }, [isOpen]);
 
