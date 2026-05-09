@@ -5814,11 +5814,6 @@ html[data-surface="homepage"] body {
   border-radius: 8px;
   transition: background 220ms ease, color 220ms ease;
 }
-.logo-studio-back::before {
-  content: "←";
-  font-size: 16px;
-  line-height: 1;
-}
 .logo-studio-back:hover {
   background: rgba(201, 233, 112, 0.08);
   color: #f3f5ee;
