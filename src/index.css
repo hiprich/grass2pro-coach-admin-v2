@@ -3031,6 +3031,116 @@
 .qr-fullscreen-footer {
   display: flex;
   justify-content: flex-end;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+/* The Print button shares the neutral filter-button look but adds a 6px
+   icon-text gap so the lucide Printer glyph hugs the label. Hidden on
+   the printout itself by the @media print block below. */
+.qr-fullscreen-print {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ----- Pitchside QR print stylesheet -----
+   Coaches print the Arrival/Departure QR onto A4 and prop it on the
+   touchline so parents can scan from the car park without the coach's
+   phone being tied up. The strategy is hide-everything-except-the-QR:
+   neutralise the fixed backdrop, hide every chrome element (close X,
+   footer buttons, fallback box header), then size the QR canvas so the
+   modules stay crisp at print resolution.
+
+   We deliberately scope every rule under @media print so the screen
+   experience is untouched. The canvas itself is rendered by the qrcode
+   library at 1024px logical, which is more than enough resolution for
+   a 12cm A4 print.  */
+@media print {
+  /* Reset the page so there's no browser header/footer banner stealing
+     space from the QR. We can't fully suppress the URL/page-number
+     banner across all browsers, but a 0 margin keeps the QR central. */
+  @page { margin: 12mm; }
+
+  /* Hide the entire app shell. We then re-show ONLY the QR card below.
+     visibility:hidden on a parent + visibility:visible on a child is
+     the cleanest cross-browser way to do this without touching the
+     React tree. */
+  body * {
+    visibility: hidden !important;
+  }
+  .qr-fullscreen-backdrop,
+  .qr-fullscreen-backdrop * {
+    visibility: visible !important;
+  }
+
+  /* Strip the modal chrome: no dim backdrop, no fixed positioning, no
+     scroll container. The card flows in normal document order so the
+     printer sees a single full-page block. */
+  .qr-fullscreen-backdrop {
+    position: static !important;
+    inset: auto !important;
+    background: #ffffff !important;
+    padding: 0 !important;
+    display: block !important;
+  }
+  .qr-fullscreen-card {
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    background: #ffffff !important;
+    max-width: none !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    page-break-inside: avoid;
+  }
+
+  /* Hide chrome the parent doesn't need to see on paper: the close X,
+     the footer (Print + Done buttons), and the "Generating QR" pending
+     message (it can never be visible at print time anyway, but belt &
+     braces). */
+  .qr-fullscreen-header .icon-button,
+  .qr-fullscreen-footer,
+  .qr-fullscreen-pending {
+    display: none !important;
+  }
+
+  /* Promote the body to full bleed and centre the QR for A4. The canvas
+     sits inside .qr-fullscreen-canvas-wrap; we size the canvas itself
+     because Safari ignores width on the wrap when printing. 12cm gives a
+     comfortable scan distance from 1\u20132 metres. */
+  .qr-fullscreen-body {
+    padding: 0 !important;
+    gap: 12mm !important;
+    align-items: center !important;
+  }
+  .qr-fullscreen-canvas-wrap {
+    background: #ffffff !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+  }
+  .qr-fullscreen-canvas {
+    width: 12cm !important;
+    height: 12cm !important;
+    max-width: 100% !important;
+  }
+
+  /* Typography overrides: pure black on white reads cleanest on a B&W
+     office printer. */
+  .qr-fullscreen-title,
+  .qr-fullscreen-meta,
+  .qr-fullscreen-instructions,
+  .qr-fullscreen-fallback,
+  .qr-fullscreen-fallback-label,
+  .qr-fullscreen-fallback-code,
+  .page-kicker {
+    color: #000000 !important;
+    background: transparent !important;
+  }
+  .qr-fullscreen-fallback {
+    border: 1px solid #000000 !important;
+  }
 }
 
 /* ----- "Show QR" row button (Phase A2) ----- */

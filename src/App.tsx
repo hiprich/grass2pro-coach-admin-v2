@@ -23,6 +23,7 @@ import {
   Pencil,
   Plus,
   PoundSterling,
+  Printer,
   QrCode,
   RotateCcw,
   Search,
@@ -2950,6 +2951,26 @@ function SessionQrDialog({
         </div>
 
         <div className="qr-fullscreen-footer">
+          {renderState === "ready" ? (
+            <button
+              type="button"
+              className="filter-button qr-fullscreen-print"
+              onClick={() => {
+                // Browser print dialog. The print stylesheet (see index.css
+                // "@media print") hides the rest of the app and shows only
+                // the .qr-fullscreen-card so coaches can prop a clean A4
+                // printout on the touchline. Triggering print on a closed
+                // dialog wouldn't render anything, so we gate this on the
+                // QR being fully rendered.
+                if (typeof window !== "undefined") window.print();
+              }}
+              data-testid="button-qr-fullscreen-print"
+              aria-label="Print QR for pitchside use"
+            >
+              <Printer size={16} aria-hidden="true" />
+              <span>Print</span>
+            </button>
+          ) : null}
           <button
             type="button"
             className="primary-button"
