@@ -481,7 +481,7 @@ export default function CoachLandingPage({ coach }: { coach: CoachProfile }) {
 
       <footer className="coach-landing-footer">
         <div>
-          <span className="coach-landing-footer-mark">G2P</span> Grass2Pro · Built for grassroots football
+          <span className="coach-landing-footer-mark">G2P</span> Grass2Pro · The future of UK grassroots football
         </div>
         <a href="https://grass2pro.com">grass2pro.com</a>
       </footer>

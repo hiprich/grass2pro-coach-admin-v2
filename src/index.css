@@ -5436,6 +5436,32 @@ html[data-surface="coach-landing"] body {
   font-size: 15px;
   line-height: 1.45;
   color: #e7eadf;
+  /* Staggered entrance — each item fades up with a small delay so the
+     list reads as deliberate rather than dumped. Animation runs once
+     on mount and never replays (forwards keeps the end state). */
+  opacity: 0;
+  transform: translateY(6px);
+  animation: coach-specialism-in 460ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+.coach-landing-specialisms li:nth-child(1) { animation-delay: 60ms; }
+.coach-landing-specialisms li:nth-child(2) { animation-delay: 120ms; }
+.coach-landing-specialisms li:nth-child(3) { animation-delay: 180ms; }
+.coach-landing-specialisms li:nth-child(4) { animation-delay: 240ms; }
+.coach-landing-specialisms li:nth-child(5) { animation-delay: 300ms; }
+.coach-landing-specialisms li:nth-child(6) { animation-delay: 360ms; }
+.coach-landing-specialisms li:nth-child(n + 7) { animation-delay: 420ms; }
+@keyframes coach-specialism-in {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .coach-landing-specialisms li {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
 }
 .coach-landing-specialisms-dot {
   flex: 0 0 auto;
@@ -5991,12 +6017,24 @@ html[data-surface="homepage"] body {
   border-radius: 14px;
   padding: 20px 24px;
   text-decoration: none;
+  /* Tab focus uses our bespoke ring — hide the browser default. */
+  outline: none;
   transition: transform 220ms ease, border-color 220ms ease, box-shadow 220ms ease;
 }
 .homepage-featured-card:hover {
   transform: translateY(-3px);
   border-color: #c9e970;
   box-shadow: 0 10px 26px rgba(201, 233, 112, 0.14);
+}
+/* Bespoke keyboard focus ring — lime double-halo so it reads as the
+   same brand language as the hover state but is unmistakably a
+   keyboard focus indicator. */
+.homepage-featured-card:focus-visible {
+  border-color: #c9e970;
+  box-shadow:
+    0 0 0 3px #11150e,
+    0 0 0 5px #c9e970,
+    0 12px 28px rgba(201, 233, 112, 0.20);
 }
 /* Circular avatar thumbnail. Span both rows so it sits centred next to
    the two-line name + role block. Subtle lime ring matches the brand
@@ -6005,13 +6043,28 @@ html[data-surface="homepage"] body {
   grid-row: 1 / 3;
   grid-column: 1 / 2;
   display: inline-flex;
-  width: 56px;
-  height: 56px;
+  /* Matched to the <img> intrinsic size so the avatar reads bold next
+     to the lime ring rather than feeling tucked away. */
+  width: 64px;
+  height: 64px;
   border-radius: 50%;
   overflow: hidden;
   background: #1a1f15;
   box-shadow: 0 0 0 2px rgba(201, 233, 112, 0.22);
   flex-shrink: 0;
+  /* Subtle lift on card hover so the avatar feels alive, not pasted on. */
+  transition: box-shadow 220ms ease, transform 220ms ease;
+}
+.homepage-featured-card:hover .homepage-featured-avatar {
+  box-shadow: 0 0 0 2px #c9e970;
+  transform: scale(1.04);
+}
+@media (prefers-reduced-motion: reduce) {
+  .homepage-featured-avatar,
+  .homepage-featured-card:hover .homepage-featured-avatar {
+    transition: none;
+    transform: none;
+  }
 }
 .homepage-featured-avatar img {
   width: 100%;

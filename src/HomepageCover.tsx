@@ -68,7 +68,7 @@ export default function HomepageCover() {
   useEffect(() => {
     const previous = document.documentElement.dataset.surface;
     document.documentElement.dataset.surface = "homepage";
-    document.title = "Grass2Pro — UK grassroots football, organised.";
+    document.title = "Grass2Pro — the future of UK grassroots football";
     return () => {
       if (previous === undefined) delete document.documentElement.dataset.surface;
       else document.documentElement.dataset.surface = previous;
@@ -241,7 +241,7 @@ export default function HomepageCover() {
         </span>
 
         <div className="homepage-hero-text">
-          <p className="homepage-kicker">UK grassroots football, organised.</p>
+          <p className="homepage-kicker">The future of UK grassroots football.</p>
           <h1 className="homepage-headline">
             Every match.
             <br />
@@ -346,7 +346,7 @@ export default function HomepageCover() {
         <div className="homepage-footer-inner">
           <span className="homepage-footer-brand">Grass2Pro</span>
           <span className="homepage-footer-tag">
-            Built in London for UK grassroots football.
+            The future of UK grassroots football. Built in London.
           </span>
         </div>
       </footer>
