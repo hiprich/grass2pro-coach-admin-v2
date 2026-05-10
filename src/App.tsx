@@ -5658,8 +5658,19 @@ function DateOfBirthInput({ value, onChange, invalid, testIdPrefix = "input-chil
   );
 }
 
-function ConsentForm() {
-  const [form, setForm] = useState<ConsentPayload>(createInitialConsentForm);
+function ConsentForm({ initialParentEmail }: { initialParentEmail?: string } = {}) {
+  // When a returning parent deeplinks from the portal's "Add another child"
+  // section we seed parentEmail with their verified address so they don't
+  // have to retype it. They still confirm in the second field — the
+  // double-entry check guards against typos and is a safeguarding
+  // requirement we don't want to bypass.
+  const [form, setForm] = useState<ConsentPayload>(() => {
+    const base = createInitialConsentForm();
+    if (initialParentEmail && isValidEmail(initialParentEmail)) {
+      return { ...base, parentEmail: initialParentEmail };
+    }
+    return base;
+  });
   const [status, setStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
   const [message, setMessage] = useState("");
   // Confirm fields are UI-only. They guard against typos in the contact
@@ -6585,6 +6596,7 @@ function ParentChildCard({
   player,
   attendance,
   sessions,
+  parentEmail,
   onConsentToggle,
   onPathwayChange,
   onLeaveRequest,
@@ -6594,6 +6606,9 @@ function ParentChildCard({
   player: Player;
   attendance: AttendanceRecord[];
   sessions: Session[];
+  // Verified email of the signed-in parent. Threaded down so the "Add
+  // another child" deeplink can pre-fill the consent form for them.
+  parentEmail: string;
   onConsentToggle: (key: string, value: boolean) => Promise<void>;
   onPathwayChange: (value: string) => Promise<void>;
   onLeaveRequest: (reason: string, notes: string) => Promise<void>;
@@ -6904,6 +6919,26 @@ function ParentChildCard({
                 Request erasure
               </button>
             )}
+          </div>
+
+          {/* Add another child. Sits inside every child card so the
+              affordance is discoverable however the parent navigated
+              here. The deeplink carries the verified parentEmail so
+              the consent form pre-fills, while still requiring the
+              double-entry confirm field to satisfy safeguarding. */}
+          <div className="portal-manage-section">
+            <h3 className="portal-manage-title">Add another child</h3>
+            <p className="portal-manage-help">
+              Adopted, gained custody, or your blended family has grown? Register another child to your account in a few minutes.
+            </p>
+            <a
+              className="portal-secondary-button"
+              href={`/register?parentEmail=${encodeURIComponent(parentEmail)}`}
+              style={{ display: "inline-block", textDecoration: "none" }}
+              data-testid={`link-portal-add-child-${player.id}`}
+            >
+              Register another child
+            </a>
           </div>
         </div>
       </details>
@@ -7569,6 +7604,7 @@ function ParentOverviewScreen({
               player={player}
               attendance={summary.attendance}
               sessions={summary.sessions}
+              parentEmail={summary.email}
               onConsentToggle={(key, value) => runAction({ playerId: player.id, action: "set-consent", key, value })}
               onPathwayChange={(value) => runAction({ playerId: player.id, action: "set-pathway", value })}
               onLeaveRequest={(reason, notes) => runAction({ playerId: player.id, action: "request-leave", reason, notes })}
@@ -8247,6 +8283,43 @@ function ParentScanPage() {
   );
 }
 
+// Public-facing wrapper around <ConsentForm /> for the /register route.
+// Reads ?parentEmail= from the query string so the form pre-fills for
+// returning parents arriving from the portal's "Add another child" flow.
+// Wrapped in .portal-shell so the layout matches the parent portal
+// (consistent header, padding, max-width).
+function PublicRegisterPage() {
+  const initialParentEmail = (() => {
+    if (typeof window === "undefined") return undefined;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const value = params.get("parentEmail");
+      return value ? value.trim() : undefined;
+    } catch {
+      return undefined;
+    }
+  })();
+  return (
+    <div className="portal-shell">
+      <div className="portal-overview" style={{ maxWidth: 760, margin: "0 auto" }}>
+        <header className="portal-overview-head">
+          <div>
+            <div className="portal-brand-kicker">Grass2Pro</div>
+            <h1 className="portal-overview-title">Register a child</h1>
+            <p className="portal-overview-sub">
+              The future of UK grassroots football. Sign your child up so your coach can start logging attendance, photos and progress.
+            </p>
+          </div>
+        </header>
+        <ConsentForm initialParentEmail={initialParentEmail} />
+        <p className="portal-footnote" style={{ marginTop: 18, textAlign: "center" }}>
+          Already registered another child? <a href="/portal">Open the parent portal</a>.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // Detect whether the SPA should render the parent portal instead of the
 // coach dashboard. We keep this dead simple \u2014 any path that starts with
 // `/portal` (case-insensitive) routes through ParentPortal so /portal,
@@ -8275,6 +8348,18 @@ function shouldRenderLogoStudio(): boolean {
 function shouldRenderScan(): boolean {
   if (typeof window === "undefined") return false;
   return /^\/scan(\/|\?|$)/i.test(window.location.pathname + window.location.search);
+}
+
+// `/register` is the public consent / sign-up form for parents. We render
+// the same <ConsentForm /> the coach view uses, just standalone, so a parent
+// who already has one child enrolled can deeplink here from their portal
+// ("Add another child") without us building a duplicate form. Accepts an
+// optional ?parentEmail= query param so the form pre-fills the verified
+// email for returning parents — they still re-confirm to satisfy the
+// safeguarding double-entry rule.
+function shouldRenderRegister(): boolean {
+  if (typeof window === "undefined") return false;
+  return /^\/register(\/|\?|$)/i.test(window.location.pathname + window.location.search);
 }
 
 // `/admin` (case-insensitive, with optional trailing slash or query string)
@@ -8329,6 +8414,7 @@ function AppRoot() {
   }
   if (shouldRenderParentPortal()) return <ParentPortal />;
   if (shouldRenderScan()) return <ParentScanPage />;
+  if (shouldRenderRegister()) return <PublicRegisterPage />;
   // Specificity: /admin/logo-studio MUST be matched before /admin so the
   // dashboard matcher doesn't swallow the studio route.
   if (shouldRenderLogoStudio()) return <LogoStudio />;

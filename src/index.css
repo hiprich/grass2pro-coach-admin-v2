@@ -748,9 +748,14 @@
             mask-image: linear-gradient(to bottom, transparent 0, #000 12%, #000 88%, transparent 100%);
   }
 
+  /* Stack chips vertically so every child gets their own row. The marquee
+     translateY(0 → -50%) still seams perfectly because the cloned chips
+     fill the bottom half — column just makes the list taller, not wider,
+     which is exactly the axis the marquee scrolls along. */
   .on-pitch-list {
     display: flex;
-    flex-wrap: wrap;
+    flex-direction: column;
+    align-items: flex-start;
     gap: 6px;
   }
 
