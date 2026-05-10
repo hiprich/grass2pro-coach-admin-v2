@@ -29,7 +29,13 @@ import {
 } from "./_airtable.mjs";
 
 export const PARENT_SESSION_COOKIE = "g2p_parent_session";
-export const PARENT_SESSION_TTL_DAYS = 7;
+// 365 days. Parents stay signed in essentially forever \u2014 we re-issue
+// the cookie on every authenticated request (sliding renewal, see
+// withRefreshedSessionCookie below) so anyone who opens the portal even
+// once a year is never logged out. When payments land we'll likely drop
+// this back to ~30 days and add an idle-timeout server-side; until then
+// minimum-friction wins.
+export const PARENT_SESSION_TTL_DAYS = 365;
 export const MAGIC_LINK_TTL_MINUTES = 15;
 
 const TOKEN_BYTES = 32; // 256-bit token before hex-encoding
@@ -223,4 +229,33 @@ export function requireParentSession(event, jsonHelper) {
     return { error: jsonHelper(401, { error: "Sign in required." }) };
   }
   return { session };
+}
+
+// Sliding-renewal helper. Wrap any authenticated success response with
+// this so the parent's session cookie gets re-issued with a fresh
+// PARENT_SESSION_TTL_DAYS window on every request. The wrapped response
+// keeps its existing headers (including Content-Type / Cache-Control)
+// and gains a Set-Cookie via multiValueHeaders so other Set-Cookie
+// values (we don't currently emit any, but defensive) aren't clobbered.
+//
+// Usage:
+//   return withRefreshedSessionCookie(json(200, payload), parentEmail);
+export function withRefreshedSessionCookie(response, email) {
+  if (!response || typeof response !== "object") return response;
+  // Only refresh on 2xx \u2014 we don't want a 401/500 to extend a session.
+  const status = Number(response.statusCode);
+  if (!(status >= 200 && status < 300)) return response;
+  const value = createSessionCookieValue(email);
+  const cookie = buildSessionCookie(value);
+  // Preserve any existing multiValueHeaders the handler may have set.
+  const existing = response.multiValueHeaders || {};
+  const setCookie = Array.isArray(existing["Set-Cookie"]) ? existing["Set-Cookie"].slice() : [];
+  setCookie.push(cookie);
+  return {
+    ...response,
+    multiValueHeaders: {
+      ...existing,
+      "Set-Cookie": setCookie,
+    },
+  };
 }

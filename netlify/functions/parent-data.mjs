@@ -20,7 +20,7 @@ import {
   normaliseSession,
   tableName,
 } from "./_airtable.mjs";
-import { normaliseEmail, requireParentSession } from "./_parent-session.mjs";
+import { normaliseEmail, requireParentSession, withRefreshedSessionCookie } from "./_parent-session.mjs";
 
 const RECENT_SESSION_WINDOW_DAYS = 7;
 
@@ -77,12 +77,15 @@ export const handler = async (event) => {
   try {
     const players = await loadPlayersForParent(parentEmail);
     if (players.length === 0) {
-      return json(200, {
-        email: parentEmail,
-        players: [],
-        sessions: [],
-        attendance: [],
-      });
+      return withRefreshedSessionCookie(
+        json(200, {
+          email: parentEmail,
+          players: [],
+          sessions: [],
+          attendance: [],
+        }),
+        parentEmail,
+      );
     }
 
     const playerIds = players.map((player) => player.id);
@@ -95,12 +98,18 @@ export const handler = async (event) => {
     const recentSessionIds = new Set(sessions.map((session) => session.id));
     const scopedAttendance = attendance.filter((row) => recentSessionIds.has(row.sessionId));
 
-    return json(200, {
-      email: parentEmail,
-      players,
-      sessions,
-      attendance: scopedAttendance,
-    });
+    // Sliding renewal: every successful parent-data fetch extends the
+    // session cookie by another PARENT_SESSION_TTL_DAYS. As long as the
+    // parent opens the portal at least once a year they stay signed in.
+    return withRefreshedSessionCookie(
+      json(200, {
+        email: parentEmail,
+        players,
+        sessions,
+        attendance: scopedAttendance,
+      }),
+      parentEmail,
+    );
   } catch (error) {
     console.error("[parent-data] Failed to load parent overview:", error);
     return json(500, { error: "Unable to load your family's information right now." });

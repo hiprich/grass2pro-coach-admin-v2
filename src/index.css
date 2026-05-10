@@ -727,15 +727,66 @@
     min-height: 7.5rem;
   }
 
+  /* The on-pitch chip cloud sits inside an .on-pitch-viewport (the clipping
+     window). When the cloud overflows the viewport we flip the viewport's
+     data-marquee attr to "true" and the track translates upward in a
+     seamless loop. Without overflow the viewport is just a fixed-height
+     container and the track lays out naturally. */
+  .on-pitch-viewport {
+    position: relative;
+    /* Fixed height so the KPI grid row doesn't reflow as chips arrive.
+       Tuned to fit ~3 rows of chips on a typical phone width. */
+    max-height: 9rem;
+    overflow: hidden;
+    padding-right: 2px;
+    /* Soft fade at top + bottom so chips appear/disappear gracefully
+       at the seam instead of popping. Only applied when the marquee is
+       on \u2014 a static cloud doesn't need the mask. */
+  }
+  .on-pitch-viewport[data-marquee="true"] {
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 12%, #000 88%, transparent 100%);
+            mask-image: linear-gradient(to bottom, transparent 0, #000 12%, #000 88%, transparent 100%);
+  }
+
   .on-pitch-list {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
-    /* Cap the height so a roster of 20+ children doesn't blow out the grid;
-       overflow scrolls vertically with a discrete scrollbar. */
-    max-height: 9rem;
-    overflow-y: auto;
-    padding-right: 2px;
+  }
+
+  /* Marquee track. Cloned chips fill the bottom half so translating from
+     0 to -50% lands the second copy exactly where the first started \u2014
+     a seamless loop with no jump. Speed is roughly 32px/s, which gives the
+     coach enough time to read each name without feeling sluggish. */
+  .on-pitch-viewport[data-marquee="true"] .on-pitch-list {
+    animation: on-pitch-marquee 22s linear infinite;
+    will-change: transform;
+  }
+  .on-pitch-viewport[data-marquee="true"][data-paused="true"] .on-pitch-list {
+    /* Press-and-hold pause: animation freezes mid-frame so a coach can
+       read the name they were aiming at. Releasing resumes from the same
+       position thanks to animation-play-state's pause-in-place semantics. */
+    animation-play-state: paused;
+  }
+  /* Cloned chips for the marquee loop \u2014 visual only, not in the AT tree. */
+  .on-pitch-chip[data-marquee-clone="true"] {
+    animation: none;
+  }
+  @keyframes on-pitch-marquee {
+    from { transform: translateY(0); }
+    to   { transform: translateY(-50%); }
+  }
+  /* Honour the system reduced-motion preference. The chip cloud falls
+     back to a static, scrollable list \u2014 no motion at all. */
+  @media (prefers-reduced-motion: reduce) {
+    .on-pitch-viewport[data-marquee="true"] {
+      overflow-y: auto;
+      -webkit-mask-image: none;
+              mask-image: none;
+    }
+    .on-pitch-viewport[data-marquee="true"] .on-pitch-list {
+      animation: none;
+    }
   }
 
   .on-pitch-chip {

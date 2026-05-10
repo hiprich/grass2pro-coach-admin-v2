@@ -1852,24 +1852,59 @@ function OnPitchCard({
     });
   }, [onPitch]);
 
-  // Poll attendance every 30s while a session is active so names appear and
-  // disappear in near real-time. Skipped entirely when there's no active
-  // session, which is the common case on a non-match-day.
+  // Live attendance feed for the on-pitch card. While a session is active
+  // we want chip arrivals/departures to feel near-instant without going
+  // full SSE infrastructure. Three triggers do this together:
+  //   1. Polling every 8s (down from 30s). Cheap on the API and it means
+  //      the worst-case lag between a parent scan and the chip showing
+  //      is ~8s. This is the dominant feedback loop.
+  //   2. Immediate refresh whenever the page becomes visible again —
+  //      e.g. the coach unlocks their phone, swipes back to the tab, or
+  //      foregrounds the PWA. Browsers fire `visibilitychange` and the
+  //      window `focus` event for these cases.
+  //   3. Browsers also throttle setInterval in background tabs (down to
+  //      ~1/min on iOS Safari) so without (2) a coach who comes back to
+  //      the tab could see stale data for up to 60s. Combining poll +
+  //      visibility refresh keeps the lag ceiling tight on every device.
+  //
+  // Skipped entirely when no session is in a check-in phase — quiet on
+  // non-match days. When SSE/realtime lands we'll swap (1) for a stream
+  // and keep (2) as a reconnect trigger.
   useEffect(() => {
     if (!activeSession || !onAttendanceUpdate) return;
     let cancelled = false;
+    let inFlight = false;
     const tick = async () => {
-      const fresh = await loadAttendance();
-      if (cancelled || !fresh) return;
-      onAttendanceUpdate(fresh);
+      if (cancelled || inFlight) return;
+      inFlight = true;
+      try {
+        const fresh = await loadAttendance();
+        if (cancelled || !fresh) return;
+        onAttendanceUpdate(fresh);
+      } finally {
+        inFlight = false;
+      }
     };
-    // Don't fire immediately on mount — the parent already loaded attendance
-    // as part of the admin payload, and an immediate re-fetch would burn an
-    // unnecessary call. The first poll lands 30s after mount.
-    const id = window.setInterval(tick, 30_000);
+    // Don't fire immediately on mount — the parent already loaded
+    // attendance as part of the admin payload. The first poll lands 8s
+    // after mount.
+    const id = window.setInterval(tick, 8_000);
+    // Snap-refresh whenever the tab regains visibility. Both events fire
+    // independently across browsers so we listen to both; the inFlight
+    // guard above ensures we don't double-fetch.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void tick();
+    };
+    const onFocus = () => {
+      void tick();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onFocus);
     return () => {
       cancelled = true;
       window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onFocus);
     };
   }, [activeSession, onAttendanceUpdate]);
 
@@ -1898,6 +1933,45 @@ function OnPitchCard({
   // chip cloud rather than per-chip so the layout stays compact on phones.
   const [markBusyId, setMarkBusyId] = useState<string | null>(null);
   const [markError, setMarkError] = useState("");
+
+  // Marquee state for the on-pitch chip list. When the chip cloud is taller
+  // than the viewport we duplicate the chips and scroll them upward in a
+  // continuous loop \u2014 no scrollbar, no missed names. The marquee is
+  // suppressed when the card is overdue (coach needs to read + tap precise
+  // chip targets) or when the user prefers reduced motion. Touching the card
+  // pauses the loop so a coach can read a specific name; releasing resumes.
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const trackRef = useRef<HTMLDivElement | null>(null);
+  const [marqueeActive, setMarqueeActive] = useState(false);
+  const [marqueePaused, setMarqueePaused] = useState(false);
+  // Re-evaluate "does it overflow?" whenever the chip list changes size or
+  // the card itself resizes. ResizeObserver fires once on mount so we don't
+  // also need an initial-measure effect.
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    const track = trackRef.current;
+    if (!viewport || !track) {
+      setMarqueeActive(false);
+      return;
+    }
+    if (typeof ResizeObserver === "undefined") {
+      // Older browsers \u2014 fall back to a one-shot measure. The marquee
+      // never re-evaluates but the dashboard still works.
+      setMarqueeActive(track.scrollHeight - 1 > viewport.clientHeight);
+      return;
+    }
+    const measure = () => {
+      // 1px slop avoids flapping when sub-pixel rounding leaves the track
+      // exactly at the viewport height.
+      const overflows = track.scrollHeight - 1 > viewport.clientHeight;
+      setMarqueeActive(overflows);
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(viewport);
+    observer.observe(track);
+    measure();
+    return () => observer.disconnect();
+  }, [displayNames.length, isOverdue]);
 
   async function handleMarkCollected(playerId: string) {
     if (!activeSession || !onAttendanceUpdate) return;
@@ -1960,12 +2034,17 @@ function OnPitchCard({
         </>
       ) : (
         <>
-          <div
-            className="on-pitch-list"
-            role="list"
-            data-testid="list-on-pitch"
-          >
-            {displayNames.map((p) => (
+          {(() => {
+            // Only marquee when the chip cloud actually overflows AND the
+            // card isn't in the overdue/amber state (where the coach needs
+            // a stationary target to tap "Mark collected"). The viewport
+            // div is the clipping window; the track is the moving content.
+            // When marqueeing we duplicate the chips so the loop is
+            // seamless \u2014 the keyframe translates the track from 0 to
+            // -50%, which lands the second copy exactly where the first
+            // started.
+            const isMarquee = marqueeActive && !isOverdue;
+            const chips = displayNames.map((p) => (
               <span
                 key={p.id}
                 role="listitem"
@@ -1983,12 +2062,50 @@ function OnPitchCard({
                     data-testid={`button-mark-collected-${p.id}`}
                     aria-label={`Mark ${p.label} collected`}
                   >
-                    {markBusyId === p.id ? "Marking…" : "Mark collected"}
+                    {markBusyId === p.id ? "Marking\u2026" : "Mark collected"}
                   </button>
                 ) : null}
               </span>
-            ))}
-          </div>
+            ));
+            // Press-and-hold pause: pointerdown freezes the marquee,
+            // pointerup/leave/cancel resumes. Works for mouse + touch in
+            // one set of handlers.
+            const pause = () => setMarqueePaused(true);
+            const resume = () => setMarqueePaused(false);
+            return (
+              <div
+                ref={viewportRef}
+                className="on-pitch-viewport"
+                data-marquee={isMarquee ? "true" : undefined}
+                data-paused={isMarquee && marqueePaused ? "true" : undefined}
+                onPointerDown={isMarquee ? pause : undefined}
+                onPointerUp={isMarquee ? resume : undefined}
+                onPointerLeave={isMarquee ? resume : undefined}
+                onPointerCancel={isMarquee ? resume : undefined}
+              >
+                <div
+                  ref={trackRef}
+                  className="on-pitch-list"
+                  role="list"
+                  data-testid="list-on-pitch"
+                >
+                  {chips}
+                  {isMarquee
+                    ? displayNames.map((p) => (
+                        <span
+                          key={`dup-${p.id}`}
+                          aria-hidden="true"
+                          className="on-pitch-chip"
+                          data-marquee-clone="true"
+                        >
+                          <span className="on-pitch-chip-label">{p.label}</span>
+                        </span>
+                      ))
+                    : null}
+                </div>
+              </div>
+            );
+          })()}
           {markError ? (
             <div className="on-pitch-error" role="alert" data-testid="text-on-pitch-error">
               {markError}
@@ -2973,9 +3090,15 @@ function SessionQrDialog({
     const dateLine = escape(
       `${formatDate(session.date)} \u00b7 ${session.startTime}\u2013${session.endTime}`,
     );
-    const fallback = session.qrFallbackCode
-      ? `<div class="fallback"><div class="fallback-label">Fallback code</div><div class="fallback-code">${escape(session.qrFallbackCode)}</div></div>`
-      : "";
+    // Fallback code shown under the QR so a parent who can't scan (camera
+    // permission off, broken phone, glare, etc.) can still read the code
+    // out to the coach. We always print SOMETHING here \u2014 if Airtable
+    // hasn't populated qrFallbackCode we derive a short, human-readable
+    // code from the session id so the coach has a unique identifier to
+    // cross-reference manually.
+    const fallbackCode = (session.qrFallbackCode || "").trim()
+      || `S-${(session.id || "").replace(/[^A-Za-z0-9]/g, "").slice(-6).toUpperCase() || "UNKNOWN"}`;
+    const fallback = `<div class="fallback"><div class="fallback-label">Can\u2019t scan? Read this code to your coach</div><div class="fallback-code">${escape(fallbackCode)}</div></div>`;
     const docHtml = `<!doctype html>
 <html><head><meta charset="utf-8"><title>QR \u2014 ${titleHtml}</title>
 <style>
@@ -2987,9 +3110,9 @@ function SessionQrDialog({
   .meta { font-size: 11pt; color: #333; text-align: center; }
   img.qr { width: 12cm; height: 12cm; image-rendering: pixelated; image-rendering: crisp-edges; display: block; }
   .instructions { font-size: 11pt; color: #333; text-align: center; max-width: 12cm; }
-  .fallback { border: 1px solid #000; padding: 6px 12px; border-radius: 4px; text-align: center; }
-  .fallback-label { font-size: 9pt; text-transform: uppercase; letter-spacing: 0.04em; color: #555; }
-  .fallback-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14pt; font-weight: 600; letter-spacing: 0.06em; }
+  .fallback { border: 2px solid #000; padding: 10px 18px; border-radius: 6px; text-align: center; min-width: 9cm; }
+  .fallback-label { font-size: 10pt; text-transform: uppercase; letter-spacing: 0.04em; color: #555; margin-bottom: 4px; }
+  .fallback-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 22pt; font-weight: 700; letter-spacing: 0.12em; }
 </style></head>
 <body>
   <div class="kicker">Parent scan</div>

@@ -33,7 +33,7 @@ import {
   normalisePlayer,
   tableName,
 } from "./_airtable.mjs";
-import { normaliseEmail, requireParentSession } from "./_parent-session.mjs";
+import { normaliseEmail, requireParentSession, withRefreshedSessionCookie } from "./_parent-session.mjs";
 
 function attendanceTable() {
   return tableName("AIRTABLE_ATTENDANCE_TABLE", "Attendance", TABLE_IDS.ATTENDANCE);
@@ -148,8 +148,12 @@ export const handler = async (event) => {
     return json(502, { error: "Airtable rejected the self-pickup update." });
   }
 
-  return json(200, {
-    ok: true,
-    attendance: normaliseAttendance(updated),
-  });
+  // Sliding renewal: extend the session cookie on every successful action.
+  return withRefreshedSessionCookie(
+    json(200, {
+      ok: true,
+      attendance: normaliseAttendance(updated),
+    }),
+    parentEmail,
+  );
 };

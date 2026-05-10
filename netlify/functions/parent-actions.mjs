@@ -37,7 +37,7 @@ import {
   normalisePlayer,
   tableName,
 } from "./_airtable.mjs";
-import { normaliseEmail, requireParentSession } from "./_parent-session.mjs";
+import { normaliseEmail, requireParentSession, withRefreshedSessionCookie } from "./_parent-session.mjs";
 
 // Map the SPA's short consent keys to the Airtable field names. Keeping
 // this dictionary explicit means the SPA can never set an arbitrary field
@@ -292,12 +292,16 @@ export const handler = async (event) => {
   }
 
   try {
-    if (action === "set-consent") return await handleSetConsent({ playerId, body, parentEmail });
-    if (action === "set-pathway") return await handleSetPathway({ playerId, body, parentEmail });
-    if (action === "request-leave") return await handleRequestLeave({ playerId, body, parentEmail });
-    if (action === "request-erasure") return await handleRequestErasure({ playerId, parentEmail });
-    if (action === "set-rsvp") return await handleSetRsvp({ playerId, body, parentEmail });
-    return json(400, { error: `Unknown action: ${action}` });
+    let response;
+    if (action === "set-consent") response = await handleSetConsent({ playerId, body, parentEmail });
+    else if (action === "set-pathway") response = await handleSetPathway({ playerId, body, parentEmail });
+    else if (action === "request-leave") response = await handleRequestLeave({ playerId, body, parentEmail });
+    else if (action === "request-erasure") response = await handleRequestErasure({ playerId, parentEmail });
+    else if (action === "set-rsvp") response = await handleSetRsvp({ playerId, body, parentEmail });
+    else response = json(400, { error: `Unknown action: ${action}` });
+    // Sliding renewal: extend the session cookie on every authenticated
+    // success so an active parent never gets logged out.
+    return withRefreshedSessionCookie(response, parentEmail);
   } catch (error) {
     console.error("[parent-actions] Update failed:", error);
     return json(500, { error: "We couldn't save that change. Please try again." });
