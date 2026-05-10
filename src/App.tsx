@@ -2819,6 +2819,14 @@ function SessionQrDialog({
   // dialog open. Without this, a re-render after print() returns could
   // re-trigger the dialog while the user is still mid-print.
   const printedRef = useRef(false);
+  // We mirror the rendered canvas into a static PNG data URL and feed that
+  // to a hidden <img> dedicated to the printout. Two reasons:
+  //   1. <canvas> is unreliable to print across browsers \u2014 Safari and some
+  //      Chrome builds snapshot the page before the canvas bitmap is in the
+  //      print buffer, so it comes out blank.
+  //   2. <img> is a plain static bitmap; the print pipeline always sees it.
+  // Updated alongside renderState so it stays in sync with the canvas.
+  const [printDataUrl, setPrintDataUrl] = useState<string>("");
 
   // Compute the deep-link the QR should encode. Order of preference:
   // 1. Whatever the server back-fill wrote into the session (canonical, lives
@@ -2871,6 +2879,20 @@ function SessionQrDialog({
           errorCorrectionLevel: "H",
           color: { dark: "#0f1719", light: "#ffffff" },
         });
+        if (cancelled) return;
+        // Snapshot the canvas to a PNG data URL for the print path. We do
+        // this synchronously after toCanvas resolves so the bitmap is
+        // guaranteed populated. toDataURL is cheap at 1024px (\u224860\u2013120ms)
+        // and only runs once per dialog open.
+        try {
+          setPrintDataUrl(canvas.toDataURL("image/png"));
+        } catch (snapshotErr) {
+          // toDataURL can throw on tainted canvases (cross-origin images),
+          // but we don't draw any external images, so this should never
+          // happen in practice. Log and continue \u2014 the on-screen QR is
+          // still fine, only print is degraded.
+          console.warn("QR print snapshot failed:", snapshotErr);
+        }
         if (!cancelled) setRenderState("ready");
       } catch (err) {
         if (cancelled) return;
@@ -2894,13 +2916,17 @@ function SessionQrDialog({
   useEffect(() => {
     if (!autoPrint) return;
     if (renderState !== "ready") return;
+    // Wait for the print-only <img> data URL to land before firing print.
+    // Without this gate the auto-print path could fire before the snapshot
+    // exists and produce a blank page.
+    if (!printDataUrl) return;
     if (printedRef.current) return;
     printedRef.current = true;
     const id = window.requestAnimationFrame(() => {
       window.print();
     });
     return () => window.cancelAnimationFrame(id);
-  }, [autoPrint, renderState]);
+  }, [autoPrint, renderState, printDataUrl]);
 
   // Escape closes the dialog — matches the existing modal convention.
   useEffect(() => {
@@ -2962,6 +2988,19 @@ function SessionQrDialog({
                   data-testid="canvas-qr-fullscreen"
                   aria-label={`QR code linking to ${scanUrl}`}
                 />
+                {/* Print-only mirror of the canvas. Hidden on screen via
+                    .qr-fullscreen-print-img, made visible only inside the
+                    @media print block. Lives in the same wrap as the canvas
+                    so the print stylesheet can centre and size it as one
+                    unit. */}
+                {printDataUrl ? (
+                  <img
+                    src={printDataUrl}
+                    alt=""
+                    className="qr-fullscreen-print-img"
+                    aria-hidden="true"
+                  />
+                ) : null}
                 {renderState !== "ready" && (
                   <div className="qr-fullscreen-pending">Generating QR…</div>
                 )}

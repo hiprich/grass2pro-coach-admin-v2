@@ -2971,6 +2971,16 @@
   image-rendering: crisp-edges;
 }
 
+/* Print mirror of the QR canvas. Browsers (Safari especially) often fail to
+   include a live <canvas> bitmap in the print buffer when the canvas is
+   inside a fixed-position modal that's been re-laid-out for print. To dodge
+   that, after we render the QR we capture canvas.toDataURL("image/png") into
+   an <img> sibling. The <img> is a static bitmap the print engine handles
+   reliably. We hide it on screen and only reveal it inside @media print. */
+.qr-fullscreen-print-img {
+  display: none;
+}
+
 .qr-fullscreen-pending {
   position: absolute;
   inset: 0;
@@ -3084,6 +3094,24 @@
     visibility: visible !important;
   }
 
+  /* Swap the live <canvas> for the static PNG <img> mirror. Safari/Chrome
+     can both fail to flush a canvas bitmap into the print buffer when the
+     canvas is inside a fixed-position modal whose layout we mutate for
+     print — which is exactly what the rules below do. The <img> is a
+     plain bitmap and prints reliably. */
+  .qr-fullscreen-canvas {
+    display: none !important;
+  }
+  .qr-fullscreen-print-img {
+    display: block !important;
+    width: 12cm !important;
+    height: 12cm !important;
+    max-width: 100% !important;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    visibility: visible !important;
+  }
+
   /* Strip the modal chrome: no dim backdrop, no fixed positioning, no
      scroll container. The card flows in normal document order so the
      printer sees a single full-page block. */
@@ -3129,12 +3157,14 @@
     background: #ffffff !important;
     box-shadow: none !important;
     padding: 0 !important;
+    /* Let the print image dictate its own size (12cm). The screen wrap
+       caps width at 420px which would shrink the printed QR. */
+    width: auto !important;
+    height: auto !important;
+    aspect-ratio: auto !important;
+    overflow: visible !important;
   }
-  .qr-fullscreen-canvas {
-    width: 12cm !important;
-    height: 12cm !important;
-    max-width: 100% !important;
-  }
+
 
   /* Typography overrides: pure black on white reads cleanest on a B&W
      office printer. */
