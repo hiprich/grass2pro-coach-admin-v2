@@ -17,6 +17,7 @@
 // publicly until Phase G ships.
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ExternalLink } from "lucide-react";
 import type {
   AccentGradient,
   PartnerLogoConfig,
@@ -773,13 +774,26 @@ export default function LogoStudio() {
   return (
     <div className="logo-studio" data-testid="logo-studio">
       <header className="logo-studio-topbar">
-        <a
-          className="logo-studio-back"
-          href="/admin"
-          data-testid="link-studio-to-admin"
-        >
-          ← Coach dashboard
-        </a>
+        <div className="logo-studio-topbar-row">
+          <a
+            className="logo-studio-back"
+            href="/admin"
+            data-testid="link-studio-to-admin"
+          >
+            ← Coach dashboard
+          </a>
+          {/* Phase G will derive this slug from the signed-in coach's profile. */}
+          <a
+            className="logo-studio-public-link"
+            href="/c/hope"
+            target="_blank"
+            rel="noopener"
+            data-testid="link-studio-to-public-page"
+          >
+            <span>View my public page</span>
+            <ExternalLink size={14} aria-hidden="true" />
+          </a>
+        </div>
         <div className="logo-studio-title-block">
           <h1 className="logo-studio-title">Logo Studio</h1>
           <p className="logo-studio-subtitle">

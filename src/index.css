@@ -382,6 +382,17 @@
     text-align: center;
   }
 
+  .nav-button--link {
+    text-decoration: none;
+    margin-top: var(--space-2);
+  }
+
+  .nav-count--badge {
+    min-width: 0;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
   .sidebar-card {
     display: grid;
     gap: var(--space-3);
@@ -6657,6 +6668,29 @@ html[data-surface="logo-studio"] body {
   color: #f3f5ee;
 }
 .logo-studio-back:focus-visible {
+  outline: 2px solid #c9e970;
+  outline-offset: 2px;
+}
+.logo-studio-public-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+  color: #cdd2c4;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 6px 10px;
+  border: 1px solid #2a2f24;
+  border-radius: 999px;
+  background: rgba(201, 233, 112, 0.04);
+  transition: background 220ms ease, color 220ms ease, border-color 220ms ease;
+}
+.logo-studio-public-link:hover {
+  background: rgba(201, 233, 112, 0.12);
+  border-color: rgba(201, 233, 112, 0.4);
+  color: #f3f5ee;
+}
+.logo-studio-public-link:focus-visible {
   outline: 2px solid #c9e970;
   outline-offset: 2px;
 }

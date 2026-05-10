@@ -20,6 +20,7 @@ import {
   Maximize2,
   Menu,
   Moon,
+  Palette,
   Pencil,
   Plus,
   PoundSterling,
@@ -1686,6 +1687,17 @@ function Sidebar({
             );
           })}
         </nav>
+        <a
+          className="nav-button nav-button--link"
+          href="/admin/logo-studio"
+          data-testid="link-nav-logo-studio"
+        >
+          <Palette size={18} aria-hidden="true" />
+          <span>Logo Studio</span>
+          <span className="nav-count nav-count--badge" aria-hidden="true">
+            New
+          </span>
+        </a>
       </div>
       <div className="sidebar-card">
         <div className="safeguarding-note">
