@@ -25,9 +25,12 @@ type CoachMeta = {
   // Pre-rendered OG/Twitter description. Hope gets a hand-crafted line;
   // every future coach falls back to a boilerplate.
   description: string;
-  // Path on the same origin, e.g. "/coaches/hope-hero.jpg". Absolute-ised
+  // Path on the same origin, e.g. "/coaches/hope-avatar.jpg". Absolute-ised
   // against request origin at runtime.
-  ogImage: string;
+  imagePath: string;
+  imageWidth: number;
+  imageHeight: number;
+  imageAlt: string;
 };
 
 const COACHES: Record<string, CoachMeta> = {
@@ -36,7 +39,10 @@ const COACHES: Record<string, CoachMeta> = {
     role: "FA Talent ID L2 Scout",
     description:
       "FA Talent ID L2 Scout Hope Bouhe — Spurs scout, PurePro Elite co-founder. Grassroots players scouted, developed, showcased.",
-    ogImage: "/coaches/hope-hero.jpg",
+    imagePath: "/coaches/hope-avatar.jpg",
+    imageWidth: 600,
+    imageHeight: 600,
+    imageAlt: "Hope Bouhe, FA Talent ID L2 Scout",
   },
 };
 
@@ -59,14 +65,18 @@ function buildHeadInjection(
   const d = escapeHtml(coach.description);
   const u = escapeHtml(url);
   const img = escapeHtml(ogImageAbsolute);
+  const imgAlt = escapeHtml(coach.imageAlt);
   return [
     `<meta name="x-prerendered" content="c-slug">`,
     `<meta property="og:title" content="${t}">`,
     `<meta property="og:description" content="${d}">`,
     `<meta property="og:image" content="${img}">`,
+    `<meta property="og:image:width" content="${coach.imageWidth}">`,
+    `<meta property="og:image:height" content="${coach.imageHeight}">`,
+    `<meta property="og:image:alt" content="${imgAlt}">`,
     `<meta property="og:url" content="${u}">`,
     `<meta property="og:type" content="profile">`,
-    `<meta name="twitter:card" content="summary_large_image">`,
+    `<meta name="twitter:card" content="summary">`,
     `<meta name="twitter:title" content="${t}">`,
     `<meta name="twitter:description" content="${d}">`,
     `<meta name="twitter:image" content="${img}">`,
@@ -82,6 +92,9 @@ function stripStaticSocialMeta(html: string): string {
     "og:title",
     "og:description",
     "og:image",
+    "og:image:width",
+    "og:image:height",
+    "og:image:alt",
     "og:url",
     "og:type",
     "twitter:card",
@@ -122,9 +135,7 @@ export default async function handler(
   let html = await response.text();
 
   const canonicalUrl = `${url.origin}/c/${slug}`;
-  const ogImageAbsolute = coach.ogImage.startsWith("http")
-    ? coach.ogImage
-    : `${url.origin}${coach.ogImage}`;
+  const ogImageAbsolute = new URL(coach.imagePath, request.url).toString();
   const newTitle = `${coach.name} — ${coach.role} · Grass2Pro`;
 
   // Replace <title>...</title>. Static index.html ships one; if for some reason
