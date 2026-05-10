@@ -1,0 +1,18 @@
+# Netlify redirects — belt-and-braces companion to netlify.toml.
+#
+# Why both? netlify.toml is the single source of truth for redirects in
+# theory, but a stale build, a misread base directory, or a deploy that
+# silently doesn't pick up the toml all leave the SPA without its
+# /* -> /index.html fallback and break every client-side route (e.g.
+# /c/hope returns Netlify's own 404 instead of CoachLandingPage).
+#
+# This file ships inside dist/ at build time (Vite copies public/* verbatim)
+# and Netlify always reads dist/_redirects, no toml parsing required. Order
+# matters: more-specific rules go first, the catch-all goes last.
+
+# API routes -> Netlify Functions
+/api/*  /.netlify/functions/:splat  200
+
+# SPA fallback - send every other path to index.html so React Router can
+# resolve client-side routes (/c/:slug, /admin, /register, etc.).
+/*      /index.html                 200
