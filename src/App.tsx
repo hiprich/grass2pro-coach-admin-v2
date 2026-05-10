@@ -3953,11 +3953,15 @@ function EditSessionDialog({
 // wins. Otherwise, once the session date is in the past, a still-scheduled
 // session is treated as completed. The raw data isn’t mutated; this just
 // shapes what the dashboard shows.
-// How long after the official end time we keep the session "actionable" on
-// the coach dashboard — the Departure QR + the QR fallback code stay
-// available so coaches can still mark late pickups. After this window the
-// row flips to a passive Completed.
-const SESSION_GRACE_MS = 60 * 60 * 1000; // 1 hour
+// 2026-05 update: removed the 1-hour post-end grace. The Departure QR now
+// closes at the exact session end time \u2014 no buffer. Parents who haven't
+// scanned out by end-time get the Pickup Confirm Reminder push (end+15) and
+// Pickup Confirm Final push (end+30), and the parent portal soft-locks them
+// out of all other features until they confirm pickup via the in-app banner.
+// Coaches can still mark-collected from the row even after end \u2014 the QR
+// just isn't scannable any more, which prevents stale scans long after a kid
+// has left the pitch.
+const SESSION_GRACE_MS = 0;
 // How long *before* the official start time we open the Arrival QR. Gives
 // parents who arrive a touch early a way to scan straight in.
 const CHECKIN_OPEN_LEAD_MS = 30 * 60 * 1000; // 30 min
@@ -5833,6 +5837,88 @@ async function fetchParentSummary(): Promise<ParentSummary | null> {
   return (await response.json()) as ParentSummary;
 }
 
+// Confirm pickup from the parent portal soft-lock banner. Hits the
+// dedicated parent-self-pickup endpoint which stamps Departure Time on the
+// child's attendance row \u2014 same write the coach makes when they tap
+// "Mark collected". On success the soft-lock auto-clears on the next refresh
+// because the pendingDepartures derivation no longer matches that row.
+async function postParentSelfPickup(payload: { playerId: string; sessionId: string }) {
+  const response = await fetch(apiPath("/parent-self-pickup"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "same-origin",
+    body: JSON.stringify(payload),
+  });
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    body = null;
+  }
+  if (response.ok) return { ok: true as const };
+  const message =
+    body && typeof body === "object" && "message" in body
+      ? String((body as { message?: string }).message)
+      : body && typeof body === "object" && "error" in body
+        ? String((body as { error?: string }).error)
+        : "We couldn\u2019t confirm pickup. Please try again.";
+  return { ok: false as const, message };
+}
+
+// A single child + session pair that's blocking the parent portal because
+// the child arrived but was never scanned out. Computed client-side from
+// `summary.sessions` + `summary.attendance`; clears automatically once the
+// coach marks collected or the parent confirms pickup themselves.
+type PendingDeparture = {
+  attendanceId: string;
+  sessionId: string;
+  sessionName: string;
+  sessionDate: string;
+  sessionEndTime: string;
+  sessionEndAt: Date;
+  coachName: string;
+  playerId: string;
+  playerName: string;
+  playerFirstName: string;
+};
+
+// Derive the soft-lock list from a parent summary. A row qualifies when:
+//   - The session has a parseable end time AND that end time is in the past.
+//   - There's an attendance row for one of this parent's players against the
+//     session with arrivalTime set and departureTime empty.
+//   - The session isn't cancelled.
+// Sorted oldest-first so the parent clears the longest-overdue session first.
+function derivePendingDepartures(summary: ParentSummary, now: Date): PendingDeparture[] {
+  const sessionsById = new Map(summary.sessions.map((s) => [s.id, s]));
+  const playersById = new Map(summary.players.map((p) => [p.id, p]));
+  const out: PendingDeparture[] = [];
+  for (const row of summary.attendance) {
+    if (!row.arrivalTime) continue;
+    if (row.departureTime) continue;
+    const session = sessionsById.get(row.sessionId);
+    if (!session) continue;
+    if (session.state === "cancelled") continue;
+    const endsAt = sessionEndsAt(session);
+    if (!endsAt) continue;
+    if (endsAt.getTime() > now.getTime()) continue; // session still running
+    const player = playersById.get(row.playerId);
+    if (!player) continue;
+    out.push({
+      attendanceId: row.id,
+      sessionId: session.id,
+      sessionName: session.name,
+      sessionDate: session.date,
+      sessionEndTime: session.endTime,
+      sessionEndAt: endsAt,
+      coachName: (session.coach || "").trim() || "your coach",
+      playerId: player.id,
+      playerName: player.name,
+      playerFirstName: (player.name.split(" ")[0] || player.name).trim(),
+    });
+  }
+  return out.sort((a, b) => a.sessionEndAt.getTime() - b.sessionEndAt.getTime());
+}
+
 async function patchParentAction(body: Record<string, unknown>) {
   const response = await fetch(apiPath("/parent-actions"), {
     method: "PATCH",
@@ -6853,6 +6939,38 @@ function ParentOverviewScreen({
   const [onboardingDismissed, setOnboardingDismissed] = useState<boolean>(() =>
     readDismissedFlag(PARENT_ONBOARDING_DISMISSED_KEY),
   );
+  // Pending departures (soft-lock). Recomputed every time `summary` updates.
+  // We tick a refresh on a 60s interval so a session that ends mid-visit
+  // flips into the lock without the parent having to refresh manually.
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(new Date()), 60_000);
+    return () => window.clearInterval(id);
+  }, []);
+  const pendingDepartures = derivePendingDepartures(summary, now);
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [pickupError, setPickupError] = useState<string | null>(null);
+
+  async function handleConfirmPickup(item: PendingDeparture) {
+    setPickupError(null);
+    setConfirmingId(item.attendanceId);
+    try {
+      const result = await postParentSelfPickup({
+        playerId: item.playerId,
+        sessionId: item.sessionId,
+      });
+      if (!result.ok) {
+        setPickupError(result.message);
+        return;
+      }
+      // Refresh the summary so the just-confirmed row drops out of the
+      // pendingDepartures list and the lock lifts (or moves to the next
+      // pending session for parents with multiple kids).
+      await onRefresh();
+    } finally {
+      setConfirmingId(null);
+    }
+  }
 
   function flash(tone: "info" | "success" | "error", text: string) {
     setMessage({ tone, text });
@@ -6881,6 +6999,95 @@ function ParentOverviewScreen({
     } finally {
       setWorking(false);
     }
+  }
+
+  // Soft-lock: if this parent has any session that ended without a Departure
+  // scan, render the lock screen instead of the normal overview. Everything
+  // else (consents, RSVPs, etc.) is intentionally inaccessible until pickup
+  // is confirmed \u2014 either by the parent here, or by the coach via
+  // mark-collected, in which case the row drops on the next refresh.
+  if (pendingDepartures.length > 0) {
+    const head = pendingDepartures[0];
+    return (
+      <div className="portal-overview portal-locked" data-testid="screen-portal-locked">
+        <header className="portal-overview-head">
+          <div>
+            <div className="portal-brand-kicker">Grass2Pro parent portal</div>
+            <h1 className="portal-overview-title">One quick thing first</h1>
+            <p className="portal-overview-sub" data-testid="text-portal-signed-in-as">
+              Signed in as {summary.email}
+            </p>
+          </div>
+          <button
+            type="button"
+            className="portal-secondary-button"
+            onClick={() => {
+              void onSignOut();
+            }}
+            data-testid="button-portal-sign-out"
+          >
+            Sign out
+          </button>
+        </header>
+
+        <div className="portal-lock-card" data-testid="card-portal-lock">
+          <div className="portal-lock-kicker">Pickup confirmation needed</div>
+          <h2 className="portal-lock-title">
+            Did you collect {head.playerFirstName} from Coach {head.coachName}’s session?
+          </h2>
+          <p className="portal-lock-body">
+            {head.sessionName} ended at {head.sessionEndTime} and we haven’t logged a
+            scan-out yet. Tap to confirm so the coach knows everyone’s safely accounted
+            for. The rest of your portal opens back up the moment we’ve got pickup
+            recorded.
+          </p>
+
+          {pendingDepartures.length > 1 ? (
+            <p className="portal-lock-extra">
+              You have {pendingDepartures.length} sessions waiting on pickup confirmation —
+              we’ll walk through them one at a time.
+            </p>
+          ) : null}
+
+          {pickupError ? (
+            <div className="portal-lock-error" role="alert" data-testid="text-portal-lock-error">
+              {pickupError}
+            </div>
+          ) : null}
+
+          <div className="portal-lock-actions">
+            <button
+              type="button"
+              className="portal-primary-button"
+              onClick={() => {
+                void handleConfirmPickup(head);
+              }}
+              disabled={confirmingId === head.attendanceId}
+              data-testid="button-portal-confirm-pickup"
+            >
+              {confirmingId === head.attendanceId
+                ? "Confirming…"
+                : `Yes, I collected ${head.playerFirstName}`}
+            </button>
+            <button
+              type="button"
+              className="portal-secondary-button"
+              onClick={() => {
+                void onRefresh();
+              }}
+              data-testid="button-portal-lock-refresh"
+            >
+              Coach already marked us done? Refresh
+            </button>
+          </div>
+
+          <p className="portal-lock-foot">
+            Stuck or there’s a problem? Message Coach {head.coachName} directly and
+            they can mark this from their side.
+          </p>
+        </div>
+      </div>
+    );
   }
 
   return (

@@ -45,7 +45,14 @@ import {
 // Mirror the exact phase windows used by the coach dashboard so behaviour is
 // consistent on both sides of the wire. See src/App.tsx checkinPhase() for the
 // canonical definition.
-const SESSION_GRACE_MS = 60 * 60 * 1000;        // 1 hour after end time
+//
+// 2026-05 update: removed the 1-hour post-end grace period. The QR closes at
+// the exact session end time, full stop. Parents who haven't scanned out by
+// then receive the Pickup Confirm Reminder push (end+15) and Pickup Confirm
+// Final push (end+30) and are soft-locked out of the parent portal until they
+// confirm pickup via the in-app banner. This kills the "forgot to scan out"
+// blind spot at its source.
+const SESSION_GRACE_MS = 0;                     // QR closes at end time
 const CHECKIN_OPEN_LEAD_MS = 30 * 60 * 1000;    // 30 min before start
 const DEPARTURE_LEAD_MS = 15 * 60 * 1000;       // 15 min before end
 

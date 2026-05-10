@@ -467,10 +467,21 @@ function buildBody(kind, sessionFields, { childFirstName = "" } = {}) {
       return "Check-in is open. Tap to view your child's QR code.";
     case KIND_PICKUP:
       return "Session ends in 30 min \u2014 pickup soon.";
-    case KIND_PICKUP_REMINDER:
-      return "Session has ended. Tap to confirm pickup.";
-    case KIND_PICKUP_FINAL:
-      return "Your child is still marked as on the pitch. Please confirm pickup or contact your coach.";
+    case KIND_PICKUP_REMINDER: {
+      // First nudge, 15 min after end. Warm tone matching the kit reminder.
+      // We name the child where we can so it reads as a personal check rather
+      // than a system alert, and we remind the parent that confirmation is the
+      // gate to the rest of the portal so the soft-lock isn't a surprise.
+      const child = childFirstName || "your child";
+      return `Heads up \u2014 ${child} hasn\u2019t been scanned out yet. Tap to confirm pickup so the coach knows everyone\u2019s safe.`;
+    }
+    case KIND_PICKUP_FINAL: {
+      // Second nudge, 30 min after end. Slightly firmer but still warm.
+      // Mentions the soft-lock explicitly so the parent understands why the
+      // portal is asking before they can use other features.
+      const child = childFirstName || "your child";
+      return `${child} is still marked as on the pitch. Please confirm pickup in the portal \u2014 we\u2019ve paused the rest of your portal until you do.`;
+    }
     case KIND_NO_SHOW: {
       const child = childFirstName || "your child";
       return `Didn't see ${child} at training tonight \u2014 everything okay?`;
