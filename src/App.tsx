@@ -5659,7 +5659,12 @@ function DateOfBirthInput({ value, onChange, invalid, testIdPrefix = "input-chil
   );
 }
 
-function ConsentForm({ initialParentEmail }: { initialParentEmail?: string } = {}) {
+// `compact` is the public-route variant: hides the Record summary aside
+// (which is an admin/coach-facing diagnostic, not useful for parents) and
+// drops the 2-column .form-layout grid down to a single column so the form
+// uses the full width of its container. Used by /register; coach admin
+// keeps the full layout with the summary panel.
+function ConsentForm({ initialParentEmail, compact = false }: { initialParentEmail?: string; compact?: boolean } = {}) {
   // When a returning parent deeplinks from the portal's "Add another child"
   // section we seed parentEmail with their verified address so they don't
   // have to retype it. They still confirm in the second field — the
@@ -5848,7 +5853,7 @@ function ConsentForm({ initialParentEmail }: { initialParentEmail?: string } = {
   }
 
   return (
-    <section className="form-layout" aria-labelledby="consent-title">
+    <section className={`form-layout${compact ? " form-layout--compact" : ""}`} aria-labelledby="consent-title">
       <form className="consent-form" onSubmit={onSubmit}>
         <div>
           <div className="page-kicker">Parent safeguarding consent</div>
@@ -6139,6 +6144,7 @@ function ConsentForm({ initialParentEmail }: { initialParentEmail?: string } = {
         </button>
       </form>
 
+      {compact ? null : (
       <aside className="summary-box" aria-label="Consent summary">
         <h2>Record summary</h2>
         <div className="summary-list">
@@ -6177,6 +6183,7 @@ function ConsentForm({ initialParentEmail }: { initialParentEmail?: string } = {
           We store the submitted timestamp, signer details, selected media permissions, information-sharing choices, storage period and withdrawal state for safeguarding and consent records.
         </p>
       </aside>
+      )}
     </section>
   );
 }
@@ -8578,7 +8585,7 @@ function PublicRegisterPage() {
   })();
   return (
     <div className="portal-shell">
-      <div className="portal-overview" style={{ maxWidth: 760, margin: "0 auto" }}>
+      <div className="portal-overview" style={{ maxWidth: 880, margin: "0 auto" }}>
         <header className="portal-overview-head">
           <div>
             <div className="portal-brand-kicker">Grass2Pro</div>
@@ -8588,7 +8595,7 @@ function PublicRegisterPage() {
             </p>
           </div>
         </header>
-        <ConsentForm initialParentEmail={initialParentEmail} />
+        <ConsentForm initialParentEmail={initialParentEmail} compact />
         <p className="portal-footnote" style={{ marginTop: 18, textAlign: "center" }}>
           Already registered another child? <a href="/portal">Open the parent portal</a>.
         </p>

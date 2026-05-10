@@ -1521,6 +1521,15 @@
     gap: var(--space-6);
   }
 
+  /* Public /register variant. Drops the side Record summary aside (rendered
+     conditionally in the JSX) and uses a single column so the form fills
+     the parent shell width on tablet/desktop instead of being squeezed
+     into ~50% space — which previously truncated the Player date of birth
+     column on phone-width to ~760px viewports. */
+  .form-layout--compact {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .consent-form {
     display: grid;
     gap: var(--space-6);

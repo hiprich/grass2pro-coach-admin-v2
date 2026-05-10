@@ -219,7 +219,7 @@ export default function CoachLandingPage({ coach }: { coach: CoachProfile }) {
             />
           </div>
           <div className="coach-landing-hero-text">
-            <div className="coach-landing-kicker">Head of Recruitment | PurePro Elite</div>
+            <div className="coach-landing-kicker">{coach.kicker || "Coach"}</div>
             <h1 className="coach-landing-name">{coach.name}</h1>
             <p className="coach-landing-tagline">{renderTagline(coach)}</p>
             {coach.credentials && coach.credentials.length > 0 ? (

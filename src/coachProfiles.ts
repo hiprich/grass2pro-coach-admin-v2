@@ -35,6 +35,11 @@ export type CoachProfile = {
   heroSrc?: string;              // Optional taller hero shot for the top of the page
   whatsappE164?: string;         // E.164-formatted phone, no spaces, no +. Used for wa.me deep-link
   airtableRecordId?: string;     // Coaches table rec id — links registrations back to coach
+  // Small, all-caps eyebrow line above the coach name. Use the coach's
+  // primary role (NOT a department title — "FA Talent ID L2 Scout" is
+  // closer than "Head of Recruitment"). Defaults to "Coach" if missing.
+  // Example: "FA TALENT ID L2 SCOUT · PUREPRO ELITE CO-FOUNDER".
+  kicker?: string;
   // Free-form extra credibility line(s) shown under the bio (e.g. "Tottenham
   // Hotspur scout"). Kept separate from `bio` so it can be styled as small
   // pill-shaped credentials.
@@ -63,6 +68,10 @@ export const COACH_PROFILES: Record<string, CoachProfile> = {
     tagline: "FA Talent ID Level 2 Scout · 3 years experience",
     taglinePrefix: "FA Talent ID Level 2 Scout",
     experienceSinceISO: "2023-05-01",
+    // Eyebrow above the name. Hope is a scout/co-founder, not a head of
+    // recruitment — keeping this aligned to his real credentials avoids
+    // misrepresentation that would matter at acquisition diligence.
+    kicker: "FA TALENT ID L2 SCOUT · PUREPRO ELITE CO-FOUNDER",
     bio: "I'm Hope — Tottenham Hotspur scout and co-founder of PurePro Elite. We run elite small-group sessions that develop in-game effectiveness and prepare players for academy football.",
     credentials: [
       "Tottenham Hotspur Scout",
