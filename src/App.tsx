@@ -6227,7 +6227,9 @@ async function postParentAuth(action: string, body: Record<string, unknown> = {}
   const response = await fetch(apiPath("/parent-auth"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    credentials: "same-origin",
+    // include so the session cookie always travels with sign-in /
+    // sign-out / verify-token regardless of how apiPath resolves.
+    credentials: "include",
     body: JSON.stringify({ action, ...body }),
   });
   let payload: unknown;
@@ -6239,14 +6241,41 @@ async function postParentAuth(action: string, body: Record<string, unknown> = {}
   return { ok: response.ok, status: response.status, payload };
 }
 
-async function fetchParentSummary(): Promise<ParentSummary | null> {
-  const response = await fetch(apiPath("/parent-data"), {
-    method: "GET",
-    credentials: "same-origin",
-  });
-  if (response.status === 401) return null;
-  if (!response.ok) throw new Error("Could not load parent data.");
-  return (await response.json()) as ParentSummary;
+// Tagged result so callers can tell "not signed in" (401 — server says
+// session is gone or invalid) apart from "transient failure" (network
+// flake, 5xx, JSON parse error). Previously we returned null for both,
+// which meant any blip silently signed the parent out and back to the
+// magic-link form — a regression of the standing rule that parents stay
+// signed in until they explicitly sign out.
+type ParentSummaryResult =
+  | { kind: "ok"; summary: ParentSummary }
+  | { kind: "unauthorised" }
+  | { kind: "transient"; reason: string };
+
+async function fetchParentSummary(): Promise<ParentSummaryResult> {
+  let response: Response;
+  try {
+    response = await fetch(apiPath("/parent-data"), {
+      method: "GET",
+      // include (not same-origin): the parent session cookie must always
+      // travel with the request even if apiPath() resolves to a different
+      // origin (custom domain, deploy preview, edge proxy). same-origin
+      // dropped the cookie in those cases and surfaced as a phantom
+      // sign-out. Cookie itself is HttpOnly + Secure + SameSite=Lax, so
+      // include is safe here — we only ever call our own backend.
+      credentials: "include",
+    });
+  } catch (error) {
+    return { kind: "transient", reason: error instanceof Error ? error.message : "network" };
+  }
+  if (response.status === 401) return { kind: "unauthorised" };
+  if (!response.ok) return { kind: "transient", reason: `http_${response.status}` };
+  try {
+    const summary = (await response.json()) as ParentSummary;
+    return { kind: "ok", summary };
+  } catch (error) {
+    return { kind: "transient", reason: error instanceof Error ? error.message : "parse" };
+  }
 }
 
 // Confirm pickup from the parent portal soft-lock banner. Hits the
@@ -6258,7 +6287,7 @@ async function postParentSelfPickup(payload: { playerId: string; sessionId: stri
   const response = await fetch(apiPath("/parent-self-pickup"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    credentials: "same-origin",
+    credentials: "include",
     body: JSON.stringify(payload),
   });
   let body: unknown;
@@ -6335,7 +6364,7 @@ async function patchParentAction(body: Record<string, unknown>) {
   const response = await fetch(apiPath("/parent-actions"), {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    credentials: "same-origin",
+    credentials: "include",
     body: JSON.stringify(body),
   });
   let payload: unknown;
@@ -7649,20 +7678,25 @@ function ParentPortal() {
   const [summary, setSummary] = useState<ParentSummary | null>(null);
 
   const refresh = async () => {
-    try {
-      const next = await fetchParentSummary();
-      if (!next) {
-        setSummary(null);
-        setView("sign-in");
-        return;
-      }
-      setSummary(next);
+    // Standing rule: parents stay signed in until they explicitly sign
+    // out. So we only kick the user back to the magic-link form on a
+    // real 401 from the server. Network blips, 5xx, or JSON parse errors
+    // keep them on whatever they were looking at — the next render or
+    // refresh just tries again. Previously any thrown error sent the
+    // parent to sign-in, which felt like random sign-outs.
+    const result = await fetchParentSummary();
+    if (result.kind === "ok") {
+      setSummary(result.summary);
       setView("overview");
-    } catch (error) {
-      console.error(error);
-      setSignInError("Couldn't load your portal. Please sign in again.");
-      setView("sign-in");
+      return;
     }
+    if (result.kind === "unauthorised") {
+      setSummary(null);
+      setView("sign-in");
+      return;
+    }
+    // transient — stay where we are. Log so we can spot patterns later.
+    console.warn("[parent-portal] transient refresh failure:", result.reason);
   };
 
   // On mount: if the URL has a magic-link token, verify it. Otherwise check
@@ -7697,13 +7731,29 @@ function ParentPortal() {
         await refresh();
         return;
       }
-      // No magic-link query \u2014 try the existing session.
-      const existing = await fetchParentSummary().catch(() => null);
+      // No magic-link query \u2014 try the existing session. Bootstrap
+      // distinguishes 401 (real sign-out) from transient errors. On a
+      // transient blip we retry once after a short delay before falling
+      // back to the sign-in screen, so a momentary network drop on
+      // first paint doesn't surface as a phantom sign-out.
+      let result = await fetchParentSummary();
+      if (result.kind === "transient") {
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        if (cancelled) return;
+        result = await fetchParentSummary();
+      }
       if (cancelled) return;
-      if (existing) {
-        setSummary(existing);
+      if (result.kind === "ok") {
+        setSummary(result.summary);
         setView("overview");
+      } else if (result.kind === "unauthorised") {
+        setView("sign-in");
       } else {
+        // Still transient after the retry. Show sign-in as a graceful
+        // fallback rather than a hard error — the parent can request a
+        // fresh link if they really aren't signed in. The cookie itself,
+        // if valid, will pick the session back up on the next visit.
+        console.warn("[parent-portal] bootstrap transient:", result.reason);
         setView("sign-in");
       }
     }
@@ -7816,7 +7866,7 @@ async function fetchScanResolve(token: string): Promise<ScanResolveResult | { ok
   try {
     const response = await fetch(apiPath(`/parent-scan-resolve?t=${encodeURIComponent(token)}`), {
       method: "GET",
-      credentials: "same-origin",
+      credentials: "include",
     });
     const json = (await response.json().catch(() => ({}))) as Record<string, unknown>;
     if (response.ok && json.ok) {
@@ -7933,7 +7983,7 @@ function useWeather(location: string | undefined, date: string | undefined): Wea
     // state from cache. setForecast inside .then() / fetch resolution is
     // not flagged — only synchronous setState inside the effect body is.
     fetch(apiPath(`/weather?${new URLSearchParams(date ? { location: loc, date } : { location: loc }).toString()}`), {
-      credentials: "same-origin",
+      credentials: "include",
     })
       .then((r) => r.json().catch(() => ({ ok: false })))
       .then((payload: WeatherResponse) => {
@@ -8060,10 +8110,16 @@ function ParentScanPage() {
       };
     }
     async function bootstrap() {
-      const [resolved, parent] = await Promise.all([
+      const [resolved, parentResult] = await Promise.all([
         fetchScanResolve(token),
-        fetchParentSummary().catch(() => null),
+        fetchParentSummary(),
       ]);
+      // Treat transient errors the same as "no session" for the scan
+      // landing page. The page already gracefully shows the magic-link
+      // form when there's no parent context, and a transient failure
+      // here would otherwise force a confusing error state on a flow
+      // that just needs to know whether the parent is signed in.
+      const parent = parentResult.kind === "ok" ? parentResult.summary : null;
       if (cancelled) return;
       if (!("sessionId" in resolved) || !resolved.ok) {
         setResolveError(
