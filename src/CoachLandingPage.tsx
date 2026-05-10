@@ -295,10 +295,18 @@ export default function CoachLandingPage({ coach }: { coach: CoachProfile }) {
               className="coach-landing-cta"
               onClick={() => {
                 setShowForm(true);
-                // Defer scroll a tick so the form has mounted before we scroll.
-                setTimeout(() => {
-                  document.getElementById("coach-landing-register")?.scrollIntoView({ behavior: "smooth", block: "start" });
-                }, 30);
+                // Wait for the section to actually mount before scrolling.
+                // The register section is conditionally rendered, so a 30ms
+                // setTimeout could fire before React commits. Double rAF is
+                // the standard pattern: first frame schedules React's render,
+                // second frame runs after the DOM update is painted.
+                requestAnimationFrame(() => {
+                  requestAnimationFrame(() => {
+                    document
+                      .getElementById("coach-landing-register")
+                      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  });
+                });
               }}
               data-testid="button-register-cta"
             >
@@ -338,6 +346,14 @@ export default function CoachLandingPage({ coach }: { coach: CoachProfile }) {
           </div>
         </section>
 
+        {/*
+          Register card is hidden until the parent clicks the primary CTA.
+          Once revealed it stays mounted (showForm only ever flips false→true)
+          so the success state below survives form submission. Conditional
+          render (rather than CSS hide) keeps the closed-state visual noise
+          off the page — no empty green-bordered placeholder above the fold.
+        */}
+        {showForm ? (
         <section
           id="coach-landing-register"
           className={`coach-landing-register ${showForm ? "is-open" : ""}`}
@@ -460,6 +476,7 @@ export default function CoachLandingPage({ coach }: { coach: CoachProfile }) {
             )}
           </div>
         </section>
+        ) : null}
       </main>
 
       <footer className="coach-landing-footer">
