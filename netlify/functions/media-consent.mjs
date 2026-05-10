@@ -508,6 +508,25 @@ export const handler = async (event) => {
         console.error("Player Football Pathway update failed:", error);
       }
     }
+
+    // Best-effort backfill of Parent Email on the Player row. Older Player
+    // records (created before we wrote this field on consent) are missing it,
+    // which causes the parent portal's fast-path filter to skip them. Writing
+    // it here on every consent submission heals those rows and keeps freshly
+    // created ones consistent with the rest of the dataset. Failures are
+    // logged but never block the consent submission.
+    const submittedParentEmail = String(payload.parentEmail || "").trim();
+    if (submittedParentEmail && playerId) {
+      try {
+        await airtableUpdate(
+          tableName("AIRTABLE_PLAYERS_TABLE", "Players", TABLE_IDS.PLAYERS),
+          playerId,
+          { "Parent Email": submittedParentEmail },
+        );
+      } catch (error) {
+        console.error("Player Parent Email update failed:", error);
+      }
+    }
   }
 
   try {
@@ -696,6 +715,14 @@ async function createPlayerForConsent(payload, parentId, dateOfBirth) {
       if (dateOfBirth) playerFields["Date of Birth"] = dateOfBirth;
       if (footballPathway) playerFields["Football Pathway"] = footballPathway;
       if (parentField && parentId) playerFields[parentField] = [parentId];
+      // Write the Parent Email text field directly on the Player record so
+      // the parent portal's email-based filter (parent-data.mjs) finds this
+      // child immediately. Without this, the portal had to fall back to the
+      // linked-record join path — which still works but means a portal
+      // refresh has to load the full Parents/Guardians table to resolve the
+      // child. Writing both keeps the fast path fast.
+      const trimmedParentEmail = String(payload.parentEmail || "").trim();
+      if (trimmedParentEmail) playerFields["Parent Email"] = trimmedParentEmail;
 
       try {
         const created = await airtableCreate(table, playerFields, { typecast: true });

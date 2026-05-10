@@ -29,11 +29,44 @@ function asDate(iso) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+// Players are linked to a parent in two redundant ways:
+//   1. "Parent Email" text field on the Player record (legacy, written by
+//      coach-side flows and recent consent submissions)
+//   2. "Parent/Guardian" linked-record field pointing at a Parents/Guardians
+//      row whose Email field holds the same address
+//
+// Older consent submissions only populated path (2) — we now match either
+// path so any child a parent is linked to in Airtable shows up in their
+// portal regardless of which write succeeded. This also future-proofs us
+// against schema drift between the consent form and the coach view.
 async function loadPlayersForParent(parentEmail) {
   if (!hasAirtableConfig()) return [];
   const playersTable = tableName("AIRTABLE_PLAYERS_TABLE", "Players", TABLE_IDS.PLAYERS);
-  const records = await airtableList(playersTable, { pageSize: "100" });
-  return records.map(normalisePlayer).filter((player) => player.parentEmail === parentEmail);
+  const parentsTable = tableName("AIRTABLE_PARENTS_TABLE", "Parents/Guardians", TABLE_IDS.PARENTS);
+  const [playerRecords, parentRecords] = await Promise.all([
+    airtableList(playersTable, { pageSize: "100" }),
+    airtableList(parentsTable, { pageSize: "100" }),
+  ]);
+  // Build the set of Parents/Guardians record IDs whose Email matches the
+  // signed-in parent. We compare lower-cased and trimmed on both sides so
+  // "Cobby7076@Gmail.com" still resolves.
+  const matchingGuardianIds = new Set(
+    parentRecords
+      .filter((record) => {
+        const email = String(record?.fields?.Email || "").trim().toLowerCase();
+        return email && email === parentEmail;
+      })
+      .map((record) => record.id),
+  );
+  return playerRecords.map(normalisePlayer).filter((player) => {
+    if (player.parentEmail === parentEmail) return true;
+    if (Array.isArray(player.guardianIds)) {
+      for (const id of player.guardianIds) {
+        if (matchingGuardianIds.has(id)) return true;
+      }
+    }
+    return false;
+  });
 }
 
 // Recent sessions = anything dated within the last RECENT_SESSION_WINDOW_DAYS
