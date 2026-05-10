@@ -2,9 +2,14 @@
   command = "npm run build"
   publish = "dist"
   functions = "netlify/functions"
+  edge_functions = "netlify/edge-functions"
 
 [functions]
   node_bundler = "esbuild"
+
+[[edge_functions]]
+  function = "c-slug-prerender"
+  path = "/c/*"
 
 [[redirects]]
   from = "/api/*"
