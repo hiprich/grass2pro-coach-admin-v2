@@ -2912,51 +2912,156 @@ function SessionQrDialog({
     };
   }, [scanUrl]);
 
-  // Centralised print trigger. Used by both the modal Print button and the
-  // autoPrint effect. The order of operations matters:
-  //   1. Ensure we have a PNG data URL. If state hasn't propagated yet,
-  //      fall back to snapshotting the canvas directly. This protects the
-  //      modal Print button against being clicked before React has
-  //      flushed the state-driven re-render that mounts the <img>.
-  //   2. Await img.decode() so Safari (which is the browser that hit the
-  //      blank preview bug) has the bitmap fully decoded before it
-  //      snapshots the page for print.
-  //   3. Fire window.print() on the next frame so layout is settled.
-  // If anything fails we still fire print so the user gets *something*
-  // rather than a silent no-op \u2014 better than a dead button.
+  // Centralised print trigger. We've been burned twice now trying to print
+  // the QR "in place" with @media print rules \u2014 Safari produces a blank
+  // preview no matter how we toggle visibility/display, even with a static
+  // <img> mirror and decode() awaits. The cause is documented: Safari's
+  // print pipeline is fragile inside fixed-position modals, and the
+  // visibility-cascade pattern is unreliable across Safari versions.
+  //
+  // The bulletproof workaround the web has converged on: drop a hidden
+  // <iframe> into the document, write a minimal self-contained HTML doc
+  // into it (just the QR + a one-line caption), and call print() on the
+  // iframe's contentWindow. The iframe has no parent CSS, no modal, no
+  // visibility cascade \u2014 Safari sees a single static page with a single
+  // bitmap and prints it cleanly.
+  //
+  // Steps:
+  //   1. Resolve a PNG data URL (state, or snapshot the canvas live).
+  //   2. Build a self-contained HTML doc with the QR <img> + session info.
+  //   3. Mount a hidden iframe, write the doc, wait for the <img> to
+  //      decode inside the iframe, then call iframe.contentWindow.print().
+  //   4. Clean up the iframe after the print dialog closes.
   const triggerPrint = useCallback(async () => {
     if (typeof window === "undefined") return;
-    try {
-      const img = printImgRef.current;
-      if (img && img.src) {
-        // decode() resolves once the bitmap is fully decoded and ready to
-        // paint. complete && naturalWidth>0 is a fast-path for already-
-        // decoded images so we don't await unnecessarily.
-        if (!(img.complete && img.naturalWidth > 0)) {
-          await img.decode().catch(() => {});
-        }
-      } else if (canvasRef.current) {
-        // Fallback: state hasn't flushed yet but the canvas has a bitmap.
-        // Snapshot synchronously and wait one frame for React to mount
-        // the <img> with the new src.
-        try {
-          const url = canvasRef.current.toDataURL("image/png");
-          setPrintDataUrl(url);
-          await new Promise((r) => window.requestAnimationFrame(() => r(null)));
-          await new Promise((r) => window.requestAnimationFrame(() => r(null)));
-          const reImg = printImgRef.current;
-          if (reImg && !(reImg.complete && reImg.naturalWidth > 0)) {
-            await reImg.decode().catch(() => {});
-          }
-        } catch (snapErr) {
-          console.warn("QR print fallback snapshot failed:", snapErr);
-        }
+
+    // 1. Get a data URL. Prefer the cached state value; fall back to a
+    //    live canvas snapshot if state hasn't propagated yet.
+    let dataUrl = printDataUrl;
+    if (!dataUrl && canvasRef.current) {
+      try {
+        dataUrl = canvasRef.current.toDataURL("image/png");
+        setPrintDataUrl(dataUrl);
+      } catch (snapErr) {
+        console.warn("QR print snapshot failed:", snapErr);
       }
-    } catch (err) {
-      console.warn("QR print pre-flight failed, printing anyway:", err);
     }
-    window.print();
-  }, []);
+    if (!dataUrl) {
+      // Last resort: defer to the legacy in-page print so the user gets
+      // *something* rather than a silent no-op. The blank-preview bug is
+      // still better than a dead button.
+      window.print();
+      return;
+    }
+
+    // 2. Build the printable doc. Inline styles only \u2014 no external CSS,
+    //    no JS dependencies, nothing that could fail to load.
+    const escape = (s: string) =>
+      s.replace(/[&<>"']/g, (c) =>
+        c === "&" ? "&amp;"
+          : c === "<" ? "&lt;"
+          : c === ">" ? "&gt;"
+          : c === "\"" ? "&quot;"
+          : "&#39;",
+      );
+    const titleHtml = escape(session.name || "Parent scan");
+    const metaParts = [
+      session.coach,
+      session.team,
+      session.location,
+    ].filter(Boolean).map((s) => escape(String(s)));
+    const dateLine = escape(
+      `${formatDate(session.date)} \u00b7 ${session.startTime}\u2013${session.endTime}`,
+    );
+    const fallback = session.qrFallbackCode
+      ? `<div class="fallback"><div class="fallback-label">Fallback code</div><div class="fallback-code">${escape(session.qrFallbackCode)}</div></div>`
+      : "";
+    const docHtml = `<!doctype html>
+<html><head><meta charset="utf-8"><title>QR \u2014 ${titleHtml}</title>
+<style>
+  @page { margin: 12mm; }
+  html, body { margin: 0; padding: 0; background: #fff; color: #000; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  body { display: flex; flex-direction: column; align-items: center; gap: 8mm; padding: 8mm; }
+  .kicker { font-size: 10pt; text-transform: uppercase; letter-spacing: 0.06em; color: #555; }
+  h1 { font-size: 18pt; margin: 0; text-align: center; }
+  .meta { font-size: 11pt; color: #333; text-align: center; }
+  img.qr { width: 12cm; height: 12cm; image-rendering: pixelated; image-rendering: crisp-edges; display: block; }
+  .instructions { font-size: 11pt; color: #333; text-align: center; max-width: 12cm; }
+  .fallback { border: 1px solid #000; padding: 6px 12px; border-radius: 4px; text-align: center; }
+  .fallback-label { font-size: 9pt; text-transform: uppercase; letter-spacing: 0.04em; color: #555; }
+  .fallback-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14pt; font-weight: 600; letter-spacing: 0.06em; }
+</style></head>
+<body>
+  <div class="kicker">Parent scan</div>
+  <h1>${titleHtml}</h1>
+  ${metaParts.length ? `<div class="meta">${metaParts.join(" \u00b7 ")}</div>` : ""}
+  <div class="meta">${dateLine}</div>
+  <img class="qr" alt="QR code" src="${dataUrl}" />
+  <div class="instructions">Parents scan this code to check their child in or out.</div>
+  ${fallback}
+</body></html>`;
+
+    // 3. Mount a hidden iframe, write the doc, print, clean up.
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("aria-hidden", "true");
+    iframe.style.position = "fixed";
+    iframe.style.right = "0";
+    iframe.style.bottom = "0";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "0";
+    iframe.style.opacity = "0";
+    iframe.style.pointerEvents = "none";
+    document.body.appendChild(iframe);
+
+    const cleanup = () => {
+      // Defer removal so Safari has time to actually fire the print dialog.
+      // Pulling the iframe synchronously after print() can race the dialog
+      // open and produce a blank preview.
+      window.setTimeout(() => {
+        try { iframe.remove(); } catch { /* already gone */ }
+      }, 5000);
+    };
+
+    try {
+      const doc = iframe.contentDocument || iframe.contentWindow?.document;
+      if (!doc) throw new Error("No iframe document");
+      doc.open();
+      doc.write(docHtml);
+      doc.close();
+
+      // Wait for the QR <img> inside the iframe to fully decode. Without
+      // this Safari snapshots the iframe before the bitmap is paintable.
+      const img = doc.querySelector("img.qr") as HTMLImageElement | null;
+      if (img) {
+        if (!(img.complete && img.naturalWidth > 0)) {
+          await new Promise<void>((resolve) => {
+            const done = () => resolve();
+            img.addEventListener("load", done, { once: true });
+            img.addEventListener("error", done, { once: true });
+            // Safety net in case neither event fires.
+            window.setTimeout(done, 2000);
+          });
+        }
+        await img.decode().catch(() => {});
+      }
+
+      // Two animation frames let the iframe paint before print snapshot.
+      await new Promise<void>((r) => window.requestAnimationFrame(() => r()));
+      await new Promise<void>((r) => window.requestAnimationFrame(() => r()));
+
+      const win = iframe.contentWindow;
+      if (!win) throw new Error("No iframe window");
+      win.focus();
+      win.print();
+      cleanup();
+    } catch (err) {
+      console.warn("QR iframe print failed, falling back to window.print():", err);
+      cleanup();
+      // Last-ditch fallback to the in-page print path.
+      window.print();
+    }
+  }, [printDataUrl, session]);
 
   // Auto-print: after the QR has fully rendered, fire window.print() once.
   // Lives in its own effect (rather than inside the QR render effect) so a
