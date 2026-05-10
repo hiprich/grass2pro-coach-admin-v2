@@ -18,6 +18,58 @@ import type { CoachProfile } from "./coachProfiles";
 import { renderTagline } from "./coachProfiles";
 import { buildPartnerLogo } from "./partnerLogo";
 
+// Derive a human-readable role label from a coach's `kicker` (the all-caps
+// eyebrow shown above their name, e.g. "FA TALENT ID L2 SCOUT · PUREPRO
+// ELITE CO-FOUNDER"). We pick the FIRST " · "-separated segment so the
+// document title and social previews stay tight ("Hope Bouhe — FA Talent
+// ID L2 Scout · Grass2Pro" rather than the whole credential string).
+// Falls back to "Coach" when no kicker is set, matching the on-page
+// fallback behaviour at line ~282.
+function roleLabelFor(coach: CoachProfile): string {
+  const raw = coach.kicker?.split("·")[0]?.trim();
+  if (!raw) return "Coach";
+  // Title-case word by word but preserve all-caps acronyms (FA, L2, UK,
+  // etc.) by keeping any 1-3 char chunk that's all letters/digits as-is
+  // when its source was already uppercase. The kicker convention is
+  // ALL-CAPS, so we lowercase the rest and capitalise first letters.
+  return raw
+    .split(/\s+/)
+    .map((word) => {
+      if (!word) return word;
+      // Acronyms / level codes: "FA", "L2", "U12". Keep as-is.
+      if (/^[A-Z0-9]{1,3}$/.test(word)) return word;
+      const lower = word.toLowerCase();
+      return lower.charAt(0).toUpperCase() + lower.slice(1);
+    })
+    .join(" ");
+}
+
+// Upsert a meta tag by attribute ("property" for OG, "name" for Twitter).
+// Created tags are flagged so cleanup on unmount only removes our own
+// additions and never strips static tags shipped in index.html.
+function upsertMeta(
+  attr: "property" | "name",
+  key: string,
+  value: string,
+): { el: HTMLMetaElement; created: boolean; previousContent: string | null } {
+  let el = document.head.querySelector<HTMLMetaElement>(
+    `meta[${attr}="${key}"]`,
+  );
+  let created = false;
+  let previousContent: string | null = null;
+  if (!el) {
+    el = document.createElement("meta");
+    el.setAttribute(attr, key);
+    el.dataset.coachLanding = "1";
+    document.head.appendChild(el);
+    created = true;
+  } else {
+    previousContent = el.getAttribute("content");
+  }
+  el.setAttribute("content", value);
+  return { el, created, previousContent };
+}
+
 // Render a coach's optional partner lockup as a top-right header element.
 // Pure UI helper, kept here rather than its own file because it's only
 // rendered in this one place. The SVG is built via buildPartnerLogo so the
@@ -131,6 +183,66 @@ export default function CoachLandingPage({ coach }: { coach: CoachProfile }) {
       else document.documentElement.dataset.surface = previous;
     };
   }, []);
+
+  // Set the document title + OG/Twitter meta tags from the coach profile.
+  // CLIENT-SIDE ONLY: WhatsApp/iMessage crawlers don't run JS, so they'll
+  // still see the static index.html OG tags. The follow-up is to prerender
+  // /c/:slug at build-time or via a Netlify edge function so social
+  // unfurls pick the coach-specific values. Twitter/Facebook scrapers
+  // typically do execute JS for client-rendered pages, so this gives us
+  // correct previews everywhere except the messaging-app crawlers.
+  useEffect(() => {
+    const role = roleLabelFor(coach);
+    const previousTitle = document.title;
+    document.title = `${coach.name} — ${role} · Grass2Pro`;
+
+    // Hope gets a hand-crafted description; everyone else inherits a
+    // boilerplate built from name + Grass2Pro tagline. Keep the lowercase
+    // "the" — it's the brand line. Hope is a Scout, not a coach, which
+    // is reflected in the description copy below.
+    const description =
+      coach.slug === "hope"
+        ? "FA Talent ID L2 Scout Hope Bouhe — Spurs scout, PurePro Elite co-founder. Grassroots players scouted, developed, showcased."
+        : `${coach.name} on Grass2Pro — the future of UK grassroots football.`;
+
+    // Resolve OG image and canonical URL against the current origin so
+    // staging deploys (deploy-preview-*.netlify.app) get correct absolute
+    // URLs without us hardcoding production. Falls back to a sensible
+    // production default when SSR'd or when window is unavailable.
+    const origin =
+      typeof window !== "undefined" && window.location?.origin
+        ? window.location.origin
+        : "https://coach.grass2pro.com";
+    const url = `${origin}/c/${coach.slug}`;
+    const ogImage = coach.heroSrc || coach.avatarSrc;
+    const ogImageAbsolute = ogImage.startsWith("http")
+      ? ogImage
+      : `${origin}${ogImage}`;
+
+    const title = `${coach.name} — ${role} · Grass2Pro`;
+    const handles: ReturnType<typeof upsertMeta>[] = [
+      upsertMeta("property", "og:title", title),
+      upsertMeta("property", "og:description", description),
+      upsertMeta("property", "og:image", ogImageAbsolute),
+      upsertMeta("property", "og:url", url),
+      upsertMeta("property", "og:type", "profile"),
+      upsertMeta("name", "twitter:card", "summary_large_image"),
+      upsertMeta("name", "twitter:title", title),
+      upsertMeta("name", "twitter:description", description),
+      upsertMeta("name", "twitter:image", ogImageAbsolute),
+    ];
+
+    return () => {
+      document.title = previousTitle;
+      for (const handle of handles) {
+        if (handle.created) {
+          handle.el.remove();
+        } else if (handle.previousContent !== null) {
+          handle.el.setAttribute("content", handle.previousContent);
+        }
+      }
+    };
+  }, [coach]);
 
   // Capture ?src= in the URL so we can record the share-channel that drove
   // the click (whatsapp / instagram / facebook / qr). Falls back to "direct".
