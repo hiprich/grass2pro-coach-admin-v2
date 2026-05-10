@@ -28,9 +28,35 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
-function buildMagicLinkUrl(email, rawToken) {
+// Whitelist of post-verify destinations the magic-link can deep-link to. We
+// keep this strict to defend against open-redirect abuse \u2014 a malicious
+// `next` param mustn't be able to bounce a freshly-signed-in parent off to
+// an attacker-controlled domain. Only same-origin paths that we explicitly
+// recognise are allowed; anything else falls back to /portal.
+function sanitiseNext(next) {
+  if (typeof next !== "string") return "";
+  const trimmed = next.trim();
+  if (!trimmed) return "";
+  // Must be a relative path beginning with a single slash. Reject
+  // protocol-relative (//evil.com) and absolute (https://evil.com) URLs.
+  if (!trimmed.startsWith("/") || trimmed.startsWith("//")) return "";
+  // Only allow the surfaces we intend to deep-link into. /scan is the QR
+  // landing page; /portal stays as the default for anything else.
+  if (!/^\/(scan|portal)(\/|\?|$)/i.test(trimmed)) return "";
+  return trimmed;
+}
+
+function buildMagicLinkUrl(email, rawToken, next) {
   const base = portalBaseUrl().replace(/\/+$/, "");
-  const query = new URLSearchParams({ email, token: rawToken }).toString();
+  const safeNext = sanitiseNext(next);
+  // The magic link always lands on /portal first \u2014 that's where the SPA
+  // bootstrap consumes the token, sets the session cookie, and then
+  // (optionally) bounces to `next`. Embedding `next` as a query param keeps
+  // the round-trip stateless: no session storage, no cookies, no extra
+  // server hop required.
+  const params = { email, token: rawToken };
+  if (safeNext) params.next = safeNext;
+  const query = new URLSearchParams(params).toString();
   if (!base) return `/portal?${query}`;
   return `${base}/portal?${query}`;
 }
@@ -76,8 +102,8 @@ function magicLinkHtml({ url, expiresInMinutes }) {
 // reason } when something has gone wrong so the caller can decide how to
 // surface the failure to the parent (we never echo the raw error back to
 // the browser to avoid leaking infra detail).
-export async function sendMagicLinkEmail({ to, rawToken, expiresInMinutes }) {
-  const url = buildMagicLinkUrl(to, rawToken);
+export async function sendMagicLinkEmail({ to, rawToken, expiresInMinutes, next }) {
+  const url = buildMagicLinkUrl(to, rawToken, next);
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
     console.warn(

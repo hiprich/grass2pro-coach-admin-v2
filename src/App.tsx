@@ -6203,13 +6203,27 @@ async function patchParentAction(body: Record<string, unknown>) {
 // Tiny helper to grab `?token=...&email=...` from the magic-link URL the
 // parent followed from their inbox. Falls back to empty strings when the
 // query is absent so the sign-in form can render without crashing.
-function readMagicLinkQuery(): { email: string; token: string } {
-  if (typeof window === "undefined") return { email: "", token: "" };
+function readMagicLinkQuery(): { email: string; token: string; next: string } {
+  if (typeof window === "undefined") return { email: "", token: "", next: "" };
   const params = new URLSearchParams(window.location.search);
   return {
     email: (params.get("email") || "").trim(),
     token: (params.get("token") || "").trim(),
+    // Same-origin redirect target the magic-link email may have carried
+    // forward (set when the parent requested the link from /scan).
+    next: (params.get("next") || "").trim(),
   };
+}
+
+// Sanitise a post-verify redirect target. Mirrors the server-side guard in
+// _parent-mailer.sanitiseNext() so a tampered link can never bounce a
+// signed-in parent off to an attacker-controlled domain. Only relative
+// /scan and /portal paths are honoured; anything else falls back to /portal.
+function sanitiseRedirectNext(next: string): string {
+  if (!next) return "";
+  if (!next.startsWith("/") || next.startsWith("//")) return "";
+  if (!/^\/(scan|portal)(\/|\?|$)/i.test(next)) return "";
+  return next;
 }
 
 // Strip the magic-link query off the address bar after we've consumed the
@@ -7480,14 +7494,14 @@ function ParentPortal() {
   // for an existing session cookie so a refreshed tab stays signed in.
   useEffect(() => {
     let cancelled = false;
-    const { token, email } = readMagicLinkQuery();
+    const { token, email, next } = readMagicLinkQuery();
     async function bootstrap() {
       if (token && email) {
         setView("verifying");
         const result = await postParentAuth("verify-token", { token, email });
-        clearMagicLinkQuery();
         if (cancelled) return;
         if (!result.ok) {
+          clearMagicLinkQuery();
           const text = result.payload && typeof result.payload === "object" && "error" in result.payload
             ? String((result.payload as { error?: string }).error)
             : "Sign-in link is no longer valid.";
@@ -7495,6 +7509,16 @@ function ParentPortal() {
           setView("verify-error");
           return;
         }
+        // If the magic link carried a sanctioned `next` path (e.g. /scan?t=
+        // back to the QR landing page the parent started on), bounce there
+        // now that the session cookie is set. We use replace so the
+        // /portal?token=... URL doesn't pollute the back-button history.
+        const safeNext = sanitiseRedirectNext(next);
+        if (safeNext) {
+          window.location.replace(safeNext);
+          return;
+        }
+        clearMagicLinkQuery();
         await refresh();
         return;
       }
@@ -7573,6 +7597,533 @@ function ParentPortal() {
   return <ParentOverviewScreen summary={summary} onRefresh={refresh} onSignOut={signOut} />;
 }
 
+// ---------------------------------------------------------------------------
+// /scan?t=<token>  \u2014 Zero-friction QR landing page
+//
+// Parents who scan a pitchside QR land here directly. The page resolves the
+// session metadata via /api/parent-scan-resolve, detects whether the parent
+// is already signed in, and either:
+//   - Logged in + 1 eligible kid: shows a single big "Confirm <Name>'s
+//     arrival/departure" button (one-tap check-in).
+//   - Logged in + 2+ eligible kids: shows a kid picker, parent taps which
+//     child is being checked in.
+//   - Logged out: shows the session card + a magic-link sign-in form. The
+//     request-link payload carries `next: "/scan?t=<token>"` so the parent
+//     bounces back to this exact page after verify, already authenticated.
+//   - Phase=closed/upcoming: friendly "check-in not open yet" state with no
+//     action button.
+// On successful scan we show a 2s confirmation, then send the parent over
+// to /portal so they can review attendance, RSVPs, etc.
+// ---------------------------------------------------------------------------
+
+type ScanResolveResult = {
+  ok: boolean;
+  sessionId: string;
+  coachName: string;
+  teamName: string;
+  ageGroup: string;
+  location: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  phase: "arrival" | "departure" | "upcoming" | "closed";
+  phaseLabel: string;
+  fallbackCode: string;
+};
+
+function readScanToken(): string {
+  if (typeof window === "undefined") return "";
+  const params = new URLSearchParams(window.location.search);
+  return (params.get("t") || "").trim();
+}
+
+async function fetchScanResolve(token: string): Promise<ScanResolveResult | { ok: false; error: string }> {
+  try {
+    const response = await fetch(apiPath(`/parent-scan-resolve?t=${encodeURIComponent(token)}`), {
+      method: "GET",
+      credentials: "same-origin",
+    });
+    const json = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    if (response.ok && json.ok) {
+      return json as unknown as ScanResolveResult;
+    }
+    const error = typeof json.error === "string" ? json.error : "This QR code is no longer valid.";
+    return { ok: false, error };
+  } catch {
+    return { ok: false, error: "Couldn\u2019t reach Grass2Pro. Please try again in a moment." };
+  }
+}
+
+// Format "17:30" + "19:00" \u2192 "5:30 \u2013 7:00 PM" for the parent-facing
+// session card. Falls back to the raw values if either is unparseable so a
+// missing field can never crash the render.
+function formatScanTimeRange(start: string, end: string): string {
+  const fmt = (hhmm: string) => {
+    const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm.trim());
+    if (!m) return hhmm;
+    const h = Number(m[1]);
+    const mm = m[2];
+    if (!Number.isFinite(h)) return hhmm;
+    const period = h >= 12 ? "PM" : "AM";
+    const display = ((h + 11) % 12) + 1;
+    return `${display}:${mm} ${period}`;
+  };
+  if (!start && !end) return "";
+  if (!end) return fmt(start);
+  if (!start) return fmt(end);
+  return `${fmt(start)} \u2013 ${fmt(end)}`;
+}
+
+function formatScanDate(iso: string): string {
+  if (!iso) return "";
+  const ts = Date.parse(iso);
+  if (!Number.isFinite(ts)) return iso;
+  return new Date(ts).toLocaleDateString(undefined, {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
+}
+
+function ParentScanPage() {
+  type Status =
+    | "loading"
+    | "resolve-error"
+    | "no-token"
+    | "ready"
+    | "submitting"
+    | "success"
+    | "error";
+
+  const [token] = useState<string>(() => readScanToken());
+  const [session, setSession] = useState<ScanResolveResult | null>(null);
+  const [resolveError, setResolveError] = useState<string>("");
+  const [summary, setSummary] = useState<ParentSummary | null>(null);
+  // Lazy-init status so a missing ?t= jumps straight to "no-token" without
+  // the bootstrap effect having to call setState synchronously (which the
+  // react-hooks lint rule rightly flags as a cascading render).
+  const [status, setStatus] = useState<Status>(() =>
+    readScanToken() ? "loading" : "no-token",
+  );
+  const [errorMessage, setErrorMessage] = useState<string>("");
+  const [signInStatus, setSignInStatus] = useState<"idle" | "submitting">("idle");
+  const [signInError, setSignInError] = useState<string>("");
+  const [lastEmail, setLastEmail] = useState<string>("");
+  const [emailSent, setEmailSent] = useState<boolean>(false);
+  const [confirmedPlayerName, setConfirmedPlayerName] = useState<string>("");
+
+  // Bootstrap: resolve token + check session cookie in parallel. If the
+  // parent already has a cookie we render the one-tap UI; otherwise we render
+  // the magic-link form on top of the session card.
+  useEffect(() => {
+    let cancelled = false;
+    if (!token) {
+      // Status was already lazy-initialised to "no-token"; nothing to do.
+      return () => {
+        cancelled = true;
+      };
+    }
+    async function bootstrap() {
+      const [resolved, parent] = await Promise.all([
+        fetchScanResolve(token),
+        fetchParentSummary().catch(() => null),
+      ]);
+      if (cancelled) return;
+      if (!("sessionId" in resolved) || !resolved.ok) {
+        setResolveError(
+          "error" in resolved && resolved.error
+            ? resolved.error
+            : "This QR code is no longer valid.",
+        );
+        setStatus("resolve-error");
+        return;
+      }
+      setSession(resolved);
+      setSummary(parent);
+      setStatus("ready");
+    }
+    void bootstrap();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  // Derive the parent's children eligible for THIS session. We honour
+  // session.playerIds when present (rostered roster); otherwise we fall back
+  // to all of the parent's players whose age group matches the session.
+  // The latter is a tolerant fallback for older sessions that pre-date the
+  // playerIds back-fill.
+  const eligiblePlayers: Player[] = (() => {
+    if (!summary || !session) return [];
+    // We don't have the live Session row here (scan-resolve is privacy-scoped
+    // and doesn't return playerIds), so match on age group + summary roster.
+    const sessionRow = summary.sessions.find((s) => s.id === session.sessionId);
+    if (sessionRow && Array.isArray(sessionRow.playerIds) && sessionRow.playerIds.length > 0) {
+      return summary.players.filter((p) => sessionRow.playerIds!.includes(p.id));
+    }
+    if (session.ageGroup) {
+      const ageMatches = summary.players.filter((p) => p.ageGroup === session.ageGroup);
+      if (ageMatches.length > 0) return ageMatches;
+    }
+    return summary.players;
+  })();
+
+  async function requestLink(email: string) {
+    if (!session) return;
+    setSignInStatus("submitting");
+    setSignInError("");
+    setLastEmail(email);
+    const result = await postParentAuth("request-link", {
+      email,
+      next: `/scan?t=${encodeURIComponent(token)}`,
+    });
+    setSignInStatus("idle");
+    if (!result.ok) {
+      const text =
+        result.payload && typeof result.payload === "object" && "error" in result.payload
+          ? String((result.payload as { error?: string }).error)
+          : "Something went wrong. Please try again.";
+      setSignInError(text);
+      return;
+    }
+    setEmailSent(true);
+  }
+
+  async function confirmScan(player: Player) {
+    if (!session) return;
+    if (session.phase !== "arrival" && session.phase !== "departure") return;
+    setStatus("submitting");
+    setErrorMessage("");
+    setConfirmedPlayerName((player.name.split(" ")[0] || player.name).trim());
+    const scanType: QrCheckinScanType =
+      session.phase === "departure" ? "Departure" : "Arrival";
+    const result = await submitQrCheckin({
+      sessionId: session.sessionId,
+      playerId: player.id,
+      scanType,
+    });
+    if (!result.ok) {
+      setErrorMessage(
+        result.message ||
+          "Couldn\u2019t record the scan. Please try again or speak to your coach.",
+      );
+      setStatus("error");
+      return;
+    }
+    setStatus("success");
+    // After 2s, bounce to /portal so the parent lands on their main view.
+    window.setTimeout(() => {
+      window.location.assign("/portal");
+    }, 2000);
+  }
+
+  // -------------------------- render branches --------------------------
+
+  if (status === "loading") {
+    return (
+      <div className="portal-shell">
+        <div className="portal-card">
+          <div className="portal-brand">
+            <span className="portal-brand-mark">G2P</span>
+            <div>
+              <div className="portal-brand-kicker">Grass2Pro</div>
+              <div className="portal-brand-title">Pitchside check-in</div>
+            </div>
+          </div>
+          <h1 className="portal-heading">Loading session\u2026</h1>
+          <p className="portal-sub">Just a moment while we look up the QR code.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (status === "no-token") {
+    return (
+      <div className="portal-shell">
+        <div className="portal-card">
+          <div className="portal-brand">
+            <span className="portal-brand-mark">G2P</span>
+            <div>
+              <div className="portal-brand-kicker">Grass2Pro</div>
+              <div className="portal-brand-title">Pitchside check-in</div>
+            </div>
+          </div>
+          <h1 className="portal-heading">No QR code detected</h1>
+          <p className="portal-sub">
+            This page is for parents who have scanned a pitchside Grass2Pro QR. Please rescan the
+            code at the pitch, or open your <a href="/portal">parent portal</a>.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (status === "resolve-error") {
+    return (
+      <div className="portal-shell">
+        <div className="portal-card">
+          <div className="portal-brand">
+            <span className="portal-brand-mark">G2P</span>
+            <div>
+              <div className="portal-brand-kicker">Grass2Pro</div>
+              <div className="portal-brand-title">Pitchside check-in</div>
+            </div>
+          </div>
+          <h1 className="portal-heading">QR code not recognised</h1>
+          <p className="portal-sub" data-testid="text-scan-resolve-error">{resolveError}</p>
+          <a href="/portal" className="portal-secondary-button" data-testid="link-scan-to-portal">
+            Open parent portal
+          </a>
+        </div>
+      </div>
+    );
+  }
+
+  if (!session) return <LoadingState />;
+
+  // Reusable session card body shown in every authenticated state.
+  const sessionCard = (
+    <div
+      style={{
+        borderLeft: "4px solid var(--accent, #c0ff00)",
+        background: "var(--surface, #ffffff)",
+        borderRadius: 12,
+        padding: "14px 16px",
+        marginBottom: 18,
+        boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
+      }}
+      data-testid="card-scan-session"
+    >
+      <div style={{ fontSize: 12, fontWeight: 600, color: "#666", textTransform: "uppercase", letterSpacing: 0.4 }}>
+        {session.phaseLabel}
+      </div>
+      <div style={{ fontSize: 18, fontWeight: 700, marginTop: 2 }} data-testid="text-scan-session-team">
+        {session.teamName || `${session.ageGroup || "Grass2Pro"} session`}
+      </div>
+      <div style={{ fontSize: 14, color: "#444", marginTop: 4 }}>
+        {[formatScanDate(session.date), formatScanTimeRange(session.startTime, session.endTime)]
+          .filter(Boolean)
+          .join(" \u00b7 ")}
+      </div>
+      {session.location ? (
+        <div style={{ fontSize: 13, color: "#666", marginTop: 2 }}>{session.location}</div>
+      ) : null}
+      <div style={{ fontSize: 13, color: "#666", marginTop: 6 }}>
+        Coach <strong style={{ color: "#222" }}>{session.coachName}</strong>
+      </div>
+    </div>
+  );
+
+  // ------ logged out ------
+  if (!summary) {
+    if (emailSent) {
+      return <ParentCheckEmailScreen email={lastEmail} onResend={() => setEmailSent(false)} />;
+    }
+    return (
+      <div className="portal-shell">
+        <div className="portal-card">
+          <div className="portal-brand">
+            <span className="portal-brand-mark">G2P</span>
+            <div>
+              <div className="portal-brand-kicker">Grass2Pro</div>
+              <div className="portal-brand-title">Pitchside check-in</div>
+            </div>
+          </div>
+          {sessionCard}
+          <h1 className="portal-heading">Sign in to check in</h1>
+          <p className="portal-sub">
+            Enter the email you used on your child&apos;s consent form. We&apos;ll send a one-tap
+            sign-in link that brings you straight back here.
+          </p>
+          <form
+            className="portal-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (signInStatus === "submitting") return;
+              const trimmed = lastEmail.trim();
+              if (!trimmed) return;
+              void requestLink(trimmed);
+            }}
+          >
+            <label className="form-field">
+              <span>Email address</span>
+              <input
+                type="email"
+                value={lastEmail}
+                onChange={(event) => setLastEmail(event.target.value)}
+                placeholder="you@example.com"
+                autoComplete="email"
+                autoFocus
+                required
+                data-testid="input-scan-email"
+              />
+            </label>
+            {signInError ? (
+              <p className="field-error" role="alert" data-testid="text-scan-signin-error">{signInError}</p>
+            ) : (
+              <p className="field-help">We&apos;ll only ever use this to send sign-in links.</p>
+            )}
+            <button
+              type="submit"
+              className="portal-primary-button"
+              disabled={signInStatus === "submitting"}
+              data-testid="button-scan-request-link"
+            >
+              {signInStatus === "submitting" ? "Sending\u2026" : "Send sign-in link"}
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  // ------ logged in but check-in window not open ------
+  if (session.phase === "upcoming" || session.phase === "closed") {
+    return (
+      <div className="portal-shell">
+        <div className="portal-card">
+          <div className="portal-brand">
+            <span className="portal-brand-mark">G2P</span>
+            <div>
+              <div className="portal-brand-kicker">Grass2Pro</div>
+              <div className="portal-brand-title">Pitchside check-in</div>
+            </div>
+          </div>
+          {sessionCard}
+          <h1 className="portal-heading">
+            {session.phase === "upcoming" ? "Check-in not open yet" : "Check-in is closed"}
+          </h1>
+          <p className="portal-sub">
+            {session.phase === "upcoming"
+              ? "You\u2019re a little early. The QR will start working closer to kick-off \u2014 try again 15 minutes before the session."
+              : "This session\u2019s check-in window has ended. Open your portal to see your child\u2019s attendance."}
+          </p>
+          <a href="/portal" className="portal-secondary-button" data-testid="link-scan-closed-to-portal">
+            Open parent portal
+          </a>
+        </div>
+      </div>
+    );
+  }
+
+  // ------ logged in, check-in open, success ------
+  if (status === "success") {
+    return (
+      <div className="portal-shell">
+        <div className="portal-card">
+          <div className="portal-brand">
+            <span className="portal-brand-mark">G2P</span>
+            <div>
+              <div className="portal-brand-kicker">Grass2Pro</div>
+              <div className="portal-brand-title">Pitchside check-in</div>
+            </div>
+          </div>
+          <div
+            style={{
+              fontSize: 48,
+              textAlign: "center",
+              margin: "6px 0 12px",
+              color: "var(--accent, #c0ff00)",
+              filter: "drop-shadow(0 1px 0 rgba(0,0,0,0.08))",
+            }}
+            aria-hidden="true"
+          >
+            {"\u2713"}
+          </div>
+          <h1 className="portal-heading" style={{ textAlign: "center" }} data-testid="text-scan-success">
+            {confirmedPlayerName ? `${confirmedPlayerName} is checked in` : "Checked in"}
+          </h1>
+          <p className="portal-sub" style={{ textAlign: "center" }}>
+            Have a great session \u2014 we\u2019re taking you to your portal\u2026
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ------ logged in, check-in open, no eligible kids ------
+  if (eligiblePlayers.length === 0) {
+    return (
+      <div className="portal-shell">
+        <div className="portal-card">
+          <div className="portal-brand">
+            <span className="portal-brand-mark">G2P</span>
+            <div>
+              <div className="portal-brand-kicker">Grass2Pro</div>
+              <div className="portal-brand-title">Pitchside check-in</div>
+            </div>
+          </div>
+          {sessionCard}
+          <h1 className="portal-heading">No matching child on your account</h1>
+          <p className="portal-sub">
+            We couldn\u2019t find one of your children rostered on this session. Please speak to
+            your coach \u2014 they can mark attendance manually.
+          </p>
+          <a href="/portal" className="portal-secondary-button" data-testid="link-scan-noeligible-to-portal">
+            Open parent portal
+          </a>
+        </div>
+      </div>
+    );
+  }
+
+  // ------ logged in, check-in open, ready to confirm ------
+  const actionVerb = session.phase === "departure" ? "pickup" : "arrival";
+  return (
+    <div className="portal-shell">
+      <div className="portal-card">
+        <div className="portal-brand">
+          <span className="portal-brand-mark">G2P</span>
+          <div>
+            <div className="portal-brand-kicker">Grass2Pro</div>
+            <div className="portal-brand-title">Pitchside check-in</div>
+          </div>
+        </div>
+        {sessionCard}
+        <h1 className="portal-heading">
+          {eligiblePlayers.length === 1
+            ? `Confirm ${(eligiblePlayers[0].name.split(" ")[0] || eligiblePlayers[0].name).trim()}\u2019s ${actionVerb}`
+            : `Who\u2019s checking in?`}
+        </h1>
+        <p className="portal-sub">
+          {eligiblePlayers.length === 1
+            ? "One tap and you\u2019re done. We\u2019ll let your coach know."
+            : "Tap the child you\u2019d like to check in."}
+        </p>
+        {errorMessage ? (
+          <p className="field-error" role="alert" data-testid="text-scan-checkin-error">{errorMessage}</p>
+        ) : null}
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 12 }}>
+          {eligiblePlayers.map((player) => {
+            const firstName = (player.name.split(" ")[0] || player.name).trim();
+            const isOnly = eligiblePlayers.length === 1;
+            return (
+              <button
+                key={player.id}
+                type="button"
+                className={isOnly ? "portal-primary-button" : "portal-secondary-button"}
+                disabled={status === "submitting"}
+                onClick={() => void confirmScan(player)}
+                data-testid={`button-scan-confirm-${player.id}`}
+                style={isOnly ? { fontSize: 18, padding: "16px 20px" } : undefined}
+              >
+                {status === "submitting"
+                  ? "Saving\u2026"
+                  : isOnly
+                    ? `Confirm ${firstName}\u2019s ${actionVerb}`
+                    : `${player.name} \u2014 ${actionVerb}`}
+              </button>
+            );
+          })}
+        </div>
+        <p className="portal-footnote" style={{ marginTop: 14 }}>
+          Wrong child or session? <a href="/portal" data-testid="link-scan-bottom-portal">Open the parent portal</a>.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // Detect whether the SPA should render the parent portal instead of the
 // coach dashboard. We keep this dead simple \u2014 any path that starts with
 // `/portal` (case-insensitive) routes through ParentPortal so /portal,
@@ -7591,6 +8142,16 @@ function shouldRenderLogoStudio(): boolean {
   return /^\/admin\/logo-studio(\/|\?|$)/i.test(
     window.location.pathname + window.location.search,
   );
+}
+
+// `/scan?t=<token>` is the zero-friction QR landing page. Parents who scan
+// a pitchside QR land here directly: signed-in parents see a one-tap confirm
+// for their child(ren); signed-out parents get a magic-link form that
+// returns to /scan?t=<token> after verify so they end up on the same page
+// already authenticated.
+function shouldRenderScan(): boolean {
+  if (typeof window === "undefined") return false;
+  return /^\/scan(\/|\?|$)/i.test(window.location.pathname + window.location.search);
 }
 
 // `/admin` (case-insensitive, with optional trailing slash or query string)
@@ -7644,6 +8205,7 @@ function AppRoot() {
     return <CoachLandingPage coach={coach} />;
   }
   if (shouldRenderParentPortal()) return <ParentPortal />;
+  if (shouldRenderScan()) return <ParentScanPage />;
   // Specificity: /admin/logo-studio MUST be matched before /admin so the
   // dashboard matcher doesn't swallow the studio route.
   if (shouldRenderLogoStudio()) return <LogoStudio />;

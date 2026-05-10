@@ -71,10 +71,16 @@ async function handleRequestLink(body) {
     return json(200, { ok: true });
   }
 
+  // Optional `next` param: the SPA passes this when the parent requests a
+  // sign-in link from /scan, so the magic-link email points back at the
+  // scan landing page they came from instead of the generic /portal
+  // overview. _parent-mailer.sanitiseNext() defends against open-redirect
+  // abuse \u2014 only same-origin /scan and /portal paths are honoured.
   const result = await sendMagicLinkEmail({
     to: email,
     rawToken: raw,
     expiresInMinutes: MAGIC_LINK_TTL_MINUTES,
+    next: typeof body.next === "string" ? body.next : "",
   });
 
   // Surface a soft warning to the SPA when the mailer is not yet set up
