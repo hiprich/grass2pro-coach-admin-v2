@@ -5183,6 +5183,57 @@ html[data-surface="coach-landing"] body {
   transition: transform 900ms cubic-bezier(0.2, 0.8, 0.2, 1), filter 600ms ease;
   will-change: transform;
 }
+
+/*
+ * YouTube ambient hero.
+ * The iframe carries YouTube's native 16:9 ratio. To make it cover a
+ * portrait container without letterboxing, we absolutely position it,
+ * scale it up so its height fills the frame, and translate it so the
+ * content stays centred. The overflow:hidden on the parent crops the
+ * extra width on either side.
+ */
+.coach-landing-hero-photo:has(.coach-landing-hero-youtube) {
+  /* The :has selector is supported in all current evergreen browsers
+     (Chrome ≥105, Safari ≥15.4, Firefox ≥121). For older browsers, the
+     CSS background poster on the parent is the graceful fallback. */
+  position: relative;
+  overflow: hidden;
+}
+.coach-landing-hero-youtube {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  /* 56.25vw width gives 16:9 at the container width. We over-size by
+     using 177.78% of the container height (1 / 0.5625) as width so the
+     iframe is at least as wide as needed when scaled to fill height. */
+  width: 177.78%;
+  height: 100%;
+  /* Then to also cover when the container is wider/taller than 16:9, we
+     stretch height too. Using min() ensures we always cover. */
+  min-width: 100%;
+  min-height: 56.25%;
+  transform: translate(-50%, -50%);
+  border: 0;
+  pointer-events: none; /* Belt-and-braces; the shield handles this too. */
+  display: block;
+  background: transparent;
+  z-index: 1;
+}
+/* Transparent overlay that catches all pointer events so the YouTube
+   iframe is purely decorative — no click-through, no hover chrome,
+   no "Watch on YouTube" CTA. */
+.coach-landing-hero-youtube-shield {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: transparent;
+  pointer-events: auto;
+  cursor: default;
+}
+/* The shimmer overlay (::after) sits above the shield. */
+.coach-landing-hero-photo:has(.coach-landing-hero-youtube)::after {
+  z-index: 3;
+}
 .coach-landing-hero-photo:hover {
   transform: translateY(-4px);
   border-color: #d8f08a;

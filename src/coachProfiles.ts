@@ -42,6 +42,19 @@ export type CoachProfile = {
   // muted forever (no unmute control) so previewers (WhatsApp, iMessage)
   // never blast sound.
   heroVideoSrc?: string;
+  // Optional YouTube video ID for the hero background. Preferred over
+  // heroVideoSrc when we don't want to host the file ourselves (zero
+  // Netlify bandwidth, YouTube CDN handles delivery globally). Just the
+  // 11-character ID, NOT the full URL — e.g. "dQw4w9WgXcQ", not
+  // "https://youtube.com/watch?v=dQw4w9WgXcQ". The video MUST be public
+  // or unlisted (private videos can't embed). Renders as an autoplay,
+  // muted, looping iframe with a transparent overlay layer that blocks
+  // clicks (so the YouTube chrome and "Watch on YouTube" CTA can't be
+  // triggered — pure ambient background, no interaction). The hero image
+  // still renders as a CSS background behind the iframe for instant
+  // first paint and to mask the YouTube thumbnail flash.
+  // If both heroVideoSrc and heroYouTubeId are set, heroYouTubeId wins.
+  heroYouTubeId?: string;
   whatsappE164?: string;         // E.164-formatted phone, no spaces, no +. Used for wa.me deep-link
   airtableRecordId?: string;     // Coaches table rec id — links registrations back to coach
   // Small, all-caps eyebrow line above the coach name. Use the coach's
@@ -99,11 +112,14 @@ export const COACH_PROFILES: Record<string, CoachProfile> = {
     pricingNote: "Contact Hope for pricing",
     avatarSrc: "/coaches/hope-avatar.jpg",
     heroSrc: "/coaches/hope-hero.jpg",
-    // Drop hope-hero.mp4 into /public/coaches/ and uncomment to enable
-    // the background video. The .mp4 must have its audio track
-    // stripped before upload — the video is permanently muted (no
-    // unmute control), so a stripped track keeps file size down too.
-    // heroVideoSrc: "/coaches/hope-hero.mp4",
+    // Background hero video served from YouTube. Set this to Hope's
+    // 11-character YouTube video ID (the part after "v=" in the URL,
+    // e.g. "dQw4w9WgXcQ"). Video must be public or unlisted to embed.
+    // The iframe is muted, autoplay, looped, and overlaid with a
+    // transparent div so YouTube branding and clicks can't be triggered.
+    // Until uncommented, the page renders the static heroSrc image.
+    // TODO: paste real YouTube ID once Hope's clip is uploaded.
+    // heroYouTubeId: "REPLACE_WITH_11_CHAR_YT_ID",
     whatsappE164: "447918950309",
     airtableRecordId: "rect8JRrno85KaRNG",
     partner: {

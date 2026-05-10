@@ -208,11 +208,52 @@ export default function CoachLandingPage({ coach }: { coach: CoachProfile }) {
 
       <main className="coach-landing-main">
         <section className="coach-landing-hero">
-          <div className="coach-landing-hero-photo">
-            {coach.heroVideoSrc ? (
-              // Decorative ambient video. Permanently muted (no audio track), looped,
-              // playsInline for iOS, poster falls back to hero image for fast first paint.
-              // No controls — this is decoration, not media to be played by the user.
+          <div
+            className="coach-landing-hero-photo"
+            // When using a YouTube embed we set the hero image as a CSS
+            // background so the still photo paints instantly and masks the
+            // YouTube thumbnail flash before the iframe is ready. Falls
+            // back to no background when there's no video at all (the <img>
+            // child handles that case).
+            style={
+              coach.heroYouTubeId
+                ? {
+                    backgroundImage: `url(${coach.heroSrc || coach.avatarSrc})`,
+                    backgroundSize: "cover",
+                    backgroundPosition: "center",
+                  }
+                : undefined
+            }
+          >
+            {coach.heroYouTubeId ? (
+              // YouTube ambient hero. Muted, autoplay, looped (loop=1 needs
+              // playlist=ID to actually loop on YouTube). controls=0,
+              // modestbranding=1, rel=0 strip as much YouTube chrome as
+              // possible. The transparent overlay div on top blocks all
+              // pointer events so the residual "Watch on YouTube" hover
+              // and title flash can't be clicked through.
+              <>
+                <iframe
+                  className="coach-landing-hero-youtube"
+                  src={`https://www.youtube-nocookie.com/embed/${coach.heroYouTubeId}?autoplay=1&mute=1&loop=1&playlist=${coach.heroYouTubeId}&controls=0&modestbranding=1&rel=0&playsinline=1&iv_load_policy=3&disablekb=1&fs=0`}
+                  title={`${coach.name} — ambient background`}
+                  // allow="autoplay" is the only permission needed; we deliberately
+                  // do NOT include "fullscreen" so the video stays decorative.
+                  allow="autoplay"
+                  loading="eager"
+                  aria-hidden="true"
+                  tabIndex={-1}
+                  // Inline frameBorder for older browsers; CSS handles modern.
+                  frameBorder={0}
+                />
+                {/* Overlay blocks all interaction with the YouTube iframe —
+                    no click-through, no "Watch on YouTube", no title hover. */}
+                <div className="coach-landing-hero-youtube-shield" aria-hidden="true" />
+              </>
+            ) : coach.heroVideoSrc ? (
+              // Self-hosted ambient video. Permanently muted (no audio track),
+              // looped, playsInline for iOS, poster falls back to hero image
+              // for fast first paint. No controls — this is decoration.
               <video
                 className="coach-landing-hero-video"
                 src={coach.heroVideoSrc}
