@@ -286,6 +286,27 @@ export default function LogoStudio() {
     null | "accent" | "outline" | "wordmark" | "tagline"
   >(null);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
+  // Save-to-Airtable state. "idle" → button shows "Save to my profile".
+  // "saving" → disabled + "Saving…". "saved" → "Saved ✓" for 1.8s.
+  // "bad-code" / "error" → red message for 1.8s. Mirrors the copyState
+  // ergonomics so the two buttons feel identical in use.
+  const [saveState, setSaveState] = useState<
+    "idle" | "saving" | "saved" | "bad-code" | "error"
+  >("idle");
+  const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
+  // Admin code lives in localStorage so Cobby (or whoever is wiring a
+  // coach today) doesn't re-type it on every Save. localStorage key is
+  // namespaced under "g2p:" to match the rest of the app's storage
+  // conventions and to keep it out of the way of unrelated keys.
+  const [adminCode, setAdminCode] = useState<string>(() => {
+    if (typeof window === "undefined") return "";
+    try {
+      return window.localStorage.getItem("g2p:logoStudioAdminCode") ?? "";
+    } catch {
+      // localStorage can throw in private-mode Safari; not fatal here.
+      return "";
+    }
+  });
   const [exportError, setExportError] = useState<string | null>(null);
   const previewRef = useRef<HTMLDivElement | null>(null);
 
@@ -627,9 +648,12 @@ export default function LogoStudio() {
   // partner config (e.g. coachProfiles.ts → coach.partner). Phase G will
   // replace this with a proper "save to my profile" button once coach
   // profiles live in Airtable.
-  async function handleCopyConfig() {
-    setCopyState("idle");
-    const partnerConfig: Record<string, unknown> = {
+  // Build the same sanitised partner-config payload that Copy JSON
+  // produces, but as an object (the Save handler stringifies it itself).
+  // Pulled out as a helper so Copy and Save can never drift apart in
+  // what fields they include — both call this and read the same shape.
+  function buildPartnerConfigPayload(): Record<string, unknown> {
+    const payload: Record<string, unknown> = {
       brandName: config.brandName,
       monogram: config.monogram,
       tagline: config.tagline,
@@ -638,16 +662,104 @@ export default function LogoStudio() {
       style: config.style,
       shape: config.shape,
     };
-    if (config.accentGradient) {
-      partnerConfig.accentGradient = config.accentGradient;
-    }
-    if (config.wordmarkColor) partnerConfig.wordmarkColor = config.wordmarkColor;
-    if (config.taglineColor) partnerConfig.taglineColor = config.taglineColor;
+    if (config.accentGradient) payload.accentGradient = config.accentGradient;
+    if (config.wordmarkColor) payload.wordmarkColor = config.wordmarkColor;
+    if (config.taglineColor) payload.taglineColor = config.taglineColor;
     if (config.outlineWidth) {
-      partnerConfig.outlineWidth = config.outlineWidth;
-      partnerConfig.outlineColor = config.outlineColor;
+      payload.outlineWidth = config.outlineWidth;
+      payload.outlineColor = config.outlineColor;
     }
-    const text = JSON.stringify(partnerConfig, null, 2);
+    return payload;
+  }
+
+  // Persist the current studio config to the configured coach record in
+  // Airtable via /api/coach-partner-update. Requires the admin code
+  // (gated server-side; we send it as-is and let the function 401 if
+  // wrong). The button visibly cycles through saving → saved/error so
+  // the user gets immediate feedback without an alert() dialog.
+  async function handleSaveToProfile() {
+    if (!config.brandName.trim()) {
+      setSaveState("error");
+      setSaveErrorMessage("Add a brand name before saving.");
+      window.setTimeout(() => {
+        setSaveState("idle");
+        setSaveErrorMessage(null);
+      }, 1800);
+      return;
+    }
+    if (!adminCode.trim()) {
+      setSaveState("bad-code");
+      setSaveErrorMessage("Enter the admin code to save.");
+      window.setTimeout(() => {
+        setSaveState("idle");
+        setSaveErrorMessage(null);
+      }, 1800);
+      return;
+    }
+
+    // Persist the code BEFORE the network call so a refresh during a
+    // slow Airtable round-trip doesn't lose what the user typed.
+    try {
+      window.localStorage.setItem("g2p:logoStudioAdminCode", adminCode);
+    } catch {
+      // private-mode Safari — ignore, the in-memory value still works.
+    }
+
+    setSaveState("saving");
+    setSaveErrorMessage(null);
+    try {
+      const response = await fetch("/api/coach-partner-update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          adminCode,
+          partner: buildPartnerConfigPayload(),
+        }),
+      });
+      if (response.status === 401) {
+        setSaveState("bad-code");
+        setSaveErrorMessage("Wrong admin code.");
+        window.setTimeout(() => {
+          setSaveState("idle");
+          setSaveErrorMessage(null);
+        }, 1800);
+        return;
+      }
+      if (!response.ok) {
+        // Surface the function's structured error so a missing Airtable
+        // field (most common deploy-time mistake) reads as a real
+        // sentence instead of "Save failed".
+        let detail = "";
+        try {
+          const body = (await response.json()) as { error?: string };
+          detail = body?.error || "";
+        } catch {
+          // Non-JSON response — fall through with generic copy.
+        }
+        setSaveState("error");
+        setSaveErrorMessage(detail || "Save failed. Try again in a moment.");
+        window.setTimeout(() => {
+          setSaveState("idle");
+          setSaveErrorMessage(null);
+        }, 2800);
+        return;
+      }
+      setSaveState("saved");
+      window.setTimeout(() => setSaveState("idle"), 1800);
+    } catch (error) {
+      console.error("Logo Studio save failed:", error);
+      setSaveState("error");
+      setSaveErrorMessage("Network error. Check your connection.");
+      window.setTimeout(() => {
+        setSaveState("idle");
+        setSaveErrorMessage(null);
+      }, 2800);
+    }
+  }
+
+  async function handleCopyConfig() {
+    setCopyState("idle");
+    const text = JSON.stringify(buildPartnerConfigPayload(), null, 2);
     try {
       await navigator.clipboard.writeText(text);
       setCopyState("copied");
@@ -1298,6 +1410,55 @@ export default function LogoStudio() {
                 : "Copy config JSON"}
             </button>
           </div>
+
+          {/* Save-to-profile panel. Sits below the export actions because
+              it's the "commit" action — Download and Copy are reversible
+              local-only operations; Save writes to Airtable and changes
+              what /c/:slug will render once the next sync/deploy lands.
+              The admin code is required server-side (LOGO_STUDIO_ADMIN_CODE)
+              and remembered in localStorage so the typical workflow is
+              type-once-then-save-many. Disappears entirely if you never
+              type a code → unobtrusive for first-time visitors. */}
+          <div className="logo-studio-save" data-testid="logo-studio-save">
+            <label className="logo-studio-field logo-studio-save-field">
+              <span>Admin code</span>
+              <input
+                type="password"
+                value={adminCode}
+                onChange={(e) => setAdminCode(e.target.value)}
+                placeholder="Required to save"
+                autoComplete="off"
+                data-testid="input-admin-code"
+              />
+            </label>
+            <button
+              type="button"
+              className="logo-studio-btn logo-studio-btn-primary logo-studio-save-btn"
+              onClick={handleSaveToProfile}
+              disabled={saveState === "saving"}
+              data-testid="btn-save-to-profile"
+            >
+              {saveState === "saving"
+                ? "Saving…"
+                : saveState === "saved"
+                ? "Saved ✓"
+                : saveState === "bad-code"
+                ? "Wrong code"
+                : saveState === "error"
+                ? "Save failed"
+                : "Save to my profile"}
+            </button>
+          </div>
+          {saveErrorMessage && saveState !== "saving" && (
+            <p
+              className="logo-studio-error"
+              role="alert"
+              data-testid="save-error"
+            >
+              {saveErrorMessage}
+            </p>
+          )}
+
           {exportError && (
             <p className="logo-studio-error" role="alert">
               {exportError}
@@ -1305,12 +1466,21 @@ export default function LogoStudio() {
           )}
 
           <details className="logo-studio-details">
-            <summary>What does “Copy config JSON” do?</summary>
+            <summary>What do the export options do?</summary>
             <p>
-              It puts a small JSON snippet on your clipboard with this exact
-              brand setup. Send it to your Grass2Pro contact and we'll wire
-              it onto your coach page as your partner lockup. Phase G will
-              replace this with a one-tap “save to my profile” button.
+              <strong>Download SVG / PNG</strong> — exports the badge as a
+              file you can use anywhere (kit, social, print).
+            </p>
+            <p>
+              <strong>Copy config JSON</strong> — puts the brand setup on
+              your clipboard so you can share it manually with your Grass2Pro
+              contact.
+            </p>
+            <p>
+              <strong>Save to my profile</strong> — writes the current setup
+              to your Grass2Pro coach record. Requires the admin code. Your
+              coach landing page picks it up at the next deploy (Phase G
+              will make this instant).
             </p>
           </details>
         </section>
