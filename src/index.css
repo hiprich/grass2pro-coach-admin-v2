@@ -7366,3 +7366,38 @@ html[data-surface="logo-studio"] body {
   }
 }
 /* ===== end v1.4 ========================================================= */
+
+/* Weather chip — Apple-tier session-card polish.
+   Inline variant lives next to "Location" cells in the coach session list.
+   Card variant sits below the location line on parent-portal session
+   cards and the QR scan landing card. */
+.weather-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.2;
+  color: #444;
+  background: rgba(192, 255, 0, 0.18);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 999px;
+  padding: 4px 10px;
+  white-space: nowrap;
+  margin-top: 6px;
+}
+.weather-chip-emoji {
+  font-size: 14px;
+  line-height: 1;
+}
+.weather-chip-text {
+  font-weight: 500;
+}
+.weather-chip-card {
+  display: flex;
+  align-self: flex-start;
+}
+.weather-chip-temp,
+.weather-chip-precip {
+  font-weight: 400;
+  color: #555;
+}

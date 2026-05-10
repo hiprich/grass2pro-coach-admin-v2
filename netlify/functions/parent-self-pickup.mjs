@@ -52,14 +52,34 @@ function appendAuditLine(existingNotes, line) {
 // Confirm the signed-in parent owns this player. Same shape as the
 // loadOwnedPlayer helper in parent-actions.mjs \u2014 we list and filter rather
 // than fetch by id so we hit the canonical normaliser.
+//
+// Ownership accepts either Parent Email text-field match OR a linked
+// Parents/Guardians row whose Email matches parentEmail. This mirrors
+// parent-data.mjs / parent-actions.mjs so legacy children (linked-only)
+// can still self-pickup.
 async function loadOwnedPlayer({ playerId, parentEmail }) {
-  const records = await airtableList(playersTable(), { pageSize: "100" });
+  const parentsTbl = tableName("AIRTABLE_PARENTS_TABLE", "Parents/Guardians", TABLE_IDS.PARENTS);
+  const [records, parentRecords] = await Promise.all([
+    airtableList(playersTable(), { pageSize: "100" }),
+    airtableList(parentsTbl, { pageSize: "100" }),
+  ]);
   const match = records.find((record) => record.id === playerId);
   if (!match) {
     return { error: json(404, { error: "Player not found." }) };
   }
   const normalised = normalisePlayer(match);
-  if (normalised.parentEmail !== parentEmail) {
+  const matchingGuardianIds = new Set(
+    parentRecords
+      .filter((record) => {
+        const email = String(record?.fields?.Email || "").trim().toLowerCase();
+        return email && email === parentEmail;
+      })
+      .map((record) => record.id),
+  );
+  const linkedToParent = Array.isArray(normalised.guardianIds)
+    ? normalised.guardianIds.some((id) => matchingGuardianIds.has(id))
+    : false;
+  if (normalised.parentEmail !== parentEmail && !linkedToParent) {
     return {
       error: json(403, {
         error: "You don't have permission to confirm pickup for this player.",

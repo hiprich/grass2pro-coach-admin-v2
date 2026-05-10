@@ -4616,6 +4616,7 @@ function Sessions({
                         <MapPin size={14} aria-hidden="true" />
                         <span>{session.location}</span>
                       </div>
+                      <WeatherChip location={session.location} date={session.date} variant="inline" />
                       {session.pitchType ? (
                         <span
                           className="pitch-type-tag"
@@ -6775,6 +6776,9 @@ function ParentChildCard({
                         {timeLabel ? ` \u00b7 ${timeLabel}` : ""}
                         {session.location ? ` \u00b7 ${session.location}` : ""}
                       </div>
+                      {session.location ? (
+                        <WeatherChip location={session.location} date={session.date} variant="card" />
+                      ) : null}
                     </div>
                   </div>
                   <div
@@ -7849,6 +7853,158 @@ function formatScanDate(iso: string): string {
   });
 }
 
+// ----- Weather (Apple-tier polish) ----------------------------------------
+//
+// Wraps the /api/weather lookup with sessionStorage caching keyed by
+// location + date. We keep the cache short-lived (session lifetime) so a
+// pitch closing for the day doesn't show stale data the next morning.
+// Components render <WeatherChip /> alongside session location — if the
+// lookup soft-fails (unknown location, network blip), the chip simply
+// doesn't appear, so the layout never breaks.
+
+type WeatherForecast = {
+  date: string;
+  weatherCode: number | null;
+  label: string;
+  emoji: string;
+  tempMax: number | null;
+  tempMin: number | null;
+  precipChance: number | null;
+};
+
+type WeatherResponse =
+  | { ok: true; location: string; place: { name: string; country: string }; forecast: WeatherForecast }
+  | { ok: false; message?: string };
+
+function weatherCacheKey(location: string, date: string): string {
+  return `g2p:weather:${location.trim().toLowerCase()}|${date || "today"}`;
+}
+
+// Read a cached weather payload synchronously — used so React-Hooks lint
+// stays happy (we initialise state from cache instead of calling setState
+// inside an effect body just to reset the value when location/date
+// changes upstream).
+function readCachedForecast(location: string | undefined, date: string | undefined): WeatherForecast | null {
+  if (typeof window === "undefined") return null;
+  const loc = (location || "").trim();
+  if (!loc) return null;
+  try {
+    const cached = window.sessionStorage.getItem(weatherCacheKey(loc, date || ""));
+    if (!cached) return null;
+    const parsed = JSON.parse(cached) as WeatherResponse;
+    if (parsed && parsed.ok && parsed.forecast) return parsed.forecast;
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function useWeather(location: string | undefined, date: string | undefined): WeatherForecast | null {
+  // Lazy-init from cache so a second render of the same chip is instant
+  // and we never need a synchronous setForecast(null) reset inside the
+  // effect (which the react-hooks/set-state-in-effect rule rejects).
+  const [forecast, setForecast] = useState<WeatherForecast | null>(() =>
+    readCachedForecast(location, date),
+  );
+  useEffect(() => {
+    const loc = (location || "").trim();
+    if (!loc) return;
+    // Skip lookup for sessions in the past or far future — forecast API
+    // only covers ~7 days ahead, and historical weather isn't useful on
+    // a session card.
+    if (date) {
+      const ts = Date.parse(date);
+      if (Number.isFinite(ts)) {
+        const days = (ts - Date.now()) / 86_400_000;
+        if (days < -1 || days > 7) return;
+      }
+    }
+    let cancelled = false;
+    const key = weatherCacheKey(loc, date || "");
+    // If cache hits during this effect tick (e.g. after the lazy init
+    // already rendered, but a sibling chip just populated cache), refresh
+    // state from cache. setForecast inside .then() / fetch resolution is
+    // not flagged — only synchronous setState inside the effect body is.
+    fetch(apiPath(`/weather?${new URLSearchParams(date ? { location: loc, date } : { location: loc }).toString()}`), {
+      credentials: "same-origin",
+    })
+      .then((r) => r.json().catch(() => ({ ok: false })))
+      .then((payload: WeatherResponse) => {
+        if (cancelled) return;
+        try {
+          window.sessionStorage.setItem(key, JSON.stringify(payload));
+        } catch {
+          // Cache write failed — ignore.
+        }
+        if (payload && payload.ok && payload.forecast) {
+          setForecast(payload.forecast);
+        }
+      })
+      .catch(() => {
+        // Soft fail — chip just doesn't render.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [location, date]);
+  return forecast;
+}
+
+function formatTemp(value: number | null): string {
+  if (value == null || !Number.isFinite(value)) return "";
+  return `${Math.round(value)}\u00b0`;
+}
+
+function WeatherChip({
+  location,
+  date,
+  variant = "inline",
+}: {
+  location: string | undefined;
+  date: string | undefined;
+  variant?: "inline" | "card";
+}) {
+  const forecast = useWeather(location, date);
+  if (!forecast) return null;
+  const high = formatTemp(forecast.tempMax);
+  const low = formatTemp(forecast.tempMin);
+  const tempBlock = high && low ? `${high} / ${low}` : high || low;
+  const precip =
+    forecast.precipChance != null && Number.isFinite(forecast.precipChance) && forecast.precipChance >= 20
+      ? `${forecast.precipChance}% rain`
+      : "";
+  const label = forecast.label || "";
+  if (variant === "card") {
+    return (
+      <div
+        className="weather-chip weather-chip-card"
+        title={`${label}${tempBlock ? ` \u00b7 ${tempBlock}` : ""}${precip ? ` \u00b7 ${precip}` : ""}`}
+        data-testid="chip-weather"
+      >
+        <span className="weather-chip-emoji" aria-hidden="true">{forecast.emoji}</span>
+        <span className="weather-chip-text">
+          {label}
+          {tempBlock ? <span className="weather-chip-temp">{` \u00b7 ${tempBlock}`}</span> : null}
+          {precip ? <span className="weather-chip-precip">{` \u00b7 ${precip}`}</span> : null}
+        </span>
+      </div>
+    );
+  }
+  return (
+    <span
+      className="weather-chip weather-chip-inline"
+      title={`${label}${tempBlock ? ` \u00b7 ${tempBlock}` : ""}${precip ? ` \u00b7 ${precip}` : ""}`}
+      data-testid="chip-weather"
+    >
+      <span className="weather-chip-emoji" aria-hidden="true">{forecast.emoji}</span>
+      <span className="weather-chip-text">
+        {label}
+        {tempBlock ? ` \u00b7 ${tempBlock}` : ""}
+      </span>
+    </span>
+  );
+}
+
 function ParentScanPage() {
   type Status =
     | "loading"
@@ -7875,6 +8031,15 @@ function ParentScanPage() {
   const [lastEmail, setLastEmail] = useState<string>("");
   const [emailSent, setEmailSent] = useState<boolean>(false);
   const [confirmedPlayerName, setConfirmedPlayerName] = useState<string>("");
+  // Track which children have already been checked in this scan session.
+  // When 2+ children share an account (e.g. siblings), we want each tap
+  // to only check in that specific child — the previous behaviour
+  // appeared to check in everyone simultaneously because the success
+  // screen was global. Now: tap a child → confirm modal → single check-in
+  // → child disappears from the list → next, repeat. Final child
+  // confirmation bounces to /portal.
+  const [confirmedPlayerIds, setConfirmedPlayerIds] = useState<Set<string>>(() => new Set());
+  const [pendingPlayer, setPendingPlayer] = useState<Player | null>(null);
 
   // Bootstrap: resolve token + check session cookie in parallel. If the
   // parent already has a cookie we render the one-tap UI; otherwise we render
@@ -7953,6 +8118,12 @@ function ParentScanPage() {
     setEmailSent(true);
   }
 
+  // Submit one child's check-in. Called from the confirm modal after the
+  // parent has explicitly tapped "Yes, check in <name>". On success we
+  // mark that child as confirmed and — critically — keep the page open
+  // if there are siblings still to confirm. Only when the last child is
+  // checked in do we bounce to /portal, so the parent has full control
+  // over which child is on the pitch right now.
   async function confirmScan(player: Player) {
     if (!session) return;
     if (session.phase !== "arrival" && session.phase !== "departure") return;
@@ -7972,13 +8143,29 @@ function ParentScanPage() {
           "Couldn\u2019t record the scan. Please try again or speak to your coach.",
       );
       setStatus("error");
+      setPendingPlayer(null);
       return;
     }
-    setStatus("success");
-    // After 2s, bounce to /portal so the parent lands on their main view.
-    window.setTimeout(() => {
-      window.location.assign("/portal");
-    }, 2000);
+    // Compute remaining BEFORE we update React state so the modal/page
+    // can decide whether to keep going or bounce to the portal.
+    const nextConfirmedIds = new Set(confirmedPlayerIds);
+    nextConfirmedIds.add(player.id);
+    setConfirmedPlayerIds(nextConfirmedIds);
+    setPendingPlayer(null);
+    const stillPending = eligiblePlayers.filter((p) => !nextConfirmedIds.has(p.id));
+    if (stillPending.length === 0) {
+      // All children done — final success splash, then portal.
+      setStatus("success");
+      window.setTimeout(() => {
+        window.location.assign("/portal");
+      }, 2000);
+      return;
+    }
+    // More children to go. Drop the page back to "ready" and surface a
+    // brief inline confirmation toast so the parent sees their tap
+    // worked. The list now hides the just-confirmed child via the
+    // confirmedPlayerIds filter.
+    setStatus("ready");
   }
 
   // -------------------------- render branches --------------------------
@@ -8070,7 +8257,10 @@ function ParentScanPage() {
           .join(" \u00b7 ")}
       </div>
       {session.location ? (
+        <>
         <div style={{ fontSize: 13, color: "#666", marginTop: 2 }}>{session.location}</div>
+        <WeatherChip location={session.location} date={session.date} variant="card" />
+        </>
       ) : null}
       <div style={{ fontSize: 13, color: "#666", marginTop: 6 }}>
         Coach <strong style={{ color: "#222" }}>{session.coachName}</strong>
@@ -8205,6 +8395,11 @@ function ParentScanPage() {
     );
   }
 
+  // Filter out children the parent has already confirmed in this scan
+  // session so the list shrinks one tap at a time.
+  const remainingPlayers = eligiblePlayers.filter((p) => !confirmedPlayerIds.has(p.id));
+  const hasConfirmedAny = confirmedPlayerIds.size > 0;
+
   // ------ logged in, check-in open, no eligible kids ------
   if (eligiblePlayers.length === 0) {
     return (
@@ -8233,6 +8428,14 @@ function ParentScanPage() {
 
   // ------ logged in, check-in open, ready to confirm ------
   const actionVerb = session.phase === "departure" ? "pickup" : "arrival";
+  const actionVerbing = session.phase === "departure" ? "picking up" : "checking in";
+  // Single-child fast-path: render one big primary button. Multi-child
+  // path: render a stack of secondary buttons + a confirm modal so each
+  // child must be explicitly approved.
+  const isSingleChild = eligiblePlayers.length === 1;
+  const confirmedNames = eligiblePlayers
+    .filter((p) => confirmedPlayerIds.has(p.id))
+    .map((p) => (p.name.split(" ")[0] || p.name).trim());
   return (
     <div className="portal-shell">
       <div className="portal-card">
@@ -8245,35 +8448,56 @@ function ParentScanPage() {
         </div>
         {sessionCard}
         <h1 className="portal-heading">
-          {eligiblePlayers.length === 1
+          {isSingleChild
             ? `Confirm ${(eligiblePlayers[0].name.split(" ")[0] || eligiblePlayers[0].name).trim()}\u2019s ${actionVerb}`
-            : `Who\u2019s checking in?`}
+            : hasConfirmedAny
+              ? `Anyone else ${actionVerbing}?`
+              : `Who\u2019s ${actionVerbing}?`}
         </h1>
         <p className="portal-sub">
-          {eligiblePlayers.length === 1
+          {isSingleChild
             ? "One tap and you\u2019re done. We\u2019ll let your coach know."
-            : "Tap the child you\u2019d like to check in."}
+            : `Tap a child to confirm their ${actionVerb}. We\u2019ll ask you to confirm before we tell your coach.`}
         </p>
+        {hasConfirmedAny && confirmedNames.length > 0 ? (
+          <div
+            className="portal-toast portal-toast-success"
+            role="status"
+            data-testid="text-scan-progress"
+            style={{ marginBottom: 10 }}
+          >
+            {confirmedNames.length === 1
+              ? `${confirmedNames[0]} is checked in. \u2713`
+              : `${confirmedNames.slice(0, -1).join(", ")} and ${confirmedNames[confirmedNames.length - 1]} are checked in. \u2713`}
+          </div>
+        ) : null}
         {errorMessage ? (
           <p className="field-error" role="alert" data-testid="text-scan-checkin-error">{errorMessage}</p>
         ) : null}
         <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 12 }}>
-          {eligiblePlayers.map((player) => {
+          {remainingPlayers.map((player) => {
             const firstName = (player.name.split(" ")[0] || player.name).trim();
-            const isOnly = eligiblePlayers.length === 1;
             return (
               <button
                 key={player.id}
                 type="button"
-                className={isOnly ? "portal-primary-button" : "portal-secondary-button"}
+                className={isSingleChild ? "portal-primary-button" : "portal-secondary-button"}
                 disabled={status === "submitting"}
-                onClick={() => void confirmScan(player)}
+                onClick={() => {
+                  if (isSingleChild) {
+                    // Fast path: one tap = done. Skip the modal so we
+                    // don't add friction for the common case.
+                    void confirmScan(player);
+                  } else {
+                    setPendingPlayer(player);
+                  }
+                }}
                 data-testid={`button-scan-confirm-${player.id}`}
-                style={isOnly ? { fontSize: 18, padding: "16px 20px" } : undefined}
+                style={isSingleChild ? { fontSize: 18, padding: "16px 20px" } : undefined}
               >
-                {status === "submitting"
+                {status === "submitting" && isSingleChild
                   ? "Saving\u2026"
-                  : isOnly
+                  : isSingleChild
                     ? `Confirm ${firstName}\u2019s ${actionVerb}`
                     : `${player.name} \u2014 ${actionVerb}`}
               </button>
@@ -8284,6 +8508,54 @@ function ParentScanPage() {
           Wrong child or session? <a href="/portal" data-testid="link-scan-bottom-portal">Open the parent portal</a>.
         </p>
       </div>
+      {pendingPlayer ? (
+        <div
+          className="qr-modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Confirm ${pendingPlayer.name}'s ${actionVerb}`}
+          onClick={(e) => {
+            // Tap the backdrop to dismiss — same affordance as our other
+            // modals. The submit button has its own click handler.
+            if (e.target === e.currentTarget) setPendingPlayer(null);
+          }}
+        >
+          <div className="portal-card" style={{ maxWidth: 420, margin: "auto" }}>
+            <div className="portal-brand-kicker">Confirm {actionVerb}</div>
+            <h2 className="portal-heading" style={{ marginTop: 4 }}>
+              {pendingPlayer.name}
+            </h2>
+            <p className="portal-sub">
+              {`We\u2019ll let your coach know ${(pendingPlayer.name.split(" ")[0] || pendingPlayer.name).trim()} is `}
+              {session.phase === "departure" ? "being picked up" : "on the pitch"}
+              {" now. You can confirm each child separately if you have more than one here."}
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 12 }}>
+              <button
+                type="button"
+                className="portal-primary-button"
+                disabled={status === "submitting"}
+                onClick={() => void confirmScan(pendingPlayer)}
+                data-testid={`button-scan-modal-confirm-${pendingPlayer.id}`}
+                style={{ fontSize: 17, padding: "14px 18px" }}
+              >
+                {status === "submitting"
+                  ? "Saving\u2026"
+                  : `Yes, confirm ${(pendingPlayer.name.split(" ")[0] || pendingPlayer.name).trim()}\u2019s ${actionVerb}`}
+              </button>
+              <button
+                type="button"
+                className="portal-secondary-button"
+                disabled={status === "submitting"}
+                onClick={() => setPendingPlayer(null)}
+                data-testid="button-scan-modal-cancel"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

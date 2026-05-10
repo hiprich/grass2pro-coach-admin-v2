@@ -122,18 +122,41 @@ function nowIso() {
 // Pull the requested player record and confirm the parent owns it. Returns
 // either { player } (a normalised Player object plus id) or { error } (a
 // pre-built JSON response the caller should return verbatim).
+//
+// Ownership is established via either:
+//   1. "Parent Email" text field on the Player row matching parentEmail, OR
+//   2. The player's "Parent/Guardian" linked record pointing at a
+//      Parents/Guardians row whose Email matches parentEmail.
+// Older consent submissions only populated path (2), so we must accept both
+// — otherwise toggling consent for those children 403s even though they
+// show up in the parent portal (parent-data.mjs already accepts both).
 async function loadOwnedPlayer({ playerId, parentEmail }) {
   const playersTable = tableName("AIRTABLE_PLAYERS_TABLE", "Players", TABLE_IDS.PLAYERS);
+  const parentsTable = tableName("AIRTABLE_PARENTS_TABLE", "Parents/Guardians", TABLE_IDS.PARENTS);
   // We list and filter rather than fetch by id directly so we hit the same
   // normalisation logic the rest of the app uses (Parent Email lower-cased,
   // etc.). The Players list is small for grassroots clubs so this is fine.
-  const records = await airtableList(playersTable, { pageSize: "100" });
+  const [records, parentRecords] = await Promise.all([
+    airtableList(playersTable, { pageSize: "100" }),
+    airtableList(parentsTable, { pageSize: "100" }),
+  ]);
   const match = records.find((record) => record.id === playerId);
   if (!match) {
     return { error: json(404, { error: "Player not found." }) };
   }
   const normalised = normalisePlayer(match);
-  if (normalised.parentEmail !== parentEmail) {
+  const matchingGuardianIds = new Set(
+    parentRecords
+      .filter((record) => {
+        const email = String(record?.fields?.Email || "").trim().toLowerCase();
+        return email && email === parentEmail;
+      })
+      .map((record) => record.id),
+  );
+  const linkedToParent = Array.isArray(normalised.guardianIds)
+    ? normalised.guardianIds.some((id) => matchingGuardianIds.has(id))
+    : false;
+  if (normalised.parentEmail !== parentEmail && !linkedToParent) {
     return { error: json(403, { error: "You don't have permission to update this player." }) };
   }
   return { player: normalised, table: playersTable };
