@@ -33,6 +33,15 @@ export type CoachProfile = {
   pricingNote: string;           // "Contact for pricing", or e.g. "From £15/session"
   avatarSrc: string;             // 1:1 profile shot, served from /public
   heroSrc?: string;              // Optional taller hero shot for the top of the page
+  // Optional permanently-muted, autoplay, looping background video for
+  // the hero. When set, replaces the static heroSrc image with a <video>
+  // element. The hero image still renders as the poster (instant paint
+  // before the video loads) and as a graceful fallback if the file
+  // 404s or the browser blocks autoplay. Path served from /public, e.g.
+  // "/coaches/hope-hero.mp4". Must have NO audio track — the video is
+  // muted forever (no unmute control) so previewers (WhatsApp, iMessage)
+  // never blast sound.
+  heroVideoSrc?: string;
   whatsappE164?: string;         // E.164-formatted phone, no spaces, no +. Used for wa.me deep-link
   airtableRecordId?: string;     // Coaches table rec id — links registrations back to coach
   // Small, all-caps eyebrow line above the coach name. Use the coach's
@@ -90,6 +99,11 @@ export const COACH_PROFILES: Record<string, CoachProfile> = {
     pricingNote: "Contact Hope for pricing",
     avatarSrc: "/coaches/hope-avatar.jpg",
     heroSrc: "/coaches/hope-hero.jpg",
+    // Drop hope-hero.mp4 into /public/coaches/ and uncomment to enable
+    // the background video. The .mp4 must have its audio track
+    // stripped before upload — the video is permanently muted (no
+    // unmute control), so a stripped track keeps file size down too.
+    // heroVideoSrc: "/coaches/hope-hero.mp4",
     whatsappE164: "447918950309",
     airtableRecordId: "rect8JRrno85KaRNG",
     partner: {

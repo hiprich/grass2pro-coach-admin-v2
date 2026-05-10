@@ -15,6 +15,7 @@
 // "/" so existing bookmarks keep working.
 
 import { useEffect, useState, useCallback } from "react";
+import { getCoachProfile } from "./coachProfiles";
 
 // Marketing benefit cards. Each one is a single-sentence promise, written
 // for a parent skim-reading on a phone. Order matters: scan-in/out is the
@@ -300,17 +301,42 @@ export default function HomepageCover() {
 
         {/* Featured coach — Hope is the launch coach, so we surface his
             page directly here as a proof point. Future iterations will
-            iterate this into a roster strip. */}
-        <div className="homepage-featured-coach">
-          <p className="homepage-featured-eyebrow">Featured coach</p>
-          <a className="homepage-featured-card" href="/c/hope">
-            <span className="homepage-featured-name">Hope Bouhe</span>
-            <span className="homepage-featured-role">
-              Head of Recruitment · PurePro Elite · FA Talent ID Level 2 Scout
-            </span>
-            <span className="homepage-featured-cta">Visit profile →</span>
-          </a>
-        </div>
+            iterate this into a roster strip.
+            Reads from coachProfiles so name, avatar and role line stay in
+            sync with /c/hope. Falls back gracefully if the slug ever
+            changes (we render nothing rather than a broken card). */}
+        {(() => {
+          const featured = getCoachProfile("hope");
+          if (!featured) return null;
+          // Compose the role line from the kicker (already canonical —
+          // "FA TALENT ID L2 SCOUT · PUREPRO ELITE CO-FOUNDER"). Title
+          // Case looks better at this size than full caps, so render the
+          // kicker as-typed since the kicker uses caps already, then
+          // strip if it ever diverges.
+          const roleLine = featured.kicker
+            ? featured.kicker.replace(/·/g, "•")
+            : featured.tagline;
+          return (
+            <div className="homepage-featured-coach">
+              <p className="homepage-featured-eyebrow">Featured coach</p>
+              <a className="homepage-featured-card" href={`/c/${featured.slug}`}>
+                <span className="homepage-featured-avatar" aria-hidden="true">
+                  <img
+                    src={featured.avatarSrc}
+                    alt=""
+                    loading="lazy"
+                    decoding="async"
+                    width={64}
+                    height={64}
+                  />
+                </span>
+                <span className="homepage-featured-name">{featured.name}</span>
+                <span className="homepage-featured-role">{roleLine}</span>
+                <span className="homepage-featured-cta">Visit profile →</span>
+              </a>
+            </div>
+          );
+        })()}
       </section>
 
       {/* Footer — minimal, lime accent on the wordmark to match the topbar.

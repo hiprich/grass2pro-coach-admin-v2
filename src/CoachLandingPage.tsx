@@ -209,14 +209,33 @@ export default function CoachLandingPage({ coach }: { coach: CoachProfile }) {
       <main className="coach-landing-main">
         <section className="coach-landing-hero">
           <div className="coach-landing-hero-photo">
-            <img
-              src={coach.heroSrc || coach.avatarSrc}
-              alt={`${coach.name}, coach`}
-              loading="eager"
-              decoding="async"
-              width={900}
-              height={1140}
-            />
+            {coach.heroVideoSrc ? (
+              // Decorative ambient video. Permanently muted (no audio track), looped,
+              // playsInline for iOS, poster falls back to hero image for fast first paint.
+              // No controls — this is decoration, not media to be played by the user.
+              <video
+                className="coach-landing-hero-video"
+                src={coach.heroVideoSrc}
+                poster={coach.heroSrc || coach.avatarSrc}
+                autoPlay
+                muted
+                loop
+                playsInline
+                preload="metadata"
+                aria-hidden="true"
+                width={900}
+                height={1140}
+              />
+            ) : (
+              <img
+                src={coach.heroSrc || coach.avatarSrc}
+                alt={`${coach.name}, coach`}
+                loading="eager"
+                decoding="async"
+                width={900}
+                height={1140}
+              />
+            )}
           </div>
           <div className="coach-landing-hero-text">
             <div className="coach-landing-kicker">{coach.kicker || "Coach"}</div>
