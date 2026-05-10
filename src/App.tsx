@@ -976,7 +976,19 @@ async function reinstatePlayer(id: string): Promise<Player> {
 type QrCheckinScanType = "Arrival" | "Departure";
 
 type QrCheckinResult =
-  | { ok: true; id?: string; demo?: boolean; warning?: string; existingAttendanceId?: string | null }
+  | {
+      ok: true;
+      id?: string;
+      demo?: boolean;
+      warning?: string;
+      existingAttendanceId?: string | null;
+      // Set true on a Departure scan so the parent portal can show a warm
+      // "don't forget your kit" banner. `kitReminderScheduled` reflects whether
+      // the backend successfully queued the 5-min push follow-up; the in-app
+      // banner shows regardless so parents always see the nudge.
+      kitReminder?: boolean;
+      kitReminderScheduled?: boolean;
+    }
   | { ok: false; status: number; warning?: string; message?: string; existing?: AttendanceRecord | null };
 
 async function submitQrCheckin(payload: {
@@ -2973,6 +2985,10 @@ function QrCheckinDialog({
   const [warning, setWarning] = useState<string | null>(null);
   const [resultMessage, setResultMessage] = useState("");
   const [resultOk, setResultOk] = useState(false);
+  // Warm "don't leave your kit behind" nudge shown above the success message
+  // after a Departure scan. Decoupled from the push follow-up so parents see
+  // it instantly even if the scheduled-push-fanout cron is lagging.
+  const [showKitReminder, setShowKitReminder] = useState(false);
 
   // Reset the forceConfirm override (and any stale duplicate-scan warning) when
   // the coach changes the player or scan type — otherwise a 409 against player
@@ -3007,6 +3023,7 @@ function QrCheckinDialog({
           ? `Recorded with note: ${result.warning}`
           : `${scanType} scan recorded for ${player.name}.`,
       );
+      setShowKitReminder(scanType === "Departure" && result.kitReminder === true);
       setStage("result");
       return;
     }
@@ -3108,6 +3125,19 @@ function QrCheckinDialog({
 
         {stage === "result" && (
           <div className="form-section">
+            {showKitReminder && player && (
+              <div className="kit-reminder-banner" data-testid="banner-kit-reminder">
+                <div className="kit-reminder-title">
+                  Thanks for attending Coach {session.coach}'s session 🙌
+                </div>
+                <div className="kit-reminder-body">
+                  Before you head off, please make sure {player.name.split(" ")[0]} has
+                  all their bits — coat, jacket, water bottle, kit, sports drink,
+                  anything they might have dropped on the pitch. Coaches do a sweep
+                  but kids are kids 😅
+                </div>
+              </div>
+            )}
             <div className={`message ${resultOk ? "success" : "error"}`} data-testid="status-qr-result">
               {resultMessage}
             </div>

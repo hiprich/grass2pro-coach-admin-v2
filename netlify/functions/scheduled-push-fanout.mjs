@@ -35,6 +35,7 @@ import webpush from "web-push";
 import {
   TABLE_IDS,
   airtableCreate,
+  airtableGet,
   airtableList,
   airtableUpdate,
   hasAirtableConfig,
@@ -62,6 +63,14 @@ const KIND_PICKUP_FINAL = "Pickup Confirm Final";
 // Resend email fallback so we still reach parents who haven't subscribed to
 // push yet.
 const KIND_NO_SHOW = "No Show Check-In";
+// Kit reminder: fires ~5 min AFTER a parent scans their child OUT, reminding
+// them to check the child has all their belongings (coat, water bottle,
+// kit, etc.) before they head off. Unlike the other kinds, this is NOT
+// anchored to a session start/end edge — it's anchored to the individual
+// parent's scan-out time. Rows are written by qr-checkins.mjs with
+// Status="Scheduled" and Scheduled For=sendAt; this fanout picks them up
+// when Scheduled For ≤ now. See processScheduledRows() below.
+const KIND_KIT_REMINDER = "Kit Reminder";
 
 // Pref-field name on the Push Subscriptions table for each kind. Used to
 // filter which subscriptions should receive a given kind.
@@ -386,7 +395,11 @@ async function findEligibleSubscriptions(parentId, kind) {
   return records.filter((record) => {
     const fields = record.fields || {};
     if (!fields.Active) return false;
-    if (!fields[prefField]) return false;
+    // Kinds without a dedicated Pref field (e.g. Kit Reminder) bypass the
+    // pref filter — the parent has just interacted with the system by
+    // scanning out, so opt-in is implied for that single follow-up. If a
+    // pref field IS defined for the kind, we honour the parent's choice.
+    if (prefField && !fields[prefField]) return false;
     const links = Array.isArray(fields.Parent) ? fields.Parent : [];
     return links.includes(parentId);
   });
@@ -420,7 +433,20 @@ function configureWebPush() {
 
 // Compose the per-coach push title. Phase 2f: prefer "<coach> \u2014 <team>",
 // falling back gracefully if either piece is missing.
-function buildTitle(sessionFields) {
+function buildTitle(sessionFields, kind) {
+  // Kit reminder uses a dedicated warm title so it reads as a thank-you
+  // notification, not a session reminder. Falls through to the default
+  // coach \u2014 team format for everything else.
+  if (kind === KIND_KIT_REMINDER) {
+    const coach = String(
+      sessionFields.Coach || sessionFields["Lead Coach"] || "",
+    ).trim();
+    return coach ? `Thanks for coming to ${coach}\u2019s session` : "Thanks for coming today";
+  }
+  return buildTitleDefault(sessionFields);
+}
+
+function buildTitleDefault(sessionFields) {
   const coach = String(sessionFields.Coach || sessionFields["Lead Coach"] || "").trim();
   const team = String(sessionFields.Team || sessionFields.Squad || "").trim();
   if (coach && team) return `${coach} \u2014 ${team}`;
@@ -449,6 +475,12 @@ function buildBody(kind, sessionFields, { childFirstName = "" } = {}) {
       const child = childFirstName || "your child";
       return `Didn't see ${child} at training tonight \u2014 everything okay?`;
     }
+    case KIND_KIT_REMINDER: {
+      const child = childFirstName || "your child";
+      // Warm, conversational tone agreed with the user. Keeps it short
+      // enough to fit on a lock-screen preview without truncation.
+      return `Quick check \u2014 make sure ${child} hasn\u2019t left their coat, water bottle, kit or anything else behind on the pitch.`;
+    }
     default:
       return "Session reminder.";
   }
@@ -456,7 +488,7 @@ function buildBody(kind, sessionFields, { childFirstName = "" } = {}) {
 
 function buildPayload(kind, sessionFields, sessionId, { childFirstName = "" } = {}) {
   return JSON.stringify({
-    title: buildTitle(sessionFields),
+    title: buildTitle(sessionFields, kind),
     body: buildBody(kind, sessionFields, { childFirstName }),
     tag: `session-${sessionId}-${kind.toLowerCase().replace(/\s+/g, "-")}`,
     url: "/portal",
@@ -511,14 +543,9 @@ export default async (req) => {
     return new Response(null, { status: 500 });
   }
 
-  if (candidates.length === 0) {
-    console.log("[scheduled-push-fanout] No candidate sessions in window.");
-    return new Response(null, { status: 204 });
-  }
-
   // Pre-fetch the Notifications Sent table once and reuse for all dedupe
-  // checks in this tick. Saves N\u00d7M list calls when many candidates land
-  // in the same window.
+  // checks AND scheduled-row processing in this tick. Saves N\u00d7M list calls
+  // when many candidates land in the same window.
   let sentRecords = [];
   try {
     sentRecords = await airtableList(notificationsSentTable(), { pageSize: PAGE_SIZE });
@@ -526,6 +553,20 @@ export default async (req) => {
     // Continue with an empty list \u2014 worst case we re-send within the
     // current 5-min window, which is bounded.
     console.warn("[scheduled-push-fanout] Notifications Sent list failed:", error);
+  }
+
+  // Process Scheduled-Status kit reminder rows BEFORE the session-edge
+  // sweep. These are not anchored to a session start/end \u2014 they're
+  // anchored to individual parent scan-out times \u2014 so we look up rows
+  // whose Status="Scheduled" AND Scheduled For \u2264 now.
+  const scheduledStats = await processScheduledRows(nowMs, sentRecords);
+
+  if (candidates.length === 0) {
+    console.log(
+      "[scheduled-push-fanout] No candidate sessions in window.",
+      { scheduled: scheduledStats },
+    );
+    return new Response(null, { status: 204 });
   }
 
   let attempted = 0;
@@ -743,9 +784,191 @@ export default async (req) => {
     }
   }
 
-  console.log("[scheduled-push-fanout] done", { candidates: candidates.length, attempted, sent, failed, skipped });
+  console.log("[scheduled-push-fanout] done", {
+    candidates: candidates.length,
+    attempted,
+    sent,
+    failed,
+    skipped,
+    scheduled: scheduledStats,
+  });
   return new Response(null, { status: 204 });
 };
+
+// Process "Scheduled" rows whose Scheduled For \u2264 now. Currently used by
+// Kit Reminder \u2014 a per-parent reminder that fires ~5 min after a parent
+// scans their child OUT.
+//
+// Schema contract (qr-checkins.mjs writes these):
+//   - Status: "Scheduled"
+//   - Kind: "Kit Reminder" (or any future per-event kind)
+//   - Scheduled For: ISO datetime when the row should fire
+//   - Dedupe Key: "kit-reminder:<sessionId>:<parentId>:<playerId>"
+//   - Session: [sessionId]
+//   - Parent: [parentId]
+//
+// We parse playerId out of the Dedupe Key so we don't need a Player link
+// on the Notifications Sent schema. If parsing fails we still send with
+// a generic "your child" body \u2014 the reminder is still useful.
+async function processScheduledRows(nowMs, sentRecords) {
+  const stats = { attempted: 0, sent: 0, failed: 0, skipped: 0 };
+
+  // Filter to Scheduled rows that are due. We work off the in-memory
+  // sentRecords list to avoid an extra Airtable list call.
+  const due = sentRecords.filter((row) => {
+    const fields = row?.fields || {};
+    if (String(fields.Status || "") !== "Scheduled") return false;
+    const scheduledForRaw = String(fields["Scheduled For"] || "");
+    if (!scheduledForRaw) return false;
+    const scheduledForMs = Date.parse(scheduledForRaw);
+    if (Number.isNaN(scheduledForMs)) return false;
+    return scheduledForMs <= nowMs;
+  });
+
+  if (due.length === 0) return stats;
+
+  // Cache session and player lookups within the tick \u2014 multiple parents
+  // from the same session would otherwise trigger redundant fetches.
+  const sessionCache = new Map();
+  const playerNameCache = new Map();
+
+  for (const row of due) {
+    const fields = row.fields || {};
+    const kind = String(fields.Kind || "");
+    const sessionLink = Array.isArray(fields.Session) ? fields.Session : [];
+    const parentLink = Array.isArray(fields.Parent) ? fields.Parent : [];
+    const sessionId = sessionLink[0] || "";
+    const parentId = parentLink[0] || "";
+    if (!sessionId || !parentId || !kind) {
+      // Malformed row: mark Skipped so we don't keep re-scanning it.
+      try {
+        await airtableUpdate(notificationsSentTable(), row.id, {
+          Status: "Skipped",
+          Error: "missing-fields",
+        });
+      } catch (e) {
+        console.warn("[scheduled-push-fanout] Skip malformed scheduled row failed:", e);
+      }
+      stats.skipped += 1;
+      continue;
+    }
+
+    // Recover playerId from the Dedupe Key \u2014 see schema contract above.
+    const dedupeKey = String(fields["Dedupe Key"] || "");
+    const dkParts = dedupeKey.split(":");
+    const playerId = dkParts.length >= 4 ? dkParts[3] : "";
+
+    // Look up the session record (cached) for the title + body context.
+    let sessionFields = sessionCache.get(sessionId);
+    if (!sessionFields) {
+      try {
+        const sessRecord = await airtableGet(sessionsTable(), sessionId);
+        sessionFields = sessRecord?.fields || {};
+        sessionCache.set(sessionId, sessionFields);
+      } catch (e) {
+        console.warn("[scheduled-push-fanout] Session fetch failed:", { sessionId, e });
+        sessionFields = {};
+        sessionCache.set(sessionId, sessionFields);
+      }
+    }
+
+    // Resolve child first name (cached) for personalisation.
+    let childFirst = "";
+    if (playerId) {
+      if (playerNameCache.has(playerId)) {
+        childFirst = playerNameCache.get(playerId);
+      } else {
+        try {
+          const playerRecord = await airtableGet(playersTable(), playerId);
+          const fullName = String(
+            playerRecord?.fields?.["Full Name"] ||
+              playerRecord?.fields?.Name ||
+              "",
+          ).trim();
+          childFirst = firstName(fullName);
+        } catch (e) {
+          console.warn("[scheduled-push-fanout] Player fetch failed:", { playerId, e });
+        }
+        playerNameCache.set(playerId, childFirst);
+      }
+    }
+
+    // Resolve eligible push subscriptions for this parent + kind.
+    let subscriptions = [];
+    try {
+      subscriptions = await findEligibleSubscriptions(parentId, kind);
+    } catch (e) {
+      console.error("[scheduled-push-fanout] Scheduled subs lookup failed:", e);
+    }
+
+    if (subscriptions.length === 0) {
+      // No active push subscription \u2014 mark Skipped and move on. Phase 2
+      // will fall back to WhatsApp/email here via notifyParent().
+      try {
+        await airtableUpdate(notificationsSentTable(), row.id, {
+          Status: "Skipped",
+          Error: "no-subscription",
+        });
+      } catch (e) {
+        console.warn("[scheduled-push-fanout] Skipped row finalise failed:", e);
+      }
+      stats.skipped += 1;
+      continue;
+    }
+
+    const payload = buildPayload(kind, sessionFields, sessionId, {
+      childFirstName: childFirst,
+    });
+
+    let firstStatus = null;
+    let firstHttp = null;
+    let firstError = null;
+    for (const sub of subscriptions) {
+      stats.attempted += 1;
+      try {
+        await sendOne(sub, payload);
+        if (firstStatus === null) {
+          firstStatus = "Sent";
+          firstHttp = 201;
+        }
+        stats.sent += 1;
+      } catch (sendError) {
+        const httpStatus = Number(sendError?.statusCode || 0);
+        if (firstStatus === null) {
+          firstStatus = "Failed";
+          firstHttp = httpStatus;
+          firstError = String(sendError?.message || sendError);
+        }
+        if (httpStatus === 404 || httpStatus === 410) {
+          try {
+            await airtableUpdate(pushSubsTable(), sub.id, {
+              Active: false,
+              "Failure Count": Number(sub.fields?.["Failure Count"] || 0) + 1,
+            });
+          } catch (deactivateError) {
+            console.error("[scheduled-push-fanout] Deactivate failed:", deactivateError);
+          }
+        }
+        stats.failed += 1;
+      }
+    }
+
+    try {
+      await airtableUpdate(notificationsSentTable(), row.id, {
+        Status: firstStatus || "Skipped",
+        "HTTP Status": firstHttp || 0,
+        Error: firstError || "",
+        "Sent At": new Date().toISOString(),
+        Subscription: subscriptions.map((s) => s.id),
+      });
+    } catch (e) {
+      console.warn("[scheduled-push-fanout] Scheduled row finalise failed:", e);
+    }
+    if (firstStatus !== "Sent") stats.skipped += 1;
+  }
+
+  return stats;
+}
 
 export const config = {
   // Every 5 minutes (Netlify cron is in UTC; minute granularity only).

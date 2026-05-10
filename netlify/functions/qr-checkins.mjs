@@ -32,6 +32,14 @@ const CHECKIN_METHOD_BY_INPUT = {
 
 const VALID_SCAN_TYPES = new Set(["Arrival", "Departure"]);
 
+// Kit reminder window: when a parent scans their child OUT, we schedule a
+// warm "check you haven't left anything behind" reminder for ~5 minutes
+// later — just as the parent is likely walking back to the car. The fanout
+// cron runs every 5 min with a ±5 min tolerance, so a 5-min target gives
+// us a comfortable single-tick send window.
+const KIT_REMINDER_DELAY_MIN = 5;
+const KIND_KIT_REMINDER = "Kit Reminder";
+
 export const handler = async (event) => {
   if (event.httpMethod !== "POST") {
     return json(405, { error: "Method not allowed." });
@@ -218,11 +226,44 @@ export const handler = async (event) => {
   if (paymentResult) fields["Payment Result"] = paymentResult;
   if (notes) fields.Notes = notes;
 
+  let kitReminderScheduled = false;
   try {
     const record = await airtableCreate(
       tableName("AIRTABLE_QR_CHECKINS_TABLE", "QR Check-ins", TABLE_IDS.QR_CHECKINS),
       fields,
     );
+
+    // ---- Step 3: schedule kit reminder on Departure. ----
+    // Best-effort: a failure here MUST NOT fail the scan response. The
+    // parent's primary action (recording the scan-out) has already
+    // succeeded, so we log + continue. The frontend uses the returned
+    // `kitReminder` flag to show the warm in-app banner regardless of
+    // whether the scheduled push row was written.
+    if (scanType === "Departure" && parentId) {
+      try {
+        const sendAt = new Date(Date.now() + KIT_REMINDER_DELAY_MIN * 60_000);
+        const dedupeKey = `kit-reminder:${sessionId}:${parentId}:${playerId}`;
+        await airtableCreate(
+          tableName(
+            "AIRTABLE_NOTIFICATIONS_SENT_TABLE",
+            "Notifications Sent",
+            TABLE_IDS.NOTIFICATIONS_SENT,
+          ),
+          {
+            "Dedupe Key": dedupeKey,
+            Session: [sessionId],
+            Parent: [parentId],
+            Kind: KIND_KIT_REMINDER,
+            Status: "Scheduled",
+            "Scheduled For": sendAt.toISOString(),
+          },
+        );
+        kitReminderScheduled = true;
+      } catch (kitError) {
+        console.warn("[qr-checkins] Kit reminder schedule failed:", kitError);
+      }
+    }
+
     return json(200, {
       ok: true,
       id: record.id,
@@ -232,6 +273,11 @@ export const handler = async (event) => {
       attendanceId,
       existingAttendanceId: existing?.id || null,
       forceConfirm: Boolean(forceConfirm),
+      // Frontend reads this to fire the warm in-app banner immediately on
+      // a Departure scan, regardless of push subscription state. The push
+      // 5 min later is the safety net.
+      kitReminder: scanType === "Departure",
+      kitReminderScheduled,
     });
   } catch (error) {
     console.error("QR check-in create failed:", error);
