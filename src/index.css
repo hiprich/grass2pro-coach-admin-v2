@@ -3044,6 +3044,16 @@
   gap: 6px;
 }
 
+/* Row-level icon-only Print button. Sits next to "Show QR" in the
+   sessions table actions cell. Square, neutral, same outline as
+   .qr-show-button so the two read as a pair without the icon-only
+   variant looking like an afterthought. */
+.qr-print-button {
+  padding: 6px;
+  width: 32px;
+  justify-content: center;
+}
+
 /* ----- Pitchside QR print stylesheet -----
    Coaches print the Arrival/Departure QR onto A4 and prop it on the
    touchline so parents can scan from the car park without the coach's

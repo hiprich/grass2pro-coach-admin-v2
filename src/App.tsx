@@ -2803,11 +2803,22 @@ function PlayerList({
 function SessionQrDialog({
   session,
   onClose,
+  autoPrint = false,
 }: {
   session: Session;
   onClose: () => void;
+  // When true, automatically fire window.print() the first time the QR
+  // finishes rendering. Used by the row-level Print button so coaches can
+  // skip the "open modal \u2192 tap Print" two-step. The dialog stays
+  // mounted after the print dialog closes so a coach can preview, edit
+  // copies, or just dismiss with Done.
+  autoPrint?: boolean;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  // Guards against firing window.print() more than once for the same
+  // dialog open. Without this, a re-render after print() returns could
+  // re-trigger the dialog while the user is still mid-print.
+  const printedRef = useRef(false);
 
   // Compute the deep-link the QR should encode. Order of preference:
   // 1. Whatever the server back-fill wrote into the session (canonical, lives
@@ -2872,6 +2883,24 @@ function SessionQrDialog({
       cancelled = true;
     };
   }, [scanUrl]);
+
+  // Auto-print: after the QR has fully rendered, fire window.print() once.
+  // Lives in its own effect (rather than inside the QR render effect) so a
+  // failed render doesn't prevent the user from seeing the error state
+  // before any print attempt. We fire on the next animation frame so the
+  // browser has a chance to paint the canvas before the print snapshot \u2014
+  // some browsers snapshot synchronously and would otherwise capture an
+  // empty canvas.
+  useEffect(() => {
+    if (!autoPrint) return;
+    if (renderState !== "ready") return;
+    if (printedRef.current) return;
+    printedRef.current = true;
+    const id = window.requestAnimationFrame(() => {
+      window.print();
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [autoPrint, renderState]);
 
   // Escape closes the dialog — matches the existing modal convention.
   useEffect(() => {
@@ -4075,6 +4104,10 @@ function Sessions({
   // Pitchside fullscreen QR (Phase A2). Holds the session whose parent-scan QR
   // is currently being shown on the coach's phone screen. null = no QR open.
   const [qrSession, setQrSession] = useState<Session | null>(null);
+  // Separate state from qrSession so the row-level Print button can mount
+  // the dialog with autoPrint=true without affecting the regular Show QR
+  // flow. Only one of the two is ever set at a time.
+  const [qrPrintSession, setQrPrintSession] = useState<Session | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   // Editable row — click anywhere on the session name cell opens this modal.
   const [editTarget, setEditTarget] = useState<Session | null>(null);
@@ -4370,16 +4403,32 @@ function Sessions({
                           {(phaseOf(session) === "arrival" ||
                             phaseOf(session) === "departure") &&
                             session.scanToken ? (
-                            <button
-                              type="button"
-                              className="qr-show-button"
-                              onClick={() => setQrSession(session)}
-                              data-testid={`button-show-qr-${session.id}`}
-                              aria-label={`Show parent scan QR for ${session.name}`}
-                            >
-                              <Maximize2 size={16} aria-hidden="true" />
-                              <span>Show QR</span>
-                            </button>
+                            <>
+                              <button
+                                type="button"
+                                className="qr-show-button"
+                                onClick={() => setQrSession(session)}
+                                data-testid={`button-show-qr-${session.id}`}
+                                aria-label={`Show parent scan QR for ${session.name}`}
+                              >
+                                <Maximize2 size={16} aria-hidden="true" />
+                                <span>Show QR</span>
+                              </button>
+                              {/* Row-level Print: opens the QR dialog and fires
+                                  window.print() automatically once the canvas
+                                  has rendered. Saves coaches the open\u2192tap
+                                  two-step on busy Saturday mornings. */}
+                              <button
+                                type="button"
+                                className="qr-show-button qr-print-button"
+                                onClick={() => setQrPrintSession(session)}
+                                data-testid={`button-print-qr-${session.id}`}
+                                aria-label={`Print parent scan QR for ${session.name}`}
+                                title="Print QR"
+                              >
+                                <Printer size={16} aria-hidden="true" />
+                              </button>
+                            </>
                           ) : null}
                           {/* Cancel only makes sense before the session has
                               officially ended — once we're in the departure
@@ -4442,6 +4491,13 @@ function Sessions({
         <SessionQrDialog
           session={qrSession}
           onClose={() => setQrSession(null)}
+        />
+      )}
+      {qrPrintSession && (
+        <SessionQrDialog
+          session={qrPrintSession}
+          onClose={() => setQrPrintSession(null)}
+          autoPrint
         />
       )}
       {cancelTarget && (
