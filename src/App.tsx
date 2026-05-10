@@ -34,7 +34,7 @@ import {
   Video,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { PushCapability, PushSubscriptionRow } from "./lib/pushClient";
 import CoachLandingPage, { CoachNotFoundPage } from "./CoachLandingPage";
@@ -2827,6 +2827,12 @@ function SessionQrDialog({
   //   2. <img> is a plain static bitmap; the print pipeline always sees it.
   // Updated alongside renderState so it stays in sync with the canvas.
   const [printDataUrl, setPrintDataUrl] = useState<string>("");
+  // Ref to the print-only <img>. We need this so we can await img.decode()
+  // before calling window.print() — without that, Safari can fire print
+  // while the freshly-mounted base64 <img> is still decoding, and the
+  // print engine snapshots an empty image element. (This was the actual
+  // root cause of the user's blank preview.)
+  const printImgRef = useRef<HTMLImageElement | null>(null);
 
   // Compute the deep-link the QR should encode. Order of preference:
   // 1. Whatever the server back-fill wrote into the session (canonical, lives
@@ -2906,27 +2912,65 @@ function SessionQrDialog({
     };
   }, [scanUrl]);
 
+  // Centralised print trigger. Used by both the modal Print button and the
+  // autoPrint effect. The order of operations matters:
+  //   1. Ensure we have a PNG data URL. If state hasn't propagated yet,
+  //      fall back to snapshotting the canvas directly. This protects the
+  //      modal Print button against being clicked before React has
+  //      flushed the state-driven re-render that mounts the <img>.
+  //   2. Await img.decode() so Safari (which is the browser that hit the
+  //      blank preview bug) has the bitmap fully decoded before it
+  //      snapshots the page for print.
+  //   3. Fire window.print() on the next frame so layout is settled.
+  // If anything fails we still fire print so the user gets *something*
+  // rather than a silent no-op \u2014 better than a dead button.
+  const triggerPrint = useCallback(async () => {
+    if (typeof window === "undefined") return;
+    try {
+      const img = printImgRef.current;
+      if (img && img.src) {
+        // decode() resolves once the bitmap is fully decoded and ready to
+        // paint. complete && naturalWidth>0 is a fast-path for already-
+        // decoded images so we don't await unnecessarily.
+        if (!(img.complete && img.naturalWidth > 0)) {
+          await img.decode().catch(() => {});
+        }
+      } else if (canvasRef.current) {
+        // Fallback: state hasn't flushed yet but the canvas has a bitmap.
+        // Snapshot synchronously and wait one frame for React to mount
+        // the <img> with the new src.
+        try {
+          const url = canvasRef.current.toDataURL("image/png");
+          setPrintDataUrl(url);
+          await new Promise((r) => window.requestAnimationFrame(() => r(null)));
+          await new Promise((r) => window.requestAnimationFrame(() => r(null)));
+          const reImg = printImgRef.current;
+          if (reImg && !(reImg.complete && reImg.naturalWidth > 0)) {
+            await reImg.decode().catch(() => {});
+          }
+        } catch (snapErr) {
+          console.warn("QR print fallback snapshot failed:", snapErr);
+        }
+      }
+    } catch (err) {
+      console.warn("QR print pre-flight failed, printing anyway:", err);
+    }
+    window.print();
+  }, []);
+
   // Auto-print: after the QR has fully rendered, fire window.print() once.
   // Lives in its own effect (rather than inside the QR render effect) so a
   // failed render doesn't prevent the user from seeing the error state
-  // before any print attempt. We fire on the next animation frame so the
-  // browser has a chance to paint the canvas before the print snapshot \u2014
-  // some browsers snapshot synchronously and would otherwise capture an
-  // empty canvas.
+  // before any print attempt.
   useEffect(() => {
     if (!autoPrint) return;
     if (renderState !== "ready") return;
     // Wait for the print-only <img> data URL to land before firing print.
-    // Without this gate the auto-print path could fire before the snapshot
-    // exists and produce a blank page.
     if (!printDataUrl) return;
     if (printedRef.current) return;
     printedRef.current = true;
-    const id = window.requestAnimationFrame(() => {
-      window.print();
-    });
-    return () => window.cancelAnimationFrame(id);
-  }, [autoPrint, renderState, printDataUrl]);
+    void triggerPrint();
+  }, [autoPrint, renderState, printDataUrl, triggerPrint]);
 
   // Escape closes the dialog — matches the existing modal convention.
   useEffect(() => {
@@ -2995,6 +3039,7 @@ function SessionQrDialog({
                     unit. */}
                 {printDataUrl ? (
                   <img
+                    ref={printImgRef}
                     src={printDataUrl}
                     alt=""
                     className="qr-fullscreen-print-img"
@@ -3024,13 +3069,12 @@ function SessionQrDialog({
               type="button"
               className="filter-button qr-fullscreen-print"
               onClick={() => {
-                // Browser print dialog. The print stylesheet (see index.css
-                // "@media print") hides the rest of the app and shows only
-                // the .qr-fullscreen-card so coaches can prop a clean A4
-                // printout on the touchline. Triggering print on a closed
-                // dialog wouldn't render anything, so we gate this on the
-                // QR being fully rendered.
-                if (typeof window !== "undefined") window.print();
+                // Browser print dialog. triggerPrint awaits image decode
+                // and falls back to snapshotting the canvas if state
+                // hasn't propagated yet \u2014 this guards Safari against
+                // the blank-preview bug where window.print() fires while
+                // the print <img> is still decoding the base64 src.
+                void triggerPrint();
               }}
               data-testid="button-qr-fullscreen-print"
               aria-label="Print QR for pitchside use"
