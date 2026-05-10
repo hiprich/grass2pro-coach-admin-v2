@@ -5894,6 +5894,11 @@ function ConsentForm({ initialParentEmail }: { initialParentEmail?: string } = {
                   <option value="U11">U11</option>
                   <option value="U12">U12</option>
                   <option value="U13">U13</option>
+                  <option value="U14">U14</option>
+                  <option value="U15">U15</option>
+                  <option value="U16">U16</option>
+                  <option value="U17">U17</option>
+                  <option value="U18">U18</option>
                 </select>
               </label>
               <label className="form-field">
