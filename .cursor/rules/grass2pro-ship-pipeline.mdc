@@ -1,0 +1,28 @@
+---
+description: Ship pipeline — GitHub, Airtable schema handoff, Netlify deploy
+alwaysApply: true
+---
+
+# Grass2Pro coach admin — how we ship
+
+## GitHub
+
+- After material changes: run `npm run lint` and `npm run build`; fix failures before commit.
+- Commit with clear messages; push to **`main`** unless the user names another branch.
+- Prefer small, focused commits. Do not push secrets; Airtable tokens and API keys stay server-side (Netlify env, Worker secrets, never `VITE_` for secrets).
+
+## Airtable
+
+- The agent does **not** assume dashboard or API access to Airtable.
+- When schema is needed: output a concise checklist — **table name**, **field name**, **type** (and links/lookup if relevant). The user creates or adjusts tables in Airtable.
+- Align names with `README.md`, `.env.example`, and `netlify/functions` / `worker/` as the source of truth.
+
+## Netlify
+
+- Primary deploy path: **push to GitHub** so Netlify’s Git-connected site builds (matches `netlify.toml`: `npm run build`, publish `dist`).
+- If Netlify CLI is installed and linked: `netlify deploy --prod --dir=dist` is acceptable when the user wants a CLI deploy.
+- If CLI is missing or not authenticated: give **short** manual steps (Site → Deploys / env vars / domain), not long essays.
+
+## When blocked
+
+- Say exactly what is blocking (missing env, no CLI, needs UI) and the **minimal** next step for the user — no filler.
