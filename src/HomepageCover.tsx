@@ -275,6 +275,10 @@ export default function HomepageCover() {
             <a href="/coach" className="homepage-coach-signin-link">
               Sign in to your dashboard
             </a>
+            {" · "}
+            <a href="/coach-registration" className="homepage-coach-signin-link" data-testid="link-register-coach-inline">
+              Register as a coach
+            </a>
           </p>
         </div>
       </section>
