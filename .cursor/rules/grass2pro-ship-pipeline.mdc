@@ -7,9 +7,15 @@ alwaysApply: true
 
 ## GitHub
 
-- After material changes: run `npm run lint` and `npm run build`; fix failures before commit.
-- Commit with clear messages; push to **`main`** unless the user names another branch.
-- Prefer small, focused commits. Do not push secrets; Airtable tokens and API keys stay server-side (Netlify env, Worker secrets, never `VITE_` for secrets).
+- **Do not push directly to `main`** unless the user explicitly asks for a hotfix or direct push (e.g. emergency).
+- Ship material work via **pull request merged on GitHub**:
+  1. `git checkout -b feat/<short-topic>` (or `fix/…`).
+  2. Commit with clear messages; run `npm run lint` and `npm run build` before commit where relevant.
+  3. `git push -u origin <branch>` then open and merge the PR (`gh pr create` + `gh pr merge` when available, otherwise give the Compare URL).
+- Prefer squash merge on GitHub for a tidy history unless the repo standard says otherwise.
+- Do not push secrets; Airtable tokens and API keys stay server-side (Netlify env, Worker secrets, never `VITE_` for secrets).
+
+**Enforcement (optional):** In GitHub → repo **Settings → Branches** → add a rule on `main`: require a PR before merging, disallow force-push. That prevents accidental direct pushes regardless of tooling.
 
 ## Airtable
 
