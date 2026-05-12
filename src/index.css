@@ -6347,7 +6347,11 @@ a.homepage-brand-linked:focus-visible {
   /* Flip 175° (not full 180°) so a sliver stays visible at the left
      edge — reads as 'an open book' rather than 'cover vanished'. */
   transform: rotateY(-175deg);
-  pointer-events: auto;
+  /* Critical: closed cover catches taps — open cover must NOT sit as a full-
+     viewport hit-target or wheel/touch scroll never reaches `#coaches` / the
+     page below (shows up loudly in local dev against production). Closing is
+     handled by taps on `.homepage-hero-page2` (+ links/CTAs) instead. */
+  pointer-events: none;
   box-shadow:
     -40px 30px 80px rgba(0, 0, 0, 0.55),
     -10px 0 30px rgba(0, 0, 0, 0.35);

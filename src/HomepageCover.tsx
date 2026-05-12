@@ -14,7 +14,7 @@
 // matches /home (case-insensitive). The current admin dashboard stays at
 // "/" so existing bookmarks keep working.
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useLayoutEffect, useState, useCallback } from "react";
 import { getCoachProfile } from "./coachProfiles";
 
 // Marketing benefit cards. Each one is a single-sentence promise, written
@@ -63,7 +63,15 @@ export default function HomepageCover() {
   // / For-coaches sections behind it. Tapping the (now-open) cover
   // again flips it closed. While closed we lock body scroll so the
   // visitor can't scroll past without engaging — the flip IS the entry.
-  const [isOpen, setIsOpen] = useState(false);
+  //
+  // Deeplinks `#coaches` / `#parents` must open automatically: scroll stays
+  // locked until `isOpen`, and the flipped cover previously blocked scroll even
+  // when open (fixed full-screen layer + pointer-events).
+  const [isOpen, setIsOpen] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const slug = window.location.hash.replace(/^#/, "").toLowerCase();
+    return slug === "coaches" || slug === "parents";
+  });
 
   useEffect(() => {
     const previous = document.documentElement.dataset.surface;
@@ -108,6 +116,34 @@ export default function HomepageCover() {
       body.style.overflow = prevBodyOverflow;
       body.style.position = prevBodyPosition;
       body.style.width = prevBodyWidth;
+    };
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    function onHashChange() {
+      const slug = window.location.hash.replace(/^#/, "").toLowerCase();
+      if (slug === "coaches" || slug === "parents") setIsOpen(true);
+    }
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!isOpen || typeof window === "undefined") return;
+    const slug = window.location.hash.replace(/^#/, "").toLowerCase();
+    if (slug !== "coaches" && slug !== "parents") return;
+    const el = document.getElementById(slug);
+    if (!el) return;
+    const snap = () => {
+      el.scrollIntoView({ block: "start", behavior: "auto" });
+    };
+    snap();
+    const a = window.setTimeout(snap, 120);
+    const b = window.setTimeout(snap, 600);
+    return () => {
+      window.clearTimeout(a);
+      window.clearTimeout(b);
     };
   }, [isOpen]);
 
@@ -274,6 +310,10 @@ export default function HomepageCover() {
             Coach with Grass2Pro?{" "}
             <a href="/coach" className="homepage-coach-signin-link">
               Sign in to your dashboard
+            </a>
+            {" · "}
+            <a href="/coach-registration" className="homepage-coach-signin-link" data-testid="link-register-coach-inline">
+              Register as a coach
             </a>
           </p>
         </div>
