@@ -270,6 +270,12 @@ export default function HomepageCover() {
               Find a coach
             </a>
           </div>
+          <p className="homepage-coach-signin-note">
+            Coach with Grass2Pro?{" "}
+            <a href="/coach" className="homepage-coach-signin-link">
+              Sign in to your dashboard
+            </a>
+          </p>
         </div>
       </section>
 
@@ -298,6 +304,25 @@ export default function HomepageCover() {
             </li>
           ))}
         </ul>
+
+        <div className="homepage-coach-register-spotlight">
+          <div className="homepage-coach-register-card">
+            <span className="homepage-coach-register-chip">Coach onboarding</span>
+            <p className="homepage-coach-register-intro">
+              New to Grass2Pro? Register to unlock Logo Studio — the same watermark tool{' '}
+              live coaches use for their WhatsApp-ready brand lockup — then explore your page.
+            </p>
+            <div className="homepage-cta-row">
+              <a
+                href="/coach-registration"
+                className="homepage-cta homepage-cta-primary"
+                data-testid="cta-coach-registration"
+              >
+                Register as a coach
+              </a>
+            </div>
+          </div>
+        </div>
 
         {/* Featured coach — Hope is the launch coach, so we surface his
             page directly here as a proof point. Future iterations will

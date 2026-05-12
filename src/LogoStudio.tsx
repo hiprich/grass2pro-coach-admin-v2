@@ -12,9 +12,9 @@
 //   - Copy JSON config (for paste-handoff into a coach's profile until
 //     Phase G lands a proper save-to-Airtable flow)
 //
-// Auth: surface mounts at /admin/logo-studio. Same auth posture as
-// /admin (none yet — pending Phase G magic-link), so don't surface this
-// publicly until Phase G ships.
+// Auth: mounts at `/admin/logo-studio`. When Airtable is live, `/admin` APIs
+// require the coach magic-link cookie — unauthenticated visits redirect to
+// `/coach` (see bootstrap effect).
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ExternalLink } from "lucide-react";
@@ -25,6 +25,7 @@ import type {
 } from "./partnerLogo";
 import { buildPartnerLogo } from "./partnerLogo";
 import ColourPopover from "./ColourPopover";
+import { hasCoachRegistrationLogoAccess } from "./lib/coachRegistrationLogoGate";
 
 // Outline thickness presets. Width is in viewBox units; the mark is ~38u
 // across so 0/1.5/3 reads as none/thin/thick crest border. Three buttons
@@ -308,6 +309,33 @@ export default function LogoStudio() {
       return "";
     }
   });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    let cancelled = false;
+    const apiBaseLocal = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
+    const statusUrl = apiBaseLocal
+      ? `${apiBaseLocal}/coach-auth-status`
+      : `/.netlify/functions/coach-auth-status`;
+
+    fetch(statusUrl, { credentials: "include" })
+      .then((response) => {
+        if (cancelled) return;
+        if (response.status === 401 || response.status === 403) {
+          // Coaches who landed on `/coach-registration` unlock Logo Studio without a session cookie.
+          if (hasCoachRegistrationLogoAccess()) return;
+          const next = `${window.location.pathname}${window.location.search}`;
+          window.location.replace(`/coach?next=${encodeURIComponent(next)}`);
+        }
+      })
+      .catch(() => {
+        /* stay on page — Logo Studio previews still render */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const [exportError, setExportError] = useState<string | null>(null);
   const previewRef = useRef<HTMLDivElement | null>(null);
 
@@ -712,6 +740,7 @@ export default function LogoStudio() {
       const response = await fetch("/api/coach-partner-update", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           adminCode,
           partner: buildPartnerConfigPayload(),

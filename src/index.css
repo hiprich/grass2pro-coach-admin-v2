@@ -5822,6 +5822,17 @@ html[data-surface="homepage"] body {
   letter-spacing: -0.01em;
   color: #f3f5ee;
 }
+a.homepage-brand-linked {
+  text-decoration: none;
+  color: inherit;
+}
+a.homepage-brand-linked:focus-visible {
+  outline: none;
+  border-radius: 12px;
+  box-shadow:
+    0 0 0 3px #0b0d0a,
+    0 0 0 5px #c9e970;
+}
 
 /* Hero — split layout. Photo lives behind a lime-tinted gradient that
    keeps text legible on top regardless of the underlying image. The
@@ -5934,6 +5945,21 @@ html[data-surface="homepage"] body {
   }
 }
 
+.homepage-coach-signin-note {
+  margin: 18px 0 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #cdd2c4;
+}
+.homepage-coach-signin-link {
+  color: #c9e970;
+  font-weight: 600;
+  text-decoration: none;
+}
+.homepage-coach-signin-link:hover {
+  text-decoration: underline;
+}
+
 /* Benefits — three-up grid. Cards lift on hover with a lime border so
    the page rewards exploration. The "alt" variant tints the section
    background slightly to separate parents vs coaches without a hard
@@ -6001,6 +6027,89 @@ html[data-surface="homepage"] body {
   .homepage-benefit-card:hover {
     transform: none;
   }
+}
+
+/* Coach registration spotlight (For coaches section) — bordered card with a lime
+   pill matching `homepage-cta-primary`; sits immediately above Featured coach. */
+.homepage-coach-register-spotlight {
+  margin-top: 36px;
+}
+.homepage-coach-register-card {
+  background: #11150e;
+  border: 1px solid #2a2f24;
+  border-radius: 14px;
+  padding: 24px 24px 26px;
+  transition: transform 220ms ease, border-color 220ms ease, box-shadow 220ms ease;
+  will-change: transform;
+}
+.homepage-coach-register-card:hover {
+  transform: translateY(-3px);
+  border-color: #c9e970;
+  box-shadow: 0 10px 26px rgba(201, 233, 112, 0.12);
+}
+@media (prefers-reduced-motion: reduce) {
+  .homepage-coach-register-card:hover {
+    transform: none;
+  }
+}
+.homepage-coach-register-chip {
+  display: inline-block;
+  margin: 0 0 14px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(201, 233, 112, 0.45);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #c9e970;
+}
+.homepage-coach-register-intro {
+  margin: 0 0 20px;
+  max-width: 620px;
+  font-size: clamp(1rem, 0.94rem + 0.35vw, 1.08rem);
+  line-height: 1.55;
+  color: #cdd2c4;
+}
+
+.coach-registration-page .coach-registration-main {
+  box-sizing: border-box;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 32px 32px 80px;
+}
+.coach-registration-title {
+  margin: 14px 0 18px;
+  font-size: clamp(2rem, 1.5rem + 2vw, 2.85rem);
+  font-weight: 800;
+  line-height: 1.06;
+  letter-spacing: -0.02em;
+  color: #ffffff;
+}
+.coach-registration-lead {
+  margin: 0 0 22px;
+  font-size: clamp(1rem, 0.92rem + 0.4vw, 1.12rem);
+  line-height: 1.55;
+  color: #cdd2c4;
+}
+.coach-registration-list {
+  margin: 0 0 28px;
+  padding-left: 1.35rem;
+  font-size: 1rem;
+  line-height: 1.55;
+  color: #cdd2c4;
+}
+.coach-registration-list li + li {
+  margin-top: 8px;
+}
+.coach-registration-actions {
+  margin-bottom: 28px;
+}
+.coach-registration-footnote {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: #8a9078;
 }
 
 /* Featured coach — single anchor card, rich hover. Sits inside the

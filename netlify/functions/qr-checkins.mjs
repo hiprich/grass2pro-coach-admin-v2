@@ -9,6 +9,8 @@ import {
   normaliseAttendance,
   tableName,
 } from "./_airtable.mjs";
+import { gateCoachDashboard } from "./_coach-gate.mjs";
+import { readSessionFromEvent } from "./_parent-session.mjs";
 
 // QR Check-ins endpoint.
 //
@@ -43,6 +45,14 @@ const KIND_KIT_REMINDER = "Kit Reminder";
 export const handler = async (event) => {
   if (event.httpMethod !== "POST") {
     return json(405, { error: "Method not allowed." });
+  }
+
+  if (hasAirtableConfig()) {
+    const coachGate = gateCoachDashboard(event, json);
+    const parentSession = readSessionFromEvent(event);
+    if (!coachGate.ok && !parentSession) {
+      return coachGate.response;
+    }
   }
 
   let payload;

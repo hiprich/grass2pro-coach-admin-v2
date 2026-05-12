@@ -1,6 +1,10 @@
 import { listAttendance, json, hasAirtableConfig } from "./_airtable.mjs";
+import { gateCoachDashboard } from "./_coach-gate.mjs";
 
 export const handler = async (event) => {
+  const gate = gateCoachDashboard(event, json);
+  if (!gate.ok) return gate.response;
+
   if (event.httpMethod !== "GET") {
     return json(405, { error: "Method not allowed." });
   }

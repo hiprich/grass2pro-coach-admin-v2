@@ -455,6 +455,45 @@ export async function getCoachAndPlayers() {
   };
 }
 
+/** Look up a Coaches row whose Email equals the normalised inbox (case-insensitive). */
+export async function findCoachRecordByNormalisedEmail(normalisedEmail) {
+  if (!hasAirtableConfig()) return null;
+  const coachesTable = tableName("AIRTABLE_COACHES_TABLE", "Coaches", TABLE_IDS.COACHES);
+  const formula = `LOWER(TRIM({Email}))='${escapeFormulaString(normalisedEmail)}'`;
+  const records = await airtableList(coachesTable, {
+    filterByFormula: formula,
+    maxRecords: "1",
+  });
+  return records[0] || null;
+}
+
+/**
+ * Load the dashboard payload scoped to whichever coach authenticated — must
+ * match a Coaches.Email field identical to parent magic-link casing rules.
+ */
+export async function getCoachDashboardDataForSessionEmail(normalisedEmail) {
+  if (!hasAirtableConfig()) return demoData;
+
+  const coachRecord = await findCoachRecordByNormalisedEmail(normalisedEmail);
+  if (!coachRecord) {
+    const err = new Error("coach_not_found");
+    err.code = "COACH_NOT_FOUND";
+    throw err;
+  }
+
+  const coach = normaliseCoach(coachRecord);
+  const playersTable = tableName("AIRTABLE_PLAYERS_TABLE", "Players", TABLE_IDS.PLAYERS);
+  const playerRecords = await airtableList(playersTable, { pageSize: "100" });
+  const players = playerRecords.map(normalisePlayer);
+
+  return {
+    coach,
+    players,
+    sidebar: buildSidebar(players),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 // ---------- Sessions / Attendance / QR Check-ins ----------
 
 export async function airtableGet(table, recordId) {

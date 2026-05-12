@@ -84,21 +84,28 @@ export function hashToken(raw) {
   return crypto.createHash("sha256").update(String(raw)).digest("hex");
 }
 
-export async function storeMagicLinkToken({ email, hash, expiresAtIso }) {
+export async function storeMagicLinkToken({ email, hash, expiresAtIso, audience = "parent" }) {
   if (!hasAirtableConfig()) return null;
-  return airtableCreate(authTokensTable(), {
+  const fields = {
     "Token Hash": hash,
     Email: email,
     Expires: expiresAtIso,
     Used: false,
-  });
+  };
+  // Coaches use the same Auth Tokens rows with Audience = coach (requires the
+  // Audience field on that table — see README).Parents omit the field entirely
+  // so legacy rows remain valid consumption targets.
+  if (audience === "coach") {
+    fields.Audience = "coach";
+  }
+  return airtableCreate(authTokensTable(), fields);
 }
 
 // Find an unused, unexpired auth-token row that matches the supplied raw
 // token. We scan the recent set rather than filterByFormula on the hash
 // column because Airtable's formula engine doesn't expose hashing — and
 // the table is small (one row per sign-in attempt, expiring every 15 mins).
-export async function consumeMagicLinkToken({ email, rawToken }) {
+export async function consumeMagicLinkToken({ email, rawToken, audience = "parent" }) {
   if (!hasAirtableConfig()) return null;
   const hash = hashToken(rawToken);
   const records = await airtableList(authTokensTable(), {
@@ -110,6 +117,11 @@ export async function consumeMagicLinkToken({ email, rawToken }) {
   const now = Date.now();
   const match = records.find((record) => {
     const fields = record?.fields || {};
+    const audienceField = String(fields.Audience || "")
+      .trim()
+      .toLowerCase();
+    if (audience === "parent" && audienceField === "coach") return false;
+    if (audience === "coach" && audienceField !== "coach") return false;
     const recordHash = String(fields["Token Hash"] || "");
     if (recordHash !== hash) return false;
     if (normaliseEmail(fields.Email) !== targetEmail) return false;

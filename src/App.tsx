@@ -39,6 +39,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { PushCapability, PushSubscriptionRow } from "./lib/pushClient";
 import CoachLandingPage, { CoachNotFoundPage } from "./CoachLandingPage";
+import CoachRegistrationPage from "./CoachRegistrationPage";
 import HomepageCover from "./HomepageCover";
 import LogoStudio from "./LogoStudio";
 import { getCoachProfile } from "./coachProfiles";
@@ -745,6 +746,16 @@ function apiPath(path: string) {
 // the network call entirely.
 const apiAvailable = Boolean(apiBase) || typeof window !== "undefined";
 
+class CoachAuthRequiredError extends Error {
+  constructor() {
+    super("Coach sign-in required");
+    this.name = "CoachAuthRequiredError";
+  }
+}
+
+/** Sends the HttpOnly coach session cookie on Netlify (and cross-origin API bases). */
+const coachSessionFetchInit: RequestInit = { credentials: "include" };
+
 // Canonical navigation order. The frontend always renders these tabs so that
 // missing or trimmed-down `sidebar` payloads from the backend never remove
 // operational pages (Sessions, Attendance, Payments) the coach needs to use.
@@ -807,7 +818,10 @@ async function loadAdminData(): Promise<AdminData> {
   if (!apiAvailable) return demoData;
 
   try {
-    const response = await fetch(apiPath("/admin-data"));
+    const response = await fetch(apiPath("/admin-data"), coachSessionFetchInit);
+    if (response.status === 401 || response.status === 403) {
+      throw new CoachAuthRequiredError();
+    }
     if (!response.ok) throw new Error("Admin data unavailable");
     const payload = (await response.json()) as Partial<AdminData> & { warning?: string };
     // The admin-data endpoint reports its own demo-fallback by attaching a
@@ -832,8 +846,8 @@ async function loadAdminData(): Promise<AdminData> {
     // endpoints are kept in lockstep with Airtable. Each lookup fails soft:
     // a network error or non-OK response leaves whatever admin-data provided.
     const [sessionsRes, attendanceRes] = await Promise.all([
-      fetch(apiPath("/sessions?scope=all")).catch(() => null),
-      fetch(apiPath("/attendance")).catch(() => null),
+      fetch(apiPath("/sessions?scope=all"), coachSessionFetchInit).catch(() => null),
+      fetch(apiPath("/attendance"), coachSessionFetchInit).catch(() => null),
     ]);
 
     if (sessionsRes && sessionsRes.ok) {
@@ -871,7 +885,8 @@ async function loadAdminData(): Promise<AdminData> {
       serverSidebar: payload.sidebar,
     });
     return base;
-  } catch {
+  } catch (e) {
+    if (e instanceof CoachAuthRequiredError) throw e;
     return demoData;
   }
 }
@@ -883,7 +898,7 @@ async function loadAdminData(): Promise<AdminData> {
 async function loadAttendance(): Promise<AttendanceRecord[] | null> {
   if (!apiAvailable) return null;
   try {
-    const response = await fetch(apiPath("/attendance"));
+    const response = await fetch(apiPath("/attendance"), coachSessionFetchInit);
     if (!response.ok) return null;
     const body = (await response.json()) as { attendance?: AttendanceRecord[]; warning?: string };
     if (Array.isArray(body.attendance) && !body.warning) return body.attendance;
@@ -904,6 +919,7 @@ async function markCollected(sessionId: string, playerId: string): Promise<void>
   const response = await fetch(apiPath("/coach-mark-collected"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify({ sessionId, playerId }),
   });
   if (!response.ok) {
@@ -925,6 +941,7 @@ async function patchPlayerAction<T = { player: Player }>(payload: Record<string,
   const response = await fetch(apiPath("/players"), {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify(payload),
   });
   if (!response.ok) {
@@ -1014,6 +1031,7 @@ async function submitQrCheckin(payload: {
   const response = await fetch(apiPath("/qr-checkins"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body,
   });
   const json = (await response.json().catch(() => ({}))) as Record<string, unknown>;
@@ -1067,6 +1085,7 @@ async function rescheduleSessionRequest(payload: {
     {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
+      credentials: "include",
       // Explicitly tag the op so the backend routes to handleReschedule even
       // after the edit op was added — belt-and-braces over the legacy default.
       body: JSON.stringify({ ...body, op: "reschedule" }),
@@ -1105,6 +1124,7 @@ async function cancelSessionRequest(payload: {
     {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify(body),
     },
   );
@@ -1151,6 +1171,7 @@ async function editSessionRequest(payload: {
     {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify({ ...rest, op: "edit" }),
     },
   );
@@ -1194,6 +1215,7 @@ async function createSessionRequest(payload: {
   const response = await fetch(apiPath("/sessions"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify(payload),
   });
   const json = (await response.json().catch(() => ({}))) as Record<string, unknown>;
@@ -6217,6 +6239,259 @@ function LoadingState() {
 }
 
 // ---------------------------------------------------------------------------
+// Coach sign-in (/coach) — magic link to HttpOnly coach session cookie
+// ---------------------------------------------------------------------------
+
+function shouldRenderCoachPortal(): boolean {
+  if (typeof window === "undefined") return false;
+  return /^\/coach(\/|\?|$)/i.test(window.location.pathname + window.location.search);
+}
+
+function readCoachMagicLinkQuery(): { email: string; token: string; next: string } {
+  if (typeof window === "undefined") return { email: "", token: "", next: "" };
+  const params = new URLSearchParams(window.location.search);
+  return {
+    email: (params.get("email") || "").trim(),
+    token: (params.get("token") || "").trim(),
+    next: (params.get("next") || "").trim(),
+  };
+}
+
+function clearCoachMagicLinkQuery() {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  url.search = "";
+  window.history.replaceState({}, "", url.toString());
+}
+
+function sanitiseCoachNext(next: string): string {
+  if (!next || !next.startsWith("/") || next.startsWith("//")) return "";
+  if (!/^\/admin(\/|$)/i.test(next)) return "";
+  return next;
+}
+
+async function postCoachAuth(action: string, body: Record<string, unknown> = {}) {
+  const response = await fetch(apiPath("/coach-auth"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ action, ...body }),
+  });
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+  return { ok: response.ok, status: response.status, payload };
+}
+
+type CoachPortalView = "sign-in" | "check-email" | "verifying" | "verify-error";
+
+function CoachPortal() {
+  const [view, setView] = useState<CoachPortalView>(() => {
+    const { token, email } = readCoachMagicLinkQuery();
+    return token && email ? "verifying" : "sign-in";
+  });
+  const [signInStatus, setSignInStatus] = useState<"idle" | "submitting">("idle");
+  const [signInError, setSignInError] = useState("");
+  const [lastEmail, setLastEmail] = useState("");
+  const [verifyError, setVerifyError] = useState("");
+  const [emailInput, setEmailInput] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    const { token, email, next } = readCoachMagicLinkQuery();
+
+    async function bootstrap() {
+      if (token && email) {
+        setView("verifying");
+        const result = await postCoachAuth("verify-token", { token, email });
+        if (cancelled) return;
+        if (!result.ok) {
+          clearCoachMagicLinkQuery();
+          const text =
+            result.payload && typeof result.payload === "object" && "error" in result.payload
+              ? String((result.payload as { error?: string }).error)
+              : "Sign-in link is no longer valid.";
+          setVerifyError(text);
+          setView("verify-error");
+          return;
+        }
+        const dest = sanitiseCoachNext(next) || "/admin";
+        clearCoachMagicLinkQuery();
+        window.location.replace(dest);
+        return;
+      }
+
+      if (!apiAvailable) {
+        setView("sign-in");
+        return;
+      }
+
+      try {
+        const probe = await fetch(apiPath("/coach-auth-status"), coachSessionFetchInit);
+        if (cancelled) return;
+        if (probe.ok) {
+          window.location.replace("/admin");
+          return;
+        }
+      } catch {
+        /* show sign-in */
+      }
+      setView("sign-in");
+    }
+
+    void bootstrap();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function requestCoachLink(trimmed: string) {
+    setSignInStatus("submitting");
+    setSignInError("");
+    setLastEmail(trimmed);
+    const result = await postCoachAuth("request-link", { email: trimmed });
+    setSignInStatus("idle");
+    if (!result.ok) {
+      const text =
+        result.payload && typeof result.payload === "object" && "error" in result.payload
+          ? String((result.payload as { error?: string }).error)
+          : "Something went wrong. Please try again.";
+      setSignInError(text);
+      return;
+    }
+    setView("check-email");
+  }
+
+  if (view === "verifying") {
+    return (
+      <div className="portal-shell">
+        <div className="portal-card">
+          <div className="portal-brand">
+            <span className="portal-brand-mark">G2P</span>
+            <div>
+              <div className="portal-brand-kicker">Grass2Pro</div>
+              <div className="portal-brand-title">Coach dashboard</div>
+            </div>
+          </div>
+          <h1 className="portal-heading">Signing you in…</h1>
+          <p className="portal-sub">Verifying your sign-in link.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (view === "verify-error") {
+    return (
+      <div className="portal-shell">
+        <div className="portal-card">
+          <div className="portal-brand">
+            <span className="portal-brand-mark">G2P</span>
+            <div>
+              <div className="portal-brand-kicker">Grass2Pro</div>
+              <div className="portal-brand-title">Coach dashboard</div>
+            </div>
+          </div>
+          <h1 className="portal-heading">Sign-in link expired</h1>
+          <p className="portal-sub">{verifyError || "Please request a fresh link."}</p>
+          <button
+            type="button"
+            className="portal-primary-button"
+            onClick={() => {
+              setVerifyError("");
+              setView("sign-in");
+            }}
+          >
+            Send a new link
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (view === "check-email") {
+    return (
+      <div className="portal-shell">
+        <div className="portal-card">
+          <div className="portal-brand">
+            <span className="portal-brand-mark">G2P</span>
+            <div>
+              <div className="portal-brand-kicker">Grass2Pro</div>
+              <div className="portal-brand-title">Coach dashboard</div>
+            </div>
+          </div>
+          <h1 className="portal-heading">Check your inbox</h1>
+          <p className="portal-sub">
+            If <strong>{lastEmail}</strong> matches your coach profile in Grass2Pro, we&apos;ve sent a
+            sign-in link. It expires in 15 minutes.
+          </p>
+          <button type="button" className="portal-secondary-button" onClick={() => setView("sign-in")}>
+            Use a different email
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="portal-shell">
+      <div className="portal-card">
+        <div className="portal-brand">
+          <span className="portal-brand-mark">G2P</span>
+          <div>
+            <div className="portal-brand-kicker">Grass2Pro</div>
+            <div className="portal-brand-title">Coach sign-in</div>
+          </div>
+        </div>
+        <h1 className="portal-heading">Open your coach dashboard</h1>
+        <p className="portal-sub">
+          Enter the email address on your Grass2Pro coach profile. We&apos;ll send you a one-time link — no password
+          to remember.
+        </p>
+        <form
+          className="portal-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (signInStatus === "submitting") return;
+            const trimmed = emailInput.trim();
+            if (!trimmed) return;
+            void requestCoachLink(trimmed);
+          }}
+        >
+          <label className="form-field">
+            <span>Email address</span>
+            <input
+              type="email"
+              value={emailInput}
+              onChange={(event) => setEmailInput(event.target.value)}
+              placeholder="you@example.com"
+              autoComplete="email"
+              autoFocus
+              required
+            />
+          </label>
+          {signInError ? (
+            <p className="field-error" role="alert">
+              {signInError}
+            </p>
+          ) : (
+            <p className="field-help">Use the same email as your Coaches record in Grass2Pro.</p>
+          )}
+          <button type="submit" className="portal-primary-button" disabled={signInStatus === "submitting"}>
+            {signInStatus === "submitting" ? "Sending…" : "Email me a link"}
+          </button>
+        </form>
+        <p className="portal-footnote">
+          Parent portal: <a href="/portal">/portal</a>
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Parent portal (/portal)
 //
 // A self-contained route used by parents (not coaches) to sign in via magic
@@ -6515,7 +6790,7 @@ function ParentSignInScreen({ onRequestLink, status, error, lastEmail }: {
           </button>
         </form>
         <p className="portal-footnote">
-          Are you a coach? <a href="/admin" data-testid="link-portal-to-coach">Open coach dashboard</a>.
+          Are you a coach? <a href="/coach" data-testid="link-portal-to-coach">Coach sign-in</a>.
         </p>
       </div>
     </div>
@@ -8714,6 +8989,12 @@ function shouldRenderRegister(): boolean {
   return /^\/register(\/|\?|$)/i.test(window.location.pathname + window.location.search);
 }
 
+// `/coach-registration` — onboarding surface that unlocks Logo Studio for prospective coaches.
+function shouldRenderCoachRegistration(): boolean {
+  if (typeof window === "undefined") return false;
+  return /^\/coach-registration(\/|\?|$)/i.test(window.location.pathname + window.location.search);
+}
+
 // `/admin` (case-insensitive, with optional trailing slash or query string)
 // routes through CoachDashboard. The parent-facing homepage now lives at
 // "/", so cold visitors who type grass2pro.com land on the cover, and the
@@ -8764,9 +9045,11 @@ function AppRoot() {
     if (!coach) return <CoachNotFoundPage slug={coachSlug} />;
     return <CoachLandingPage coach={coach} />;
   }
+  if (shouldRenderCoachPortal()) return <CoachPortal />;
   if (shouldRenderParentPortal()) return <ParentPortal />;
   if (shouldRenderScan()) return <ParentScanPage />;
   if (shouldRenderRegister()) return <PublicRegisterPage />;
+  if (shouldRenderCoachRegistration()) return <CoachRegistrationPage />;
   // Specificity: /admin/logo-studio MUST be matched before /admin so the
   // dashboard matcher doesn't swallow the studio route.
   if (shouldRenderLogoStudio()) return <LogoStudio />;
@@ -8790,9 +9073,20 @@ function CoachDashboard() {
 
   useEffect(() => {
     let mounted = true;
-    loadAdminData().then((payload) => {
-      if (mounted) setData(payload);
-    });
+    loadAdminData()
+      .then((payload) => {
+        if (mounted) setData(payload);
+      })
+      .catch((e: unknown) => {
+        if (e instanceof CoachAuthRequiredError) {
+          const next = `${window.location.pathname}${window.location.search}` || "/admin";
+          window.location.replace(`/coach?next=${encodeURIComponent(next)}`);
+          return;
+        }
+        if (!mounted) return;
+        console.warn("[coach-dashboard] Falling back after load error:", e);
+        setData(demoData);
+      });
     return () => {
       mounted = false;
     };

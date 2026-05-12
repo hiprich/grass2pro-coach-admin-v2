@@ -7,6 +7,7 @@ import {
   json,
   hasAirtableConfig,
 } from "./_airtable.mjs";
+import { gateCoachDashboard } from "./_coach-gate.mjs";
 
 // Match yyyy-mm-dd dates and HH:mm times so we can hard-fail on bad input
 // before we touch Airtable. Lenient enough to accept H:mm too (e.g. "9:30").
@@ -28,6 +29,9 @@ const CANCEL_REASONS = new Set([
 const PITCH_TYPES = new Set(["Astro 4G", "Grass"]);
 
 export const handler = async (event) => {
+  const gate = gateCoachDashboard(event, json);
+  if (!gate.ok) return gate.response;
+
   if (event.httpMethod === "GET") return handleList(event);
   if (event.httpMethod === "POST") return handleCreate(event);
   if (event.httpMethod === "PATCH") return handlePatch(event);

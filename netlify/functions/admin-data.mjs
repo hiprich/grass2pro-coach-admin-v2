@@ -2,22 +2,26 @@ import {
   buildSidebar,
   demoData,
   getCoachAndPlayers,
+  getCoachDashboardDataForSessionEmail,
+  hasAirtableConfig,
   json,
   listAttendance,
   listMediaConsents,
   listSessions,
   mergeMediaConsentsIntoPlayers,
 } from "./_airtable.mjs";
+import { gateCoachDashboard } from "./_coach-gate.mjs";
 
-export const handler = async () => {
+export const handler = async (event) => {
+  const gate = gateCoachDashboard(event, json);
+  if (!gate.ok) return gate.response;
+
   try {
-    const base = await getCoachAndPlayers();
+    const base =
+      gate.sessionEmail === null
+        ? await getCoachAndPlayers()
+        : await getCoachDashboardDataForSessionEmail(gate.sessionEmail);
 
-    // Pull live sessions, attendance and the latest Media Consents alongside
-    // the coach/player data so the dashboard can render a single coherent
-    // payload. Each lookup is wrapped independently — if one Airtable table
-    // is unreachable we still return the rest of the live payload rather
-    // than collapsing to demo data.
     const [sessions, attendance, mediaConsents] = await Promise.all([
       listSessions({ scope: "all" }).catch((error) => {
         console.error("admin-data sessions lookup failed:", error);
@@ -33,11 +37,6 @@ export const handler = async () => {
       }),
     ]);
 
-    // The Media Consents form is the source of truth for what permissions a
-    // parent has actually granted. Overlay the latest matching row onto each
-    // player so the Overview mini-cards and the Players page reflect what
-    // was just submitted, without waiting for someone to mirror those flags
-    // onto the Players table by hand.
     const players = mergeMediaConsentsIntoPlayers(base.players, mediaConsents);
 
     return json(200, {
@@ -53,6 +52,12 @@ export const handler = async () => {
     });
   } catch (error) {
     console.error(error);
+    if (!hasAirtableConfig()) {
+      return json(200, { ...demoData, warning: "Airtable unavailable; returned demo data." });
+    }
+    if (error?.code === "COACH_NOT_FOUND") {
+      return json(403, { error: "Your session no longer matches a coach profile. Sign in again." });
+    }
     return json(200, { ...demoData, warning: "Airtable unavailable; returned demo data." });
   }
 };

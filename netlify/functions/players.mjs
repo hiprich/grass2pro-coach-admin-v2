@@ -2,11 +2,13 @@ import {
   TABLE_IDS,
   airtableUpdate,
   getCoachAndPlayers,
+  getCoachDashboardDataForSessionEmail,
   hasAirtableConfig,
   json,
   normalisePlayer,
   tableName,
 } from "./_airtable.mjs";
+import { gateCoachDashboard } from "./_coach-gate.mjs";
 
 // Players API.
 //
@@ -144,11 +146,17 @@ async function handlePatch(event) {
 }
 
 export const handler = async (event) => {
+  const gate = gateCoachDashboard(event, json);
+  if (!gate.ok) return gate.response;
+
   const method = (event.httpMethod || "GET").toUpperCase();
 
   try {
     if (method === "GET") {
-      const data = await getCoachAndPlayers();
+      const data =
+        gate.sessionEmail === null
+          ? await getCoachAndPlayers()
+          : await getCoachDashboardDataForSessionEmail(gate.sessionEmail);
       return json(200, data.players);
     }
     if (method === "PATCH") {
@@ -157,6 +165,9 @@ export const handler = async (event) => {
     return json(405, { error: `Method ${method} not allowed.` });
   } catch (error) {
     console.error(error);
+    if (hasAirtableConfig() && error?.code === "COACH_NOT_FOUND") {
+      return json(403, { error: "Coach record not found for this session." });
+    }
     return json(500, { error: "Unable to update player record." });
   }
 };

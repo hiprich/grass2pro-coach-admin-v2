@@ -18,11 +18,9 @@
 //   - Returns the freshly normalised attendance row so the SPA can splice it
 //     into local state without a full /attendance refresh.
 //
-// Security model: this is the same trust model as the rest of the coach
-// admin (no per-coach auth yet \u2014 the dashboard is gated by the Netlify site
-// being on a private URL). Phase B will add proper coach auth alongside the
-// parent portal one. For now, anyone hitting the dashboard can already do
-// this via Airtable directly.
+// Requires the coach magic-link session cookie minted via coach-auth.mjs once
+// Airtable secrets are wired (otherwise falls back to the historic open demo path).
+import { gateCoachDashboard } from "./_coach-gate.mjs";
 import {
   TABLE_IDS,
   airtableUpdate,
@@ -50,6 +48,9 @@ export const handler = async (event) => {
   if (event.httpMethod !== "POST") {
     return json(405, { error: "Method not allowed." });
   }
+
+  const gate = gateCoachDashboard(event, json);
+  if (!gate.ok) return gate.response;
 
   let payload;
   try {

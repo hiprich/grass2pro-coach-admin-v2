@@ -161,6 +161,13 @@ Written by `POST /qr-checkins`.
 - Notes
 - Attendance Record ID Text — `recXXXX` of the matching Attendance row, or `pending:<sessionId>:<playerId>` for first-ever arrivals; the existing Airtable automation uses this to update Attendance.
 
+### Auth Tokens
+
+Stores SHA-256-hashed magic links for `/portal` and `/coach`:
+
+- Email, Token Hash, Expires (ISO datetime), Used (checkbox).
+- Optional **Audience** (single-line text): set to **`coach`** for minted coach sign-in tokens. Leave blank for parent-portal tokens (legacy rows without this field remain valid for parents).
+
 ### Media Consents
 
 The consent form writes:
@@ -199,6 +206,8 @@ The Cloudflare Worker and the Netlify Functions both expose the same API surface
 | `GET` | `/attendance?sessionId=recXXXX` | Attendance rows, optionally filtered by session |
 | `POST` | `/qr-checkins` | Create a confirmed QR Arrival or Departure scan |
 | `POST` | `/media-consent` | Submit a media consent record |
+| `POST` | `/coach-auth` | Coach magic-link: `request-link`, `verify-token`, `sign-out` |
+| `GET` | `/coach-auth-status` | Returns 200 when the coach cookie is valid |
 
 ### `POST /qr-checkins` request
 
