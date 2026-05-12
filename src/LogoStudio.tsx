@@ -248,12 +248,10 @@ async function svgToPngBlob(
 }
 
 export default function LogoStudio() {
-  // Form state. Defaults seed the studio with Hope's PurePro Elite config
-  // so the first preview is something recognisable rather than a blank
-  // square. Coaches can clear and start over.
-  const [brandName, setBrandName] = useState("PurePro Elite");
+  // Form starts empty so coaches get a neutral canvas — no club looked "pre-selected".
+  const [brandName, setBrandName] = useState("");
   const [monogramOverride, setMonogramOverride] = useState("");
-  const [tagline, setTagline] = useState("Talent Pathway");
+  const [tagline, setTagline] = useState("");
   const [accent, setAccent] = useState(ACCENT_PRESETS[0].value);
   const [customHex, setCustomHex] = useState("");
   // When a gradient preset is selected, it takes precedence over the
@@ -614,7 +612,7 @@ export default function LogoStudio() {
   // Build the SVG once per render. Pure function, cheap.
   const config: PartnerLogoConfig = useMemo(() => {
     const cfg: PartnerLogoConfig = {
-      brandName: brandName.trim() || "Your Brand",
+      brandName: brandName.trim(),
       style,
       shape,
       accent: resolvedAccent,
@@ -844,7 +842,9 @@ export default function LogoStudio() {
                 type="text"
                 value={brandName}
                 onChange={(e) => setBrandName(e.target.value)}
-                placeholder="e.g. PurePro Elite"
+                placeholder="e.g. Riverside Youth FC"
+                autoComplete="off"
+                spellCheck={false}
                 data-testid="input-brand-name"
                 maxLength={48}
               />
@@ -858,6 +858,8 @@ export default function LogoStudio() {
                 value={monogramOverride}
                 onChange={(e) => setMonogramOverride(e.target.value)}
                 placeholder="Auto from brand name"
+                autoComplete="off"
+                spellCheck={false}
                 data-testid="input-monogram"
                 maxLength={3}
               />
@@ -870,7 +872,9 @@ export default function LogoStudio() {
                 type="text"
                 value={tagline}
                 onChange={(e) => setTagline(e.target.value)}
-                placeholder="e.g. Talent Pathway"
+                placeholder="e.g. Elite small-group pathway"
+                autoComplete="off"
+                spellCheck={false}
                 data-testid="input-tagline"
                 maxLength={32}
               />
