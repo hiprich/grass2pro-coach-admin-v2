@@ -5,9 +5,9 @@
 //    Pages deploy is picked up immediately and offline still works.
 //  - Bumping CACHE_VERSION invalidates everything from prior deploys.
 
-// Bump on every change to this file so the new SW activates promptly. v5
-// adds Web Push (`push` + `notificationclick`) on top of the v4 app shell.
-const CACHE_VERSION = 'v5'
+// Bump when you need browsers to discard cached hashed assets aggressively
+// (e.g. Logo Studio defaults or other SPA bundle changes sticking on clients).
+const CACHE_VERSION = 'v6'
 const CACHE_NAME = `g2p-coach-${CACHE_VERSION}`
 
 // Paths the SW must NEVER cache and must always send straight to the network.
