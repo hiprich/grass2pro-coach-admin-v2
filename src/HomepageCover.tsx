@@ -63,7 +63,15 @@ export default function HomepageCover() {
   // / For-coaches sections behind it. Tapping the (now-open) cover
   // again flips it closed. While closed we lock body scroll so the
   // visitor can't scroll past without engaging — the flip IS the entry.
-  const [isOpen, setIsOpen] = useState(false);
+  //
+  // Deep links like `/` + `#coaches` or `#parents` (e.g. "Find a coach") must open
+  // the cover automatically — scroll is locked while closed, so the anchor would
+  // never become visible otherwise.
+  const [isOpen, setIsOpen] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const slug = window.location.hash.replace(/^#/, "").toLowerCase();
+    return slug === "coaches" || slug === "parents";
+  });
 
   useEffect(() => {
     const previous = document.documentElement.dataset.surface;
@@ -108,6 +116,36 @@ export default function HomepageCover() {
       body.style.overflow = prevBodyOverflow;
       body.style.position = prevBodyPosition;
       body.style.width = prevBodyWidth;
+    };
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    function syncHashToCover() {
+      const slug = window.location.hash.replace(/^#/, "").toLowerCase();
+      if (slug === "coaches" || slug === "parents") {
+        setIsOpen(true);
+      }
+    }
+    window.addEventListener("hashchange", syncHashToCover);
+    return () => window.removeEventListener("hashchange", syncHashToCover);
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen || typeof window === "undefined") return;
+    const slug = window.location.hash.replace(/^#/, "").toLowerCase();
+    if (slug !== "coaches" && slug !== "parents") return;
+    let cancelled = false;
+    const run = () => {
+      if (cancelled) return;
+      document.getElementById(slug)?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    };
+    window.requestAnimationFrame(() => window.requestAnimationFrame(run));
+    return () => {
+      cancelled = true;
     };
   }, [isOpen]);
 
