@@ -344,6 +344,22 @@ function normaliseConsentStatus(rawFields) {
   return "grey";
 }
 
+/** Parses Logo Studio JSON from the Coaches "Partner Config" long-text field. */
+function parsePartnerConfig(raw) {
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw === "object" && !Array.isArray(raw)) return raw;
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 export function normaliseCoach(record) {
   const fields = record?.fields || {};
   return {
@@ -356,6 +372,7 @@ export function normaliseCoach(record) {
     phone: stringValue(fields.Phone),
     dbsStatus: stringValue(fields["DBS Status"]),
     firstAidStatus: stringValue(fields["First Aid Status"]),
+    partner: parsePartnerConfig(fields["Partner Config"]),
   };
 }
 

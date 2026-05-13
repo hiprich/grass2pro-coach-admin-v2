@@ -43,6 +43,7 @@ import CoachRegistrationPage from "./CoachRegistrationPage";
 import HomepageCover from "./HomepageCover";
 import LogoStudio from "./LogoStudio";
 import { getCoachProfile } from "./coachProfiles";
+import type { PartnerLogoConfig } from "./partnerLogo";
 import {
   getPushCapability,
   listPushSubscriptions,
@@ -67,7 +68,27 @@ type Coach = {
   credential: string;
   avatarUrl?: string;
   email?: string;
+  partner?: Partial<PartnerLogoConfig> | null;
 };
+
+function isHexColor(value: string | undefined): value is string {
+  return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value.trim());
+}
+
+/** First gradient stop or accent hex from Logo Studio partner config, for dashboard theming. */
+function deriveCoachBrandAccent(partner: Partial<PartnerLogoConfig> | null | undefined): string | null {
+  if (!partner) return null;
+  const gradient = partner.accentGradient;
+  if (gradient && typeof gradient === "object" && Array.isArray(gradient.colors)) {
+    for (const c of gradient.colors) {
+      const s = typeof c === "string" ? c.trim() : String(c);
+      if (isHexColor(s)) return s;
+    }
+  }
+  const accent = partner.accent;
+  if (isHexColor(accent)) return accent.trim();
+  return null;
+}
 
 type Player = {
   id: string;
@@ -2238,6 +2259,23 @@ function Overview({
 
   return (
     <>
+      <section className="overview-logo-studio card" aria-label="Logo Studio shortcut">
+        <div className="overview-logo-studio__body">
+          <div className="overview-logo-studio__icon" aria-hidden="true">
+            <Palette size={22} strokeWidth={2.25} />
+          </div>
+          <div className="overview-logo-studio__copy">
+            <h2 className="overview-logo-studio__title">Club branding</h2>
+            <p>
+              Open Logo Studio to design your partner watermark and set your club colours. Saved colours carry through to this coach workspace.
+            </p>
+          </div>
+        </div>
+        <a className="primary-button overview-logo-studio__cta" href="/admin/logo-studio">
+          Logo Studio
+        </a>
+      </section>
+
       <section className="kpi-grid" aria-label="Player KPIs">
         <KpiCard label="Players" value={players.length} foot="Squad total" icon={Users} tone="neutral" />
         {/* Phase A3: live roster of children currently checked in to an
@@ -9091,6 +9129,23 @@ function CoachDashboard() {
       mounted = false;
     };
   }, []);
+
+  const coachBrandAccent = deriveCoachBrandAccent(data?.coach?.partner ?? undefined);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (!coachBrandAccent) {
+      root.removeAttribute("data-coach-brand");
+      root.style.removeProperty("--coach-brand-accent");
+      return undefined;
+    }
+    root.setAttribute("data-coach-brand", "1");
+    root.style.setProperty("--coach-brand-accent", coachBrandAccent);
+    return () => {
+      root.removeAttribute("data-coach-brand");
+      root.style.removeProperty("--coach-brand-accent");
+    };
+  }, [coachBrandAccent]);
 
   // Splice an updated player back into the admin dataset without reloading
   // everything. Used by inline pathway edits, mark-as-left and the action
