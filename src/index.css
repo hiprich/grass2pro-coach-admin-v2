@@ -7506,6 +7506,65 @@ html[data-surface="logo-studio"] body {
   flex: 0 0 auto;
   min-width: 168px;
 }
+
+/* Post-save: coach can open dashboard or stay on Logo Studio */
+.logo-studio-postsave {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  box-sizing: border-box;
+}
+.logo-studio-postsave-backdrop {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: rgba(7, 9, 6, 0.78);
+  backdrop-filter: blur(8px);
+  cursor: pointer;
+}
+.logo-studio-postsave-card {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 420px;
+  padding: 22px 22px 20px;
+  background: #141811;
+  border: 1px solid #2a2f24;
+  border-radius: 16px;
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.45);
+  pointer-events: auto;
+}
+.logo-studio-postsave-title {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #f3f5ee;
+}
+.logo-studio-postsave-text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: #b6bfb0;
+}
+.logo-studio-postsave-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+.logo-studio-postsave-actions .logo-studio-btn {
+  flex: 1 1 auto;
+  min-width: 156px;
+  justify-content: center;
+  text-align: center;
+  text-decoration: none;
+}
 .logo-studio-btn:disabled {
   cursor: not-allowed;
   opacity: 0.65;

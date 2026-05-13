@@ -17,6 +17,7 @@
 // `/coach` (see bootstrap effect).
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ExternalLink } from "lucide-react";
 import type {
   AccentGradient,
@@ -294,6 +295,8 @@ export default function LogoStudio() {
     "idle" | "saving" | "saved" | "bad-code" | "error"
   >("idle");
   const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
+  /** After a successful save, offer navigation to the coach dashboard or staying here. */
+  const [postSaveNavOpen, setPostSaveNavOpen] = useState(false);
   // Admin code lives in localStorage so Cobby (or whoever is wiring a
   // coach today) doesn't re-type it on every Save. localStorage key is
   // namespaced under "g2p:" to match the rest of the app's storage
@@ -333,6 +336,18 @@ export default function LogoStudio() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!postSaveNavOpen) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setPostSaveNavOpen(false);
+        setSaveState("idle");
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [postSaveNavOpen]);
 
   const [exportError, setExportError] = useState<string | null>(null);
   const previewRef = useRef<HTMLDivElement | null>(null);
@@ -773,7 +788,7 @@ export default function LogoStudio() {
         return;
       }
       setSaveState("saved");
-      window.setTimeout(() => setSaveState("idle"), 1800);
+      setPostSaveNavOpen(true);
     } catch (error) {
       console.error("Logo Studio save failed:", error);
       setSaveState("error");
@@ -1532,6 +1547,57 @@ export default function LogoStudio() {
           </details>
         </section>
       </main>
+
+      {typeof document !== "undefined" &&
+        postSaveNavOpen &&
+        createPortal(
+          <div
+            className="logo-studio-postsave"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="logo-studio-postsave-title"
+            data-testid="logo-studio-postsave-dialog"
+          >
+            <button
+              type="button"
+              className="logo-studio-postsave-backdrop"
+              aria-label="Stay on Logo Studio"
+              onClick={() => {
+                setPostSaveNavOpen(false);
+                setSaveState("idle");
+              }}
+            />
+            <div className="logo-studio-postsave-card">
+              <h2 id="logo-studio-postsave-title" className="logo-studio-postsave-title">
+                Saved to your profile
+              </h2>
+              <p className="logo-studio-postsave-text">
+                Your logo is stored. Would you like to open the Coach dashboard or keep editing here?
+              </p>
+              <div className="logo-studio-postsave-actions">
+                <a
+                  className="logo-studio-btn logo-studio-btn-primary"
+                  href="/admin"
+                  data-testid="postsave-go-dashboard"
+                >
+                  Go to Coach dashboard
+                </a>
+                <button
+                  type="button"
+                  className="logo-studio-btn logo-studio-btn-secondary"
+                  onClick={() => {
+                    setPostSaveNavOpen(false);
+                    setSaveState("idle");
+                  }}
+                  data-testid="postsave-stay"
+                >
+                  Stay on Logo Studio
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
