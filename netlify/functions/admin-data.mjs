@@ -10,7 +10,7 @@ import {
   listSessions,
   mergeMediaConsentsIntoPlayers,
 } from "./_airtable.mjs";
-import { gateCoachDashboard } from "./_coach-gate.mjs";
+import { gateCoachDashboard, wrapCoachResponse } from "./_coach-gate.mjs";
 
 export const handler = async (event) => {
   const gate = gateCoachDashboard(event, json);
@@ -39,25 +39,34 @@ export const handler = async (event) => {
 
     const players = mergeMediaConsentsIntoPlayers(base.players, mediaConsents);
 
-    return json(200, {
-      ...base,
-      players,
-      sessions,
-      attendance,
-      sidebar: buildSidebar(players, {
-        sessions: sessions.length,
-        attendance: attendance.length,
+    return wrapCoachResponse(
+      gate,
+      json(200, {
+        ...base,
+        players,
+        sessions,
+        attendance,
+        sidebar: buildSidebar(players, {
+          sessions: sessions.length,
+          attendance: attendance.length,
+        }),
+        updatedAt: new Date().toISOString(),
       }),
-      updatedAt: new Date().toISOString(),
-    });
+    );
   } catch (error) {
     console.error(error);
     if (!hasAirtableConfig()) {
-      return json(200, { ...demoData, warning: "Airtable unavailable; returned demo data." });
+      return wrapCoachResponse(
+        gate,
+        json(200, { ...demoData, warning: "Airtable unavailable; returned demo data." }),
+      );
     }
     if (error?.code === "COACH_NOT_FOUND") {
       return json(403, { error: "Your session no longer matches a coach profile. Sign in again." });
     }
-    return json(200, { ...demoData, warning: "Airtable unavailable; returned demo data." });
+    return wrapCoachResponse(
+      gate,
+      json(200, { ...demoData, warning: "Airtable unavailable; returned demo data." }),
+    );
   }
 };

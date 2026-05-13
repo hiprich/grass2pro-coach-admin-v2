@@ -1,5 +1,14 @@
 import { hasAirtableConfig, json } from "./_airtable.mjs";
-import { requireCoachSession } from "./_coach-session.mjs";
+import { requireCoachSession, withRefreshedCoachSessionCookie } from "./_coach-session.mjs";
+
+/**
+ * Attach sliding-renewal Set-Cookie on successful responses when the coach is
+ * authenticated (sessionEmail set). No-op in demo mode (sessionEmail null).
+ */
+export function wrapCoachResponse(gate, response) {
+  if (!gate || !gate.ok || gate.sessionEmail == null) return response;
+  return withRefreshedCoachSessionCookie(response, gate.sessionEmail);
+}
 
 /**
  * Demo / no-Airtable deploys behave like today (open coach dashboard reads).

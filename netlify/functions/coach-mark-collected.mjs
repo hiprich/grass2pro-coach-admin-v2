@@ -20,7 +20,7 @@
 //
 // Requires the coach magic-link session cookie minted via coach-auth.mjs once
 // Airtable secrets are wired (otherwise falls back to the historic open demo path).
-import { gateCoachDashboard } from "./_coach-gate.mjs";
+import { gateCoachDashboard, wrapCoachResponse } from "./_coach-gate.mjs";
 import {
   TABLE_IDS,
   airtableUpdate,
@@ -118,8 +118,11 @@ export const handler = async (event) => {
     return json(502, { error: "Airtable rejected the mark-collected update." });
   }
 
-  return json(200, {
-    ok: true,
-    attendance: normaliseAttendance(updated),
-  });
+  return wrapCoachResponse(
+    gate,
+    json(200, {
+      ok: true,
+      attendance: normaliseAttendance(updated),
+    }),
+  );
 };

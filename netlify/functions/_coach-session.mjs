@@ -5,6 +5,7 @@ import crypto from "node:crypto";
 import { isValidEmail, normaliseEmail } from "./_parent-session.mjs";
 
 export const COACH_SESSION_COOKIE = "g2p_coach_session";
+/** Rolling window for each issued cookie; extended on activity via withRefreshedCoachSessionCookie (same idea as parents). */
 export const COACH_SESSION_TTL_DAYS = 365;
 export const COACH_SESSION_VERSION = "cv1";
 
@@ -81,6 +82,34 @@ export function buildCoachSessionCookie(value, { maxAgeSeconds = COACH_SESSION_T
 
 export function clearCoachSessionCookie() {
   return buildCoachSessionCookie("", { maxAgeSeconds: 0 });
+}
+
+/**
+ * Sliding renewal: re-issue the coach session cookie on successful API responses
+ * so active coaches keep a fresh COACH_SESSION_TTL_DAYS window (mirrors
+ * withRefreshedSessionCookie for parents).
+ *
+ * Only attaches Set-Cookie on HTTP 2xx; errors do not extend the session.
+ */
+export function withRefreshedCoachSessionCookie(response, email) {
+  if (!response || typeof response !== "object") return response;
+  const status = Number(response.statusCode);
+  if (!(status >= 200 && status < 300)) return response;
+  if (!email || typeof email !== "string") return response;
+  const value = createCoachSessionCookieValue(email);
+  const cookie = buildCoachSessionCookie(value);
+  const existing = response.multiValueHeaders || {};
+  const setCookie = Array.isArray(existing["Set-Cookie"])
+    ? existing["Set-Cookie"].slice()
+    : [];
+  setCookie.push(cookie);
+  return {
+    ...response,
+    multiValueHeaders: {
+      ...existing,
+      "Set-Cookie": setCookie,
+    },
+  };
 }
 
 export function readCoachSessionFromEvent(event) {

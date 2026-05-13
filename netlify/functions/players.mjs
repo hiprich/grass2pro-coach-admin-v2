@@ -8,7 +8,7 @@ import {
   normalisePlayer,
   tableName,
 } from "./_airtable.mjs";
-import { gateCoachDashboard } from "./_coach-gate.mjs";
+import { gateCoachDashboard, wrapCoachResponse } from "./_coach-gate.mjs";
 
 // Players API.
 //
@@ -157,10 +157,10 @@ export const handler = async (event) => {
         gate.sessionEmail === null
           ? await getCoachAndPlayers()
           : await getCoachDashboardDataForSessionEmail(gate.sessionEmail);
-      return json(200, data.players);
+      return wrapCoachResponse(gate, json(200, data.players));
     }
     if (method === "PATCH") {
-      return await handlePatch(event);
+      return wrapCoachResponse(gate, await handlePatch(event));
     }
     return json(405, { error: `Method ${method} not allowed.` });
   } catch (error) {

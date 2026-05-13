@@ -2,7 +2,7 @@
 // present once Airtable is configured (otherwise local demo stays permissive).
 
 import { hasAirtableConfig, json } from "./_airtable.mjs";
-import { gateCoachDashboard } from "./_coach-gate.mjs";
+import { gateCoachDashboard, wrapCoachResponse } from "./_coach-gate.mjs";
 
 export const handler = async (event) => {
   if ((event.httpMethod || "GET").toUpperCase() !== "GET") {
@@ -10,8 +10,11 @@ export const handler = async (event) => {
   }
   const gate = gateCoachDashboard(event, json);
   if (!gate.ok) return gate.response;
-  return json(200, {
-    ok: true,
-    demo: !hasAirtableConfig(),
-  });
+  return wrapCoachResponse(
+    gate,
+    json(200, {
+      ok: true,
+      demo: !hasAirtableConfig(),
+    }),
+  );
 };

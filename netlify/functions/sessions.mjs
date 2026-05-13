@@ -7,7 +7,7 @@ import {
   json,
   hasAirtableConfig,
 } from "./_airtable.mjs";
-import { gateCoachDashboard } from "./_coach-gate.mjs";
+import { gateCoachDashboard, wrapCoachResponse } from "./_coach-gate.mjs";
 
 // Match yyyy-mm-dd dates and HH:mm times so we can hard-fail on bad input
 // before we touch Airtable. Lenient enough to accept H:mm too (e.g. "9:30").
@@ -31,11 +31,12 @@ const PITCH_TYPES = new Set(["Astro 4G", "Grass"]);
 export const handler = async (event) => {
   const gate = gateCoachDashboard(event, json);
   if (!gate.ok) return gate.response;
+  const wrap = (res) => wrapCoachResponse(gate, res);
 
-  if (event.httpMethod === "GET") return handleList(event);
-  if (event.httpMethod === "POST") return handleCreate(event);
-  if (event.httpMethod === "PATCH") return handlePatch(event);
-  if (event.httpMethod === "DELETE") return handleCancel(event);
+  if (event.httpMethod === "GET") return wrap(await handleList(event));
+  if (event.httpMethod === "POST") return wrap(await handleCreate(event));
+  if (event.httpMethod === "PATCH") return wrap(await handlePatch(event));
+  if (event.httpMethod === "DELETE") return wrap(await handleCancel(event));
   return json(405, { error: "Method not allowed." });
 };
 

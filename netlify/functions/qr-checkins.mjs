@@ -9,7 +9,7 @@ import {
   normaliseAttendance,
   tableName,
 } from "./_airtable.mjs";
-import { gateCoachDashboard } from "./_coach-gate.mjs";
+import { gateCoachDashboard, wrapCoachResponse } from "./_coach-gate.mjs";
 import { readSessionFromEvent } from "./_parent-session.mjs";
 
 // QR Check-ins endpoint.
@@ -47,11 +47,16 @@ export const handler = async (event) => {
     return json(405, { error: "Method not allowed." });
   }
 
+  /** When set, the request was authenticated as a coach (sliding session renewal). */
+  let authenticatedCoachGate = null;
   if (hasAirtableConfig()) {
     const coachGate = gateCoachDashboard(event, json);
     const parentSession = readSessionFromEvent(event);
     if (!coachGate.ok && !parentSession) {
       return coachGate.response;
+    }
+    if (coachGate.ok) {
+      authenticatedCoachGate = coachGate;
     }
   }
 
@@ -274,7 +279,7 @@ export const handler = async (event) => {
       }
     }
 
-    return json(200, {
+    const okResponse = json(200, {
       ok: true,
       id: record.id,
       scanType,
@@ -289,6 +294,9 @@ export const handler = async (event) => {
       kitReminder: scanType === "Departure",
       kitReminderScheduled,
     });
+    return authenticatedCoachGate
+      ? wrapCoachResponse(authenticatedCoachGate, okResponse)
+      : okResponse;
   } catch (error) {
     console.error("QR check-in create failed:", error);
     if (error instanceof AirtableHttpError) {

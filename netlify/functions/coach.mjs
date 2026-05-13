@@ -1,4 +1,4 @@
-import { gateCoachDashboard } from "./_coach-gate.mjs";
+import { gateCoachDashboard, wrapCoachResponse } from "./_coach-gate.mjs";
 import { getCoachAndPlayers, getCoachDashboardDataForSessionEmail, hasAirtableConfig, json } from "./_airtable.mjs";
 
 export const handler = async (event) => {
@@ -10,7 +10,7 @@ export const handler = async (event) => {
       gate.sessionEmail === null
         ? await getCoachAndPlayers()
         : await getCoachDashboardDataForSessionEmail(gate.sessionEmail);
-    return json(200, data.coach);
+    return wrapCoachResponse(gate, json(200, data.coach));
   } catch (error) {
     console.error(error);
     if (hasAirtableConfig() && error?.code === "COACH_NOT_FOUND") {
