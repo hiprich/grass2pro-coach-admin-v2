@@ -1,7 +1,12 @@
 // Lightweight probe so the SPA can tell whether a coach session cookie is
 // present once Airtable is configured (otherwise local demo stays permissive).
 
-import { hasAirtableConfig, json } from "./_airtable.mjs";
+import {
+  findCoachRecordByNormalisedEmail,
+  hasAirtableConfig,
+  json,
+  normaliseCoach,
+} from "./_airtable.mjs";
 import { gateCoachDashboard, wrapCoachResponse } from "./_coach-gate.mjs";
 
 export const handler = async (event) => {
@@ -10,11 +15,28 @@ export const handler = async (event) => {
   }
   const gate = gateCoachDashboard(event, json);
   if (!gate.ok) return gate.response;
+
+  const demo = !hasAirtableConfig();
+  let loggedInAs = null;
+
+  if (!demo && gate.sessionEmail) {
+    try {
+      const record = await findCoachRecordByNormalisedEmail(gate.sessionEmail);
+      const coach = record ? normaliseCoach(record) : null;
+      const name = coach?.name && String(coach.name).trim();
+      loggedInAs = name || gate.sessionEmail;
+    } catch (e) {
+      console.error("coach-auth-status coach lookup failed:", e);
+      loggedInAs = gate.sessionEmail;
+    }
+  }
+
   return wrapCoachResponse(
     gate,
     json(200, {
       ok: true,
-      demo: !hasAirtableConfig(),
+      demo,
+      ...(loggedInAs ? { loggedInAs } : {}),
     }),
   );
 };

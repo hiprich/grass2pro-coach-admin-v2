@@ -27,6 +27,7 @@ import type {
 import { buildPartnerLogo } from "./partnerLogo";
 import ColourPopover from "./ColourPopover";
 import { hasCoachRegistrationLogoAccess } from "./lib/coachRegistrationLogoGate";
+import { LoggedInAsNotice } from "./LoggedInAsNotice";
 
 // Outline thickness presets. Width is in viewBox units; the mark is ~38u
 // across so 0/1.5/3 reads as none/thin/thick crest border. Three buttons
@@ -297,19 +298,31 @@ export default function LogoStudio() {
   const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
   /** After a successful save, offer navigation to the coach dashboard or staying here. */
   const [postSaveNavOpen, setPostSaveNavOpen] = useState(false);
-  // Admin code lives in localStorage so Cobby (or whoever is wiring a
-  // coach today) doesn't re-type it on every Save. localStorage key is
-  // namespaced under "g2p:" to match the rest of the app's storage
-  // conventions and to keep it out of the way of unrelated keys.
-  const [adminCode, setAdminCode] = useState<string>(() => {
-    if (typeof window === "undefined") return "";
+  const [loggedInAsName, setLoggedInAsName] = useState<string | null>(null);
+  // Admin code is never written to localStorage/sessionStorage — it only lives
+  // in React state so closing the browser or returning later shows an empty
+  // field (server still validates via LOGO_STUDIO_ADMIN_CODE on save).
+  const [adminCode, setAdminCode] = useState("");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
     try {
-      return window.localStorage.getItem("g2p:logoStudioAdminCode") ?? "";
+      window.localStorage.removeItem("g2p:logoStudioAdminCode");
     } catch {
-      // localStorage can throw in private-mode Safari; not fatal here.
-      return "";
+      /* quota / private mode */
     }
-  });
+  }, []);
+
+  // Browsers can restore this page from the back/forward cache (bfcache) with
+  // form values intact — clear the admin code when that happens so it never
+  // reappears without typing again after leaving the page.
+  useEffect(() => {
+    function onPageShow(e: PageTransitionEvent) {
+      if (e.persisted) setAdminCode("");
+    }
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -320,13 +333,26 @@ export default function LogoStudio() {
       : `/.netlify/functions/coach-auth-status`;
 
     fetch(statusUrl, { credentials: "include" })
-      .then((response) => {
+      .then(async (response) => {
         if (cancelled) return;
         if (response.status === 401 || response.status === 403) {
           // Coaches who landed on `/coach-registration` unlock Logo Studio without a session cookie.
           if (hasCoachRegistrationLogoAccess()) return;
           const next = `${window.location.pathname}${window.location.search}`;
           window.location.replace(`/coach?next=${encodeURIComponent(next)}`);
+          return;
+        }
+        if (!response.ok) return;
+        let body: unknown;
+        try {
+          body = await response.json();
+        } catch {
+          return;
+        }
+        if (!body || typeof body !== "object" || !("loggedInAs" in body)) return;
+        const label = (body as { loggedInAs?: unknown }).loggedInAs;
+        if (typeof label === "string" && label.trim()) {
+          setLoggedInAsName(label.trim());
         }
       })
       .catch(() => {
@@ -739,14 +765,6 @@ export default function LogoStudio() {
       return;
     }
 
-    // Persist the code BEFORE the network call so a refresh during a
-    // slow Airtable round-trip doesn't lose what the user typed.
-    try {
-      window.localStorage.setItem("g2p:logoStudioAdminCode", adminCode);
-    } catch {
-      // private-mode Safari — ignore, the in-memory value still works.
-    }
-
     setSaveState("saving");
     setSaveErrorMessage(null);
     try {
@@ -836,6 +854,7 @@ export default function LogoStudio() {
             <ExternalLink size={14} aria-hidden="true" />
           </a>
         </div>
+        {loggedInAsName ? <LoggedInAsNotice name={loggedInAsName} variant="studio" /> : null}
         <div className="logo-studio-title-block">
           <h1 className="logo-studio-title">Logo Studio</h1>
           <p className="logo-studio-subtitle">
@@ -1473,23 +1492,21 @@ export default function LogoStudio() {
             </button>
           </div>
 
-          {/* Save-to-profile panel. Sits below the export actions because
-              it's the "commit" action — Download and Copy are reversible
-              local-only operations; Save writes to Airtable and changes
-              what /c/:slug will render once the next sync/deploy lands.
-              The admin code is required server-side (LOGO_STUDIO_ADMIN_CODE)
-              and remembered in localStorage so the typical workflow is
-              type-once-then-save-many. Disappears entirely if you never
-              type a code → unobtrusive for first-time visitors. */}
+          {/* Save-to-profile panel. Admin code is in-memory only (never persisted)
+              so it does not survive a full browser restart. Server still enforces
+              LOGO_STUDIO_ADMIN_CODE on each save. */}
           <div className="logo-studio-save" data-testid="logo-studio-save">
             <label className="logo-studio-field logo-studio-save-field">
               <span>Admin code</span>
               <input
                 type="password"
+                name="g2p-logo-studio-admin-code"
                 value={adminCode}
                 onChange={(e) => setAdminCode(e.target.value)}
                 placeholder="Required to save"
-                autoComplete="off"
+                autoComplete="new-password"
+                autoCorrect="off"
+                spellCheck={false}
                 data-testid="input-admin-code"
               />
             </label>

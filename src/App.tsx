@@ -42,6 +42,7 @@ import CoachLandingPage, { CoachNotFoundPage } from "./CoachLandingPage";
 import CoachRegistrationPage from "./CoachRegistrationPage";
 import HomepageCover from "./HomepageCover";
 import LogoStudio from "./LogoStudio";
+import { LoggedInAsNotice } from "./LoggedInAsNotice";
 import { getCoachProfile } from "./coachProfiles";
 import type { PartnerLogoConfig } from "./partnerLogo";
 import {
@@ -9226,6 +9227,7 @@ function CoachDashboard() {
             </div>
           </div>
           <div className="top-actions">
+            {data.coach?.name ? <LoggedInAsNotice name={data.coach.name} /> : null}
             <CoachPill coach={data.coach} />
             <button
               type="button"
