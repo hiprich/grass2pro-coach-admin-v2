@@ -29,6 +29,8 @@ import { buildPartnerLogo, PARTNER_FONT_OPTIONS } from "./partnerLogo";
 import ColourPopover from "./ColourPopover";
 import { hasCoachRegistrationLogoAccess } from "./lib/coachRegistrationLogoGate";
 import { LoggedInAsNotice } from "./LoggedInAsNotice";
+import type { LogoStudioPersistedForm } from "./logoStudioHydrate";
+import { loadLogoStudioDraft, partnerConfigToPersistedForm, saveLogoStudioDraft } from "./logoStudioHydrate";
 
 // Outline thickness presets. Width is in viewBox units; the mark is ~38u
 // across so 0/1.5/3 reads as none/thin/thick crest border. Three buttons
@@ -301,10 +303,14 @@ export default function LogoStudio() {
   /** After a successful save, offer navigation to the coach dashboard or staying here. */
   const [postSaveNavOpen, setPostSaveNavOpen] = useState(false);
   const [loggedInAsName, setLoggedInAsName] = useState<string | null>(null);
+  const [sessionEmail, setSessionEmail] = useState<string | null>(null);
+  const [studioReady, setStudioReady] = useState(false);
+  const undoHydrationSeededRef = useRef(false);
   // Admin code is never written to localStorage/sessionStorage — it only lives
   // in React state so closing the browser or returning later shows an empty
   // field (server still validates via LOGO_STUDIO_ADMIN_CODE on save).
   const [adminCode, setAdminCode] = useState("");
+  const isRestoringRef = useRef(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -334,31 +340,86 @@ export default function LogoStudio() {
       ? `${apiBaseLocal}/coach-auth-status`
       : `/.netlify/functions/coach-auth-status`;
 
+    function applyPatch(patch: Partial<LogoStudioPersistedForm>) {
+      isRestoringRef.current = true;
+      if (patch.brandName !== undefined) setBrandName(patch.brandName);
+      if (patch.monogramOverride !== undefined) setMonogramOverride(patch.monogramOverride);
+      if (patch.tagline !== undefined) setTagline(patch.tagline);
+      if (patch.accent !== undefined) setAccent(patch.accent);
+      if (patch.customHex !== undefined) setCustomHex(patch.customHex);
+      if (patch.gradientPresetId !== undefined) setGradientPresetId(patch.gradientPresetId);
+      if (patch.style !== undefined) setStyle(patch.style);
+      if (patch.shape !== undefined) setShape(patch.shape);
+      if (patch.autoInk !== undefined) setAutoInk(patch.autoInk);
+      if (patch.manualInk !== undefined) setManualInk(patch.manualInk);
+      if (patch.proMode !== undefined) setProMode(patch.proMode);
+      if (patch.outlineWidth !== undefined) setOutlineWidth(patch.outlineWidth);
+      if (patch.outlineColor !== undefined) setOutlineColor(patch.outlineColor);
+      if (patch.wordmarkMode !== undefined) setWordmarkMode(patch.wordmarkMode);
+      if (patch.wordmarkCustom !== undefined) setWordmarkCustom(patch.wordmarkCustom);
+      if (patch.taglineMode !== undefined) setTaglineMode(patch.taglineMode);
+      if (patch.taglineCustom !== undefined) setTaglineCustom(patch.taglineCustom);
+      if (patch.fontStyle !== undefined) setFontStyle(patch.fontStyle);
+      isRestoringRef.current = false;
+    }
+
     fetch(statusUrl, { credentials: "include" })
       .then(async (response) => {
         if (cancelled) return;
         if (response.status === 401 || response.status === 403) {
-          // Coaches who landed on `/coach-registration` unlock Logo Studio without a session cookie.
-          if (hasCoachRegistrationLogoAccess()) return;
+          if (hasCoachRegistrationLogoAccess()) {
+            setStudioReady(true);
+            return;
+          }
           const next = `${window.location.pathname}${window.location.search}`;
           window.location.replace(`/coach?next=${encodeURIComponent(next)}`);
           return;
         }
-        if (!response.ok) return;
+        if (!response.ok) {
+          setStudioReady(true);
+          return;
+        }
         let body: unknown;
         try {
           body = await response.json();
         } catch {
+          setStudioReady(true);
           return;
         }
-        if (!body || typeof body !== "object" || !("loggedInAs" in body)) return;
-        const label = (body as { loggedInAs?: unknown }).loggedInAs;
-        if (typeof label === "string" && label.trim()) {
-          setLoggedInAsName(label.trim());
+        if (!body || typeof body !== "object") {
+          setStudioReady(true);
+          return;
         }
+        const b = body as {
+          loggedInAs?: unknown;
+          sessionEmail?: unknown;
+          partner?: unknown;
+          demo?: unknown;
+        };
+        if (typeof b.loggedInAs === "string" && b.loggedInAs.trim()) {
+          setLoggedInAsName(b.loggedInAs.trim());
+        }
+        const email =
+          typeof b.sessionEmail === "string" && b.sessionEmail.includes("@")
+            ? b.sessionEmail.trim().toLowerCase()
+            : null;
+        setSessionEmail(email);
+
+        let usedDraft = false;
+        if (email && b.demo !== true) {
+          const draft = loadLogoStudioDraft(email);
+          if (draft?.form) {
+            applyPatch(draft.form);
+            usedDraft = true;
+          }
+        }
+        if (!usedDraft && b.partner && typeof b.partner === "object") {
+          applyPatch(partnerConfigToPersistedForm(b.partner as Partial<PartnerLogoConfig>));
+        }
+        setStudioReady(true);
       })
       .catch(() => {
-        /* stay on page — Logo Studio previews still render */
+        setStudioReady(true);
       });
     return () => {
       cancelled = true;
@@ -411,10 +472,6 @@ export default function LogoStudio() {
     fontStyle: PartnerFontStyle;
   };
   const [undoStack, setUndoStack] = useState<FormState[]>([]);
-  // Ref used to suppress snapshot pushes while we're applying an undo —
-  // otherwise the restored state would itself be pushed onto the stack,
-  // making undo a no-op on the next tap.
-  const isRestoringRef = useRef(false);
   // Latest snapshot that we've already pushed. Compared against the
   // current state when the debounce fires; equal means nothing
   // meaningfully changed (e.g. the user typed a letter and then deleted
@@ -468,13 +525,13 @@ export default function LogoStudio() {
     ],
   );
 
-  // Seed the baseline snapshot + the live state mirror once on mount.
+  // After auth + hydration, seed undo baseline from the loaded form once.
   useEffect(() => {
+    if (!studioReady || undoHydrationSeededRef.current) return;
+    undoHydrationSeededRef.current = true;
     lastSnapshotRef.current = currentState;
     currentStateRef.current = currentState;
-    // We deliberately depend on nothing — this runs once.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [studioReady, currentState]);
 
   // Keep the live state mirror current every render so flushSnapshot()
   // (called synchronously from event handlers below) can read the
@@ -517,6 +574,16 @@ export default function LogoStudio() {
     return () => clearTimeout(id);
   }, [currentState]);
 
+  // Persist in-progress Logo Studio form to localStorage for the signed-in coach
+  // so leaving /admin and returning restores fields on this device.
+  useEffect(() => {
+    if (!studioReady || !sessionEmail) return;
+    const id = window.setTimeout(() => {
+      saveLogoStudioDraft(sessionEmail, currentState as unknown as LogoStudioPersistedForm);
+    }, 550);
+    return () => window.clearTimeout(id);
+  }, [studioReady, sessionEmail, currentState]);
+
   // Synchronously flush any pending edit into the undo stack. Called
   // from discrete action handlers (mode buttons, picker open/close) so
   // each meaningful step is its own undo entry. Without this, when the
@@ -557,7 +624,7 @@ export default function LogoStudio() {
     setWordmarkCustom(s.wordmarkCustom);
     setTaglineMode(s.taglineMode);
     setTaglineCustom(s.taglineCustom);
-    setFontStyle(s.fontStyle ?? "inter");
+    setFontStyle(s.fontStyle ?? "general-sans");
   }
 
   function handleUndo() {
@@ -876,7 +943,17 @@ export default function LogoStudio() {
 
       <main className="logo-studio-grid">
         {/* Form column */}
-        <section className="logo-studio-form" aria-label="Logo settings">
+        <section
+          className={`logo-studio-form${!studioReady ? " logo-studio-form--loading" : ""}`}
+          aria-label="Logo settings"
+          aria-busy={!studioReady}
+        >
+          {!studioReady ? (
+            <p className="logo-studio-loading-hint" role="status">
+              Loading your saved logo settings…
+            </p>
+          ) : null}
+          <div className={!studioReady ? "logo-studio-form-ghost" : undefined}>
           <fieldset className="logo-studio-fieldset">
             <legend>Brand</legend>
             <label className="logo-studio-field">
@@ -1458,6 +1535,7 @@ export default function LogoStudio() {
               )}
             </fieldset>
           </details>
+          </div>
         </section>
 
         {/* Preview + export column */}

@@ -16,7 +16,26 @@
 // brand rather than a sub-brand of Grass2Pro. The wordmark uses the same
 // font stack as the rest of the app for consistency.
 
-export type PartnerFontStyle = "general-sans" | "satoshi" | "inter" | "mono";
+export type PartnerFontStyle =
+  | "general-sans"
+  | "satoshi"
+  | "inter"
+  | "mono"
+  | "signature"
+  | "calligraphy";
+
+const PARTNER_FONT_STYLE_IDS = new Set<string>([
+  "general-sans",
+  "satoshi",
+  "inter",
+  "mono",
+  "signature",
+  "calligraphy",
+]);
+
+export function isPartnerFontStyle(v: string | undefined | null): v is PartnerFontStyle {
+  return typeof v === "string" && PARTNER_FONT_STYLE_IDS.has(v);
+}
 
 export type PartnerLogoConfig = {
   // Two-or-three-letter monogram for the square mark. Auto-derived from the
@@ -107,6 +126,16 @@ export const PARTNER_FONT_OPTIONS: ReadonlyArray<{
     label: "Mono",
     hint: "Technical / roster-board style",
   },
+  {
+    id: "signature",
+    label: "Signature",
+    hint: "Handwritten script (Dancing Script)",
+  },
+  {
+    id: "calligraphy",
+    label: "Calligraphy",
+    hint: "Ornate script (Great Vibes)",
+  },
 ];
 
 /** CSS font-family string for SVG <text> (document fonts apply when the SVG is in-page). */
@@ -118,6 +147,10 @@ export function resolvePartnerFontStack(style: PartnerFontStyle | undefined): st
       return "'Satoshi', 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
     case "mono":
       return "ui-monospace, 'SFMono-Regular', 'SF Mono', Menlo, Monaco, Consolas, 'Liberation Mono', monospace";
+    case "signature":
+      return "'Dancing Script', 'Brush Script MT', 'Segoe Script', cursive";
+    case "calligraphy":
+      return "'Great Vibes', 'Snell Roundhand', 'Segoe Script', cursive";
     case "inter":
     default:
       return "'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
@@ -389,7 +422,11 @@ export function buildPartnerLogo(config: PartnerLogoConfig): string {
   const VB_H = 50;
   const MARK_SIZE = 38;
   const MARK_Y = 6;
-  const fontStack = resolvePartnerFontStack(cfg.fontStyle);
+  const resolvedFontStyle: PartnerFontStyle | undefined = isPartnerFontStyle(String(config.fontStyle ?? "").trim())
+    ? (config.fontStyle as PartnerFontStyle)
+    : undefined;
+  const fontStack = resolvePartnerFontStack(resolvedFontStyle);
+  const scriptFont = resolvedFontStyle === "signature" || resolvedFontStyle === "calligraphy";
 
   // Outline (stroke) attributes — emitted only when an outline is
   // configured. We use stroke-alignment via inset by half the stroke
@@ -419,7 +456,8 @@ export function buildPartnerLogo(config: PartnerLogoConfig): string {
   // so it doesn't kiss the slanted edges.
   const baseFontSize = monogram.length >= 3 ? 13 : 16;
   const monogramFontSize = baseFontSize * (geom.fontScale ?? 1);
-  const monogramLetterSpacing = monogram.length >= 3 ? 0.5 : 0.8;
+  const monogramLetterSpacing = scriptFont ? 0.12 : monogram.length >= 3 ? 0.5 : 0.8;
+  const monogramWeight = scriptFont ? "700" : "900";
 
   const markSvg = showMark
     ? `<g>
@@ -430,7 +468,7 @@ export function buildPartnerLogo(config: PartnerLogoConfig): string {
           dominant-baseline="central"
           text-anchor="middle"
           font-family="${fontStack}"
-          font-weight="900"
+          font-weight="${monogramWeight}"
           font-size="${monogramFontSize}"
           letter-spacing="${monogramLetterSpacing}"
           fill="${cfg.ink}"
@@ -442,29 +480,38 @@ export function buildPartnerLogo(config: PartnerLogoConfig): string {
   // wordmark vertical-centres against the mark, and the tagline sits on
   // its own baseline two lines below.
   const wordmarkTextY = config.tagline ? 24 : 31;
+  const wordmarkWeight = scriptFont ? "600" : "800";
+  const wordmarkSize = scriptFont ? "13" : "14";
+  const wordmarkTracking = scriptFont ? "0.45" : "1.5";
+  const wordmarkText = scriptFont ? cfg.brandName.trim() : cfg.brandName.toUpperCase();
   const wordmark = showWordmark
     ? `<text
         x="${WORDMARK_X}" y="${wordmarkTextY}"
         font-family="${fontStack}"
-        font-weight="800"
-        font-size="14"
-        letter-spacing="1.5"
+        font-weight="${wordmarkWeight}"
+        font-size="${wordmarkSize}"
+        letter-spacing="${wordmarkTracking}"
         fill="${cfg.wordmarkColor}"
-      >${escapeXml(cfg.brandName.toUpperCase())}</text>`
+      >${escapeXml(wordmarkText)}</text>`
     : "";
   // Tagline colour: explicit override wins, else inherit accent so the
   // mark + tagline read as a colour-paired unit by default.
   const taglineFill = config.taglineColor ?? cfg.accent;
+  const taglineWeight = scriptFont ? "500" : "600";
+  const taglineSize = scriptFont ? "8.5" : "9";
+  const taglineTracking = scriptFont ? "0.55" : "2.4";
+  const taglineText =
+    scriptFont && config.tagline ? config.tagline.trim() : (config.tagline || "").toUpperCase();
   const tagline = config.tagline && showWordmark
     ? `<text
         x="${WORDMARK_X}" y="40"
         font-family="${fontStack}"
-        font-weight="600"
-        font-size="9"
-        letter-spacing="2.4"
+        font-weight="${taglineWeight}"
+        font-size="${taglineSize}"
+        letter-spacing="${taglineTracking}"
         fill="${taglineFill}"
         opacity="0.85"
-      >${escapeXml(config.tagline.toUpperCase())}</text>`
+      >${escapeXml(taglineText)}</text>`
     : "";
 
   // The viewBox is fixed but the rendered width can flex via CSS. Setting

@@ -7436,6 +7436,16 @@ html[data-surface="logo-studio"] body {
   line-height: 1.45;
   color: #8a8f80;
 }
+.logo-studio-loading-hint {
+  margin: 0 0 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #c9e970;
+}
+.logo-studio-form--loading .logo-studio-form-ghost {
+  pointer-events: none;
+  opacity: 0.4;
+}
 .logo-studio-fonts {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr));

@@ -18,11 +18,15 @@ export const handler = async (event) => {
 
   const demo = !hasAirtableConfig();
   let loggedInAs = null;
+  let partner = null;
+  let sessionEmail = null;
 
   if (!demo && gate.sessionEmail) {
+    sessionEmail = gate.sessionEmail;
     try {
       const record = await findCoachRecordByNormalisedEmail(gate.sessionEmail);
       const coach = record ? normaliseCoach(record) : null;
+      partner = coach?.partner ?? null;
       const name = coach?.name && String(coach.name).trim();
       loggedInAs = name || gate.sessionEmail;
     } catch (e) {
@@ -36,7 +40,9 @@ export const handler = async (event) => {
     json(200, {
       ok: true,
       demo,
+      ...(sessionEmail ? { sessionEmail } : {}),
       ...(loggedInAs ? { loggedInAs } : {}),
+      ...(partner ? { partner } : {}),
     }),
   );
 };

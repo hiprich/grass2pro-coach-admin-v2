@@ -44,6 +44,7 @@ import HomepageCover from "./HomepageCover";
 import LogoStudio from "./LogoStudio";
 import { LoggedInAsNotice } from "./LoggedInAsNotice";
 import { getCoachProfile } from "./coachProfiles";
+import { normalizeHexColor } from "./hexColor";
 import type { PartnerLogoConfig } from "./partnerLogo";
 import {
   getPushCapability,
@@ -72,23 +73,17 @@ type Coach = {
   partner?: Partial<PartnerLogoConfig> | null;
 };
 
-function isHexColor(value: string | undefined): value is string {
-  return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value.trim());
-}
-
 /** First gradient stop or accent hex from Logo Studio partner config, for dashboard theming. */
 function deriveCoachBrandAccent(partner: Partial<PartnerLogoConfig> | null | undefined): string | null {
   if (!partner) return null;
   const gradient = partner.accentGradient;
   if (gradient && typeof gradient === "object" && Array.isArray(gradient.colors)) {
     for (const c of gradient.colors) {
-      const s = typeof c === "string" ? c.trim() : String(c);
-      if (isHexColor(s)) return s;
+      const n = normalizeHexColor(typeof c === "string" ? c : String(c));
+      if (n) return n;
     }
   }
-  const accent = partner.accent;
-  if (isHexColor(accent)) return accent.trim();
-  return null;
+  return normalizeHexColor(partner.accent);
 }
 
 type Player = {

@@ -77,7 +77,14 @@ const ALLOWED_PARTNER_KEYS = new Set([
   "fontStyle",
 ]);
 
-const ALLOWED_FONT_STYLES = new Set(["general-sans", "satoshi", "inter", "mono"]);
+const ALLOWED_FONT_STYLES = new Set([
+  "general-sans",
+  "satoshi",
+  "inter",
+  "mono",
+  "signature",
+  "calligraphy",
+]);
 
 function sanitisePartner(input) {
   if (!input || typeof input !== "object") return null;
