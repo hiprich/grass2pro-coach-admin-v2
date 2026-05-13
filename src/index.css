@@ -6862,6 +6862,13 @@ html[data-surface="logo-studio"] body {
   gap: 12px;
   flex-wrap: wrap;
 }
+.logo-studio-topbar-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
 .logo-studio .logged-in-as--studio {
   width: 100%;
   max-width: none;
@@ -6922,6 +6929,36 @@ html[data-surface="logo-studio"] body {
 .logo-studio-public-link:focus-visible {
   outline: 2px solid #c9e970;
   outline-offset: 2px;
+}
+.logo-studio-sign-out {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font: inherit;
+  text-decoration: none;
+  color: #cdd2c4;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border: 1px solid #2a2f24;
+  border-radius: 999px;
+  background: rgba(243, 245, 238, 0.06);
+  transition: background 220ms ease, color 220ms ease, border-color 220ms ease, opacity 220ms ease;
+}
+.logo-studio-sign-out:hover:not(:disabled) {
+  background: rgba(201, 233, 112, 0.1);
+  border-color: rgba(201, 233, 112, 0.35);
+  color: #f3f5ee;
+}
+.logo-studio-sign-out:focus-visible {
+  outline: 2px solid #c9e970;
+  outline-offset: 2px;
+}
+.logo-studio-sign-out:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
 }
 .logo-studio-title-block {
   display: flex;
@@ -7672,20 +7709,24 @@ html[data-surface="logo-studio"] body {
   font-weight: 500;
 }
 
-/* Save-to-profile panel. Sits below the export-action row and looks like
-   a quiet "commit" affordance — the admin-code field + Save button line
-   up horizontally on wider screens and stack on narrow ones. The whole
-   block is intentionally subdued (no extra heading, no dividers) so the
-   primary visual weight stays on Download SVG / PNG, which are the
-   actions a coach will use most often. */
+/* Save-to-profile panel. Sits below the export-action row as a quiet
+   commit affordance (hint + button). */
 .logo-studio-save {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
-  align-items: end;
+  align-items: flex-end;
   margin-top: 14px;
   padding-top: 14px;
   border-top: 1px solid #2a2f24;
+}
+.logo-studio-save-hint {
+  flex: 1 1 100%;
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: #cdd2c4;
+  max-width: 52ch;
 }
 .logo-studio-save-field {
   flex: 1 1 220px;

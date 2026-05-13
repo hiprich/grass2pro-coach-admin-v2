@@ -43,81 +43,16 @@ import {
   TABLE_IDS,
   tableName,
 } from "./_airtable.mjs";
+import {
+  MAX_PARTNER_CONFIG_BYTES,
+  sanitisePartnerPayload,
+} from "./_partner-config-sanitize.mjs";
 
 // Hope's record id is the safe default so a fresh deploy without the
 // override env var still patches a real row instead of erroring. Phase G
 // will replace this constant with the signed-in coach's record id from
 // the session cookie.
 const DEFAULT_COACH_RECORD_ID = "rect8JRrno85KaRNG";
-
-// Hard cap on the JSON payload size to stop a misbehaving client from
-// stuffing a megabyte of garbage into Airtable. A real PartnerLogoConfig
-// serialises to ~400 bytes; 8 KB is generous headroom for future fields
-// and still well under Airtable's 100KB long-text limit.
-const MAX_PARTNER_CONFIG_BYTES = 8 * 1024;
-
-// Whitelist of fields we accept from the request body. Any property not
-// listed here is silently dropped before persistence — defence in depth
-// against a malformed studio build (or a hand-crafted curl) writing
-// arbitrary keys into Airtable. Keep this in sync with
-// PartnerLogoConfig in src/partnerLogo.ts.
-const ALLOWED_PARTNER_KEYS = new Set([
-  "brandName",
-  "monogram",
-  "tagline",
-  "accent",
-  "accentGradient",
-  "ink",
-  "wordmarkColor",
-  "taglineColor",
-  "outlineColor",
-  "outlineWidth",
-  "style",
-  "shape",
-  "fontStyle",
-]);
-
-const ALLOWED_FONT_STYLES = new Set([
-  "general-sans",
-  "satoshi",
-  "inter",
-  "mono",
-  "signature",
-  "calligraphy",
-]);
-
-function sanitisePartner(input) {
-  if (!input || typeof input !== "object") return null;
-  const out = {};
-  for (const key of Object.keys(input)) {
-    if (!ALLOWED_PARTNER_KEYS.has(key)) continue;
-    const value = input[key];
-    // Drop undefined / null explicitly so the persisted JSON doesn't
-    // accumulate stale empty keys over time.
-    if (value === undefined || value === null) continue;
-    // accentGradient is the only nested object; pass it through with a
-    // shallow shape check so we don't persist {} or arrays-of-anything.
-    if (key === "accentGradient") {
-      if (typeof value !== "object" || Array.isArray(value)) continue;
-      out[key] = value;
-      continue;
-    }
-    if (key === "fontStyle") {
-      if (typeof value !== "string" || !ALLOWED_FONT_STYLES.has(value)) continue;
-      out[key] = value;
-      continue;
-    }
-    out[key] = value;
-  }
-  // brandName is the one truly required field — without it the studio
-  // can't render anything meaningful. Reject the whole payload rather
-  // than persist a half-empty config that would make /c/:slug worse,
-  // not better.
-  if (typeof out.brandName !== "string" || out.brandName.trim() === "") {
-    return null;
-  }
-  return out;
-}
 
 export const handler = async (event) => {
   // Method gate first — the studio only ever POSTs here, and rejecting
@@ -157,7 +92,7 @@ export const handler = async (event) => {
     return json(401, { error: "Invalid admin code." });
   }
 
-  const sanitised = sanitisePartner(partner);
+  const sanitised = sanitisePartnerPayload(partner);
   if (!sanitised) {
     return json(400, {
       error: "Partner config must include at least brandName (a non-empty string).",

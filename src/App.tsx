@@ -53,6 +53,8 @@ import {
   unsubscribeFromPush,
   updatePushPrefs,
 } from "./lib/pushClient";
+import { apiAvailable, apiPath } from "./lib/apiPath";
+import { postCoachAuth } from "./lib/coachAuthClient";
 
 type ConsentStatus = "green" | "amber" | "red" | "grey";
 
@@ -745,23 +747,6 @@ function formatShortDate(iso: string) {
 function formatCurrency(value: number) {
   return new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" }).format(value);
 }
-
-const apiBase = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
-
-function apiPath(path: string) {
-  if (apiBase) return `${apiBase}${path}`;
-  return `/.netlify/functions${path}`;
-}
-
-// Always attempt the same-origin Netlify Functions path when running in a
-// browser. The Netlify deploy serves the production site under a custom
-// domain (coach.grass2pro.com) and on netlify.app/live preview URLs alike —
-// restricting the attempt to a hostname allowlist meant the custom domain
-// silently fell back to demoData. If the same-origin fetch fails (e.g. on a
-// fully static host with no functions runtime) the catch branches below
-// transparently fall back to demoData. SSR/non-browser contexts still skip
-// the network call entirely.
-const apiAvailable = Boolean(apiBase) || typeof window !== "undefined";
 
 class CoachAuthRequiredError extends Error {
   constructor() {
@@ -6304,22 +6289,6 @@ function sanitiseCoachNext(next: string): string {
   return next;
 }
 
-async function postCoachAuth(action: string, body: Record<string, unknown> = {}) {
-  const response = await fetch(apiPath("/coach-auth"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",
-    body: JSON.stringify({ action, ...body }),
-  });
-  let payload: unknown;
-  try {
-    payload = await response.json();
-  } catch {
-    payload = null;
-  }
-  return { ok: response.ok, status: response.status, payload };
-}
-
 type CoachPortalView = "sign-in" | "check-email" | "verifying" | "verify-error";
 
 function CoachPortal() {
@@ -9187,6 +9156,20 @@ function CoachDashboard() {
     });
   }
 
+  const [signingOut, setSigningOut] = useState(false);
+
+  async function handleCoachSignOut() {
+    if (signingOut) return;
+    setSigningOut(true);
+    try {
+      await postCoachAuth("sign-out");
+      window.location.replace("/coach");
+    } catch (error) {
+      console.error("[coach-dashboard] Sign out failed:", error);
+      setSigningOut(false);
+    }
+  }
+
   if (!data) return <LoadingState />;
 
   const title = {
@@ -9224,6 +9207,18 @@ function CoachDashboard() {
           <div className="top-actions">
             {data.coach?.name ? <LoggedInAsNotice name={data.coach.name} /> : null}
             <CoachPill coach={data.coach} />
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => {
+                void handleCoachSignOut();
+              }}
+              disabled={signingOut}
+              aria-busy={signingOut}
+              data-testid="button-coach-sign-out"
+            >
+              {signingOut ? "Signing out…" : "Sign out"}
+            </button>
             <button
               type="button"
               className="theme-toggle"

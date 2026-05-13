@@ -28,6 +28,7 @@ import type {
 import { buildPartnerLogo, PARTNER_FONT_OPTIONS } from "./partnerLogo";
 import ColourPopover from "./ColourPopover";
 import { hasCoachRegistrationLogoAccess } from "./lib/coachRegistrationLogoGate";
+import { postCoachAuth } from "./lib/coachAuthClient";
 import { LoggedInAsNotice } from "./LoggedInAsNotice";
 import type { LogoStudioPersistedForm } from "./logoStudioHydrate";
 import { loadLogoStudioDraft, partnerConfigToPersistedForm, saveLogoStudioDraft } from "./logoStudioHydrate";
@@ -294,10 +295,9 @@ export default function LogoStudio() {
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
   // Save-to-Airtable state. "idle" → button shows "Save to my profile".
   // "saving" → disabled + "Saving…". "saved" → "Saved ✓" for 1.8s.
-  // "bad-code" / "error" → red message for 1.8s. Mirrors the copyState
-  // ergonomics so the two buttons feel identical in use.
+  // "error" → red message for 1.8s. Mirrors the copyState ergonomics.
   const [saveState, setSaveState] = useState<
-    "idle" | "saving" | "saved" | "bad-code" | "error"
+    "idle" | "saving" | "saved" | "error"
   >("idle");
   const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
   /** After a successful save, offer navigation to the coach dashboard or staying here. */
@@ -305,32 +305,12 @@ export default function LogoStudio() {
   const [loggedInAsName, setLoggedInAsName] = useState<string | null>(null);
   const [sessionEmail, setSessionEmail] = useState<string | null>(null);
   const [studioReady, setStudioReady] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const undoHydrationSeededRef = useRef(false);
-  // Admin code is never written to localStorage/sessionStorage — it only lives
-  // in React state so closing the browser or returning later shows an empty
-  // field (server still validates via LOGO_STUDIO_ADMIN_CODE on save).
-  const [adminCode, setAdminCode] = useState("");
+  /** Last JSON we successfully persisted to Airtable (or demo) via coach-partner-save. */
+  const lastRemoteSaveJsonRef = useRef<string | null>(null);
+  const autoSaveInFlightRef = useRef(false);
   const isRestoringRef = useRef(false);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      window.localStorage.removeItem("g2p:logoStudioAdminCode");
-    } catch {
-      /* quota / private mode */
-    }
-  }, []);
-
-  // Browsers can restore this page from the back/forward cache (bfcache) with
-  // form values intact — clear the admin code when that happens so it never
-  // reappears without typing again after leaving the page.
-  useEffect(() => {
-    function onPageShow(e: PageTransitionEvent) {
-      if (e.persisted) setAdminCode("");
-    }
-    window.addEventListener("pageshow", onPageShow);
-    return () => window.removeEventListener("pageshow", onPageShow);
-  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -405,16 +385,21 @@ export default function LogoStudio() {
             : null;
         setSessionEmail(email);
 
-        let usedDraft = false;
-        if (email && b.demo !== true) {
+        const partner = b.partner && typeof b.partner === "object" ? b.partner : null;
+        const serverBrand =
+          partner &&
+          typeof (partner as { brandName?: unknown }).brandName === "string"
+            ? String((partner as { brandName: string }).brandName).trim()
+            : "";
+        const hasServerPartner = serverBrand.length > 0;
+
+        if (hasServerPartner) {
+          applyPatch(partnerConfigToPersistedForm(partner as Partial<PartnerLogoConfig>));
+        } else if (email && b.demo !== true) {
           const draft = loadLogoStudioDraft(email);
           if (draft?.form) {
             applyPatch(draft.form);
-            usedDraft = true;
           }
-        }
-        if (!usedDraft && b.partner && typeof b.partner === "object") {
-          applyPatch(partnerConfigToPersistedForm(b.partner as Partial<PartnerLogoConfig>));
         }
         setStudioReady(true);
       })
@@ -816,11 +801,43 @@ export default function LogoStudio() {
     return payload;
   }
 
-  // Persist the current studio config to the configured coach record in
-  // Airtable via /api/coach-partner-update. Requires the admin code
-  // (gated server-side; we send it as-is and let the function 401 if
-  // wrong). The button visibly cycles through saving → saved/error so
-  // the user gets immediate feedback without an alert() dialog.
+  const partnerSavePayloadJson = useMemo(
+    () => JSON.stringify(buildPartnerConfigPayload()),
+    [config],
+  );
+
+  // Debounced save to the signed-in coach's Airtable row so "Partner Config"
+  // is the source of truth across devices and sessions (local draft is cache).
+  useEffect(() => {
+    if (!studioReady || !sessionEmail) return;
+    if (!config.brandName.trim()) return;
+    if (partnerSavePayloadJson === lastRemoteSaveJsonRef.current) return;
+
+    const id = window.setTimeout(() => {
+      if (partnerSavePayloadJson === lastRemoteSaveJsonRef.current) return;
+      if (autoSaveInFlightRef.current) return;
+      autoSaveInFlightRef.current = true;
+      void fetch("/api/coach-partner-save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          partner: JSON.parse(partnerSavePayloadJson) as Record<string, unknown>,
+        }),
+      })
+        .then(async (response) => {
+          if (!response.ok) return;
+          lastRemoteSaveJsonRef.current = partnerSavePayloadJson;
+        })
+        .finally(() => {
+          autoSaveInFlightRef.current = false;
+        });
+    }, 1200);
+
+    return () => window.clearTimeout(id);
+  }, [studioReady, sessionEmail, config.brandName, partnerSavePayloadJson]);
+
+  // Manual save to Airtable (same endpoint as background sync).
   async function handleSaveToProfile() {
     if (!config.brandName.trim()) {
       setSaveState("error");
@@ -831,47 +848,35 @@ export default function LogoStudio() {
       }, 1800);
       return;
     }
-    if (!adminCode.trim()) {
-      setSaveState("bad-code");
-      setSaveErrorMessage("Enter the admin code to save.");
-      window.setTimeout(() => {
-        setSaveState("idle");
-        setSaveErrorMessage(null);
-      }, 1800);
-      return;
-    }
 
     setSaveState("saving");
     setSaveErrorMessage(null);
     try {
-      const response = await fetch("/api/coach-partner-update", {
+      const payload = buildPartnerConfigPayload();
+      const response = await fetch("/api/coach-partner-save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({
-          adminCode,
-          partner: buildPartnerConfigPayload(),
-        }),
+        body: JSON.stringify({ partner: payload }),
       });
       if (response.status === 401) {
-        setSaveState("bad-code");
-        setSaveErrorMessage("Wrong admin code.");
+        setSaveState("error");
+        setSaveErrorMessage(
+          "Sign in from the coach dashboard to save to your profile.",
+        );
         window.setTimeout(() => {
           setSaveState("idle");
           setSaveErrorMessage(null);
-        }, 1800);
+        }, 2200);
         return;
       }
       if (!response.ok) {
-        // Surface the function's structured error so a missing Airtable
-        // field (most common deploy-time mistake) reads as a real
-        // sentence instead of "Save failed".
         let detail = "";
         try {
           const body = (await response.json()) as { error?: string };
           detail = body?.error || "";
         } catch {
-          // Non-JSON response — fall through with generic copy.
+          /* non-JSON */
         }
         setSaveState("error");
         setSaveErrorMessage(detail || "Save failed. Try again in a moment.");
@@ -881,6 +886,7 @@ export default function LogoStudio() {
         }, 2800);
         return;
       }
+      lastRemoteSaveJsonRef.current = JSON.stringify(payload);
       setSaveState("saved");
       setPostSaveNavOpen(true);
     } catch (error) {
@@ -907,6 +913,18 @@ export default function LogoStudio() {
     }
   }
 
+  async function handleCoachSignOut() {
+    if (signingOut) return;
+    setSigningOut(true);
+    try {
+      await postCoachAuth("sign-out");
+      window.location.replace("/coach");
+    } catch (error) {
+      console.error("[logo-studio] Sign out failed:", error);
+      setSigningOut(false);
+    }
+  }
+
   return (
     <div className="logo-studio" data-testid="logo-studio">
       <header className="logo-studio-topbar">
@@ -918,17 +936,31 @@ export default function LogoStudio() {
           >
             ← Coach dashboard
           </a>
-          {/* Phase G will derive this slug from the signed-in coach's profile. */}
-          <a
-            className="logo-studio-public-link"
-            href="/c/hope"
-            target="_blank"
-            rel="noopener"
-            data-testid="link-studio-to-public-page"
-          >
-            <span>View my public page</span>
-            <ExternalLink size={14} aria-hidden="true" />
-          </a>
+          <div className="logo-studio-topbar-actions">
+            {/* Phase G will derive this slug from the signed-in coach's profile. */}
+            <a
+              className="logo-studio-public-link"
+              href="/c/hope"
+              target="_blank"
+              rel="noopener"
+              data-testid="link-studio-to-public-page"
+            >
+              <span>View my public page</span>
+              <ExternalLink size={14} aria-hidden="true" />
+            </a>
+            <button
+              type="button"
+              className="logo-studio-sign-out"
+              onClick={() => {
+                void handleCoachSignOut();
+              }}
+              disabled={signingOut}
+              aria-busy={signingOut}
+              data-testid="button-studio-sign-out"
+            >
+              {signingOut ? "Signing out…" : "Sign out"}
+            </button>
+          </div>
         </div>
         {loggedInAsName ? <LoggedInAsNotice name={loggedInAsName} variant="studio" /> : null}
         <div className="logo-studio-title-block">
@@ -1609,24 +1641,13 @@ export default function LogoStudio() {
             </button>
           </div>
 
-          {/* Save-to-profile panel. Admin code is in-memory only (never persisted)
-              so it does not survive a full browser restart. Server still enforces
-              LOGO_STUDIO_ADMIN_CODE on each save. */}
+          {/* Save-to-profile: session cookie + coach-partner-save → signed-in coach row. */}
           <div className="logo-studio-save" data-testid="logo-studio-save">
-            <label className="logo-studio-field logo-studio-save-field">
-              <span>Admin code</span>
-              <input
-                type="password"
-                name="g2p-logo-studio-admin-code"
-                value={adminCode}
-                onChange={(e) => setAdminCode(e.target.value)}
-                placeholder="Required to save"
-                autoComplete="new-password"
-                autoCorrect="off"
-                spellCheck={false}
-                data-testid="input-admin-code"
-              />
-            </label>
+            <p className="logo-studio-save-hint">
+              Changes are saved to your coach profile while you&apos;re signed in (
+              {sessionEmail ? "syncing in the background" : "sign in from Coach dashboard to sync"}
+              ). Use the button for an immediate save confirmation.
+            </p>
             <button
               type="button"
               className="logo-studio-btn logo-studio-btn-primary logo-studio-save-btn"
@@ -1638,8 +1659,6 @@ export default function LogoStudio() {
                 ? "Saving…"
                 : saveState === "saved"
                 ? "Saved ✓"
-                : saveState === "bad-code"
-                ? "Wrong code"
                 : saveState === "error"
                 ? "Save failed"
                 : "Save to my profile"}
@@ -1673,10 +1692,10 @@ export default function LogoStudio() {
               contact.
             </p>
             <p>
-              <strong>Save to my profile</strong> — writes the current setup
-              to your Grass2Pro coach record. Requires the admin code. Your
-              coach landing page picks it up at the next deploy (Phase G
-              will make this instant).
+              <strong>Save to my profile</strong> — writes the current setup to
+              your Grass2Pro coach record (signed-in session). Your coach dashboard
+              and public page use these colours and the lockup when you next load
+              them.
             </p>
           </details>
         </section>
