@@ -7429,6 +7429,65 @@ html[data-surface="logo-studio"] body {
   outline: 2px solid #c9e970;
   outline-offset: 2px;
 }
+.logo-studio-field-hint {
+  margin: 0 0 12px;
+  max-width: 42rem;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #8a8f80;
+}
+.logo-studio-fonts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr));
+  gap: 8px;
+}
+.logo-studio-font-btn {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  text-align: left;
+  padding: 10px 12px;
+  background: #0b0d0a;
+  border: 1px solid #2a2f24;
+  border-radius: 10px;
+  color: #cdd2c4;
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 180ms ease, color 180ms ease, background 180ms ease,
+    transform 180ms ease;
+}
+.logo-studio-font-btn:hover {
+  border-color: #c9e970;
+  color: #f3f5ee;
+  transform: translateY(-1px);
+}
+.logo-studio-font-btn.is-active {
+  background: rgba(201, 233, 112, 0.1);
+  border-color: #c9e970;
+  color: #f3f5ee;
+}
+.logo-studio-font-btn:focus-visible {
+  outline: 2px solid #c9e970;
+  outline-offset: 2px;
+}
+.logo-studio-font-btn-label {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: inherit;
+}
+.logo-studio-font-btn-hint {
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: #8a8f80;
+}
+.logo-studio-font-btn.is-active .logo-studio-font-btn-hint,
+.logo-studio-font-btn:hover .logo-studio-font-btn-hint {
+  color: rgba(205, 210, 196, 0.92);
+}
 /* Mark-shape chips. Each chip is a vertical stack: mini SVG icon (filled
    in lime so it reads at a glance) + label. Larger touch targets than the
    style buttons since a coach's eye is doing more work picking a shape. */

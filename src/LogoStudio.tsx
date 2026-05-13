@@ -21,10 +21,11 @@ import { createPortal } from "react-dom";
 import { ExternalLink } from "lucide-react";
 import type {
   AccentGradient,
+  PartnerFontStyle,
   PartnerLogoConfig,
   PartnerLogoShape,
 } from "./partnerLogo";
-import { buildPartnerLogo } from "./partnerLogo";
+import { buildPartnerLogo, PARTNER_FONT_OPTIONS } from "./partnerLogo";
 import ColourPopover from "./ColourPopover";
 import { hasCoachRegistrationLogoAccess } from "./lib/coachRegistrationLogoGate";
 import { LoggedInAsNotice } from "./LoggedInAsNotice";
@@ -262,6 +263,7 @@ export default function LogoStudio() {
   const [gradientPresetId, setGradientPresetId] = useState<string | null>(null);
   const [style, setStyle] = useState<Style>("wordmark-with-mark");
   const [shape, setShape] = useState<PartnerLogoShape>("squircle");
+  const [fontStyle, setFontStyle] = useState<PartnerFontStyle>("general-sans");
   const [autoInk, setAutoInk] = useState(true);
   const [manualInk, setManualInk] = useState("#1a2110");
   // v1.3 — "Pro mode" advanced controls. Collapsed by default so the
@@ -406,6 +408,7 @@ export default function LogoStudio() {
     wordmarkCustom: string;
     taglineMode: TextColourMode;
     taglineCustom: string;
+    fontStyle: PartnerFontStyle;
   };
   const [undoStack, setUndoStack] = useState<FormState[]>([]);
   // Ref used to suppress snapshot pushes while we're applying an undo —
@@ -441,6 +444,7 @@ export default function LogoStudio() {
       wordmarkCustom,
       taglineMode,
       taglineCustom,
+      fontStyle,
     }),
     [
       brandName,
@@ -460,6 +464,7 @@ export default function LogoStudio() {
       wordmarkCustom,
       taglineMode,
       taglineCustom,
+      fontStyle,
     ],
   );
 
@@ -552,6 +557,7 @@ export default function LogoStudio() {
     setWordmarkCustom(s.wordmarkCustom);
     setTaglineMode(s.taglineMode);
     setTaglineCustom(s.taglineCustom);
+    setFontStyle(s.fontStyle ?? "inter");
   }
 
   function handleUndo() {
@@ -658,6 +664,7 @@ export default function LogoStudio() {
       shape,
       accent: resolvedAccent,
       ink: resolvedInk,
+      fontStyle,
     };
     if (activeGradient) cfg.accentGradient = activeGradient;
     if (resolvedWordmarkColor) cfg.wordmarkColor = resolvedWordmarkColor;
@@ -677,6 +684,7 @@ export default function LogoStudio() {
     tagline,
     style,
     shape,
+    fontStyle,
     resolvedAccent,
     resolvedInk,
     activeGradient,
@@ -729,6 +737,7 @@ export default function LogoStudio() {
       ink: config.ink,
       style: config.style,
       shape: config.shape,
+      fontStyle: config.fontStyle,
     };
     if (config.accentGradient) payload.accentGradient = config.accentGradient;
     if (config.wordmarkColor) payload.wordmarkColor = config.wordmarkColor;
@@ -913,6 +922,36 @@ export default function LogoStudio() {
                 maxLength={32}
               />
             </label>
+          </fieldset>
+
+          <fieldset className="logo-studio-fieldset">
+            <legend>Typography</legend>
+            <p className="logo-studio-field-hint">
+              Applies to the monogram, wordmark, and tagline. General Sans and Satoshi are the same families as the Grass2Pro coach app (loaded on this
+              page).
+            </p>
+            <div className="logo-studio-fonts" role="radiogroup" aria-label="Logo font">
+              {PARTNER_FONT_OPTIONS.map((opt) => {
+                const isActive = fontStyle === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    className={`logo-studio-font-btn ${isActive ? "is-active" : ""}`}
+                    onClick={() => {
+                      flushSnapshot();
+                      setFontStyle(opt.id);
+                    }}
+                    aria-pressed={isActive}
+                    title={opt.hint}
+                    data-testid={`btn-font-${opt.id}`}
+                  >
+                    <span className="logo-studio-font-btn-label">{opt.label}</span>
+                    <span className="logo-studio-font-btn-hint">{opt.hint}</span>
+                  </button>
+                );
+              })}
+            </div>
           </fieldset>
 
           <fieldset className="logo-studio-fieldset">

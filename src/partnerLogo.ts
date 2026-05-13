@@ -16,6 +16,8 @@
 // brand rather than a sub-brand of Grass2Pro. The wordmark uses the same
 // font stack as the rest of the app for consistency.
 
+export type PartnerFontStyle = "general-sans" | "satoshi" | "inter" | "mono";
+
 export type PartnerLogoConfig = {
   // Two-or-three-letter monogram for the square mark. Auto-derived from the
   // brand name if omitted (first letter of each significant word, max 3).
@@ -72,7 +74,55 @@ export type PartnerLogoConfig = {
   //   - triangle:  point-up pennant, used by lots of youth clubs
   //   - hexagon:   honeycomb crest, popular with newer brands
   shape?: PartnerLogoShape;
+  // Font stack for monogram + wordmark + tagline in the generated SVG. Uses
+  // the same web fonts as the Grass2Pro coach app where possible (loaded via
+  // index.html Fontshare links). Omitted or unknown values fall back to the
+  // neutral Inter/system stack so older saved configs keep a stable look.
+  fontStyle?: PartnerFontStyle;
 };
+
+/** Presets for Logo Studio — match Grass2Pro app fonts (Fontshare) + Inter / mono fallbacks. */
+export const PARTNER_FONT_OPTIONS: ReadonlyArray<{
+  id: PartnerFontStyle;
+  label: string;
+  hint: string;
+}> = [
+  {
+    id: "general-sans",
+    label: "General Sans",
+    hint: "Grass2Pro display — same as marketing headlines",
+  },
+  {
+    id: "satoshi",
+    label: "Satoshi",
+    hint: "Grass2Pro body — same as the coach app UI",
+  },
+  {
+    id: "inter",
+    label: "Inter",
+    hint: "Neutral geometric sans (compact)",
+  },
+  {
+    id: "mono",
+    label: "Mono",
+    hint: "Technical / roster-board style",
+  },
+];
+
+/** CSS font-family string for SVG <text> (document fonts apply when the SVG is in-page). */
+export function resolvePartnerFontStack(style: PartnerFontStyle | undefined): string {
+  switch (style) {
+    case "general-sans":
+      return "'General Sans', 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    case "satoshi":
+      return "'Satoshi', 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    case "mono":
+      return "ui-monospace, 'SFMono-Regular', 'SF Mono', Menlo, Monaco, Consolas, 'Liberation Mono', monospace";
+    case "inter":
+    default:
+      return "'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+  }
+}
 
 export type PartnerLogoShape =
   | "squircle"
@@ -109,6 +159,7 @@ const DEFAULTS: Required<
     | "taglineColor"
     | "outlineColor"
     | "outlineWidth"
+    | "fontStyle"
   >
 > = {
   brandName: "",
@@ -338,8 +389,7 @@ export function buildPartnerLogo(config: PartnerLogoConfig): string {
   const VB_H = 50;
   const MARK_SIZE = 38;
   const MARK_Y = 6;
-  const fontStack =
-    "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+  const fontStack = resolvePartnerFontStack(cfg.fontStyle);
 
   // Outline (stroke) attributes — emitted only when an outline is
   // configured. We use stroke-alignment via inset by half the stroke

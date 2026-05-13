@@ -74,7 +74,10 @@ const ALLOWED_PARTNER_KEYS = new Set([
   "outlineWidth",
   "style",
   "shape",
+  "fontStyle",
 ]);
+
+const ALLOWED_FONT_STYLES = new Set(["general-sans", "satoshi", "inter", "mono"]);
 
 function sanitisePartner(input) {
   if (!input || typeof input !== "object") return null;
@@ -89,6 +92,11 @@ function sanitisePartner(input) {
     // shallow shape check so we don't persist {} or arrays-of-anything.
     if (key === "accentGradient") {
       if (typeof value !== "object" || Array.isArray(value)) continue;
+      out[key] = value;
+      continue;
+    }
+    if (key === "fontStyle") {
+      if (typeof value !== "string" || !ALLOWED_FONT_STYLES.has(value)) continue;
       out[key] = value;
       continue;
     }
