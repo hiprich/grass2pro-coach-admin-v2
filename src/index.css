@@ -6724,6 +6724,8 @@ html[data-surface="logo-studio"] {
   min-height: 100%;
   overflow: visible;
   overflow-y: auto;
+  /* Dark native controls (buttons, etc.) for Logo Studio / WebKit. */
+  color-scheme: dark;
 }
 html:has(.logo-studio) body,
 html[data-surface="logo-studio"] body {
@@ -6735,11 +6737,14 @@ html[data-surface="logo-studio"] body {
 [data-surface="logo-studio"] {
   background: #0b0d0a;
   color: #f3f5ee;
+  /* WebKit form controls follow color-scheme; avoids light grey native buttons. */
+  color-scheme: dark;
 }
 .logo-studio {
   min-height: 100vh;
   background: #0b0d0a;
   color: #f3f5ee;
+  color-scheme: dark;
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   padding: 28px clamp(20px, 5vw, 56px) 80px;
   box-sizing: border-box;
@@ -7311,6 +7316,71 @@ html[data-surface="logo-studio"] body {
   outline: 2px solid #c9e970;
   outline-offset: 2px;
 }
+
+/* Typography presets — full-width stacked chips (label + hint).
+   Selector includes fieldset + element name so iOS WebKit applies our paint
+   instead of retaining light system button styling. */
+.logo-studio-fonts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.logo-studio-fieldset button.logo-studio-font-btn,
+.logo-studio-font-btn {
+  -webkit-appearance: none;
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  margin: 0;
+  box-sizing: border-box;
+  text-align: left;
+  padding: 12px 14px;
+  border-style: solid;
+  border-width: 1px;
+  border-radius: 10px;
+  border-color: #2a2f24;
+  background-color: #0b0d0a;
+  color: #f3f5ee;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: 1.3;
+  cursor: pointer;
+  transition:
+    border-color 180ms ease,
+    background-color 180ms ease,
+    transform 160ms ease;
+}
+.logo-studio-fieldset button.logo-studio-font-btn:hover,
+.logo-studio-font-btn:hover {
+  border-color: #c9e970;
+  transform: translateY(-1px);
+}
+.logo-studio-fieldset button.logo-studio-font-btn.is-active,
+.logo-studio-font-btn.is-active {
+  background-color: rgba(201, 233, 112, 0.1);
+  border-color: #c9e970;
+}
+.logo-studio-fieldset button.logo-studio-font-btn:focus-visible,
+.logo-studio-font-btn:focus-visible {
+  outline: 2px solid #c9e970;
+  outline-offset: 2px;
+}
+.logo-studio-font-btn-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #f3f5ee;
+  letter-spacing: 0.01em;
+}
+.logo-studio-font-btn-hint {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: #9aa092;
+}
+
 /* Mark-shape chips. Each chip is a vertical stack: mini SVG icon (filled
    in lime so it reads at a glance) + label. Larger touch targets than the
    style buttons since a coach's eye is doing more work picking a shape. */
