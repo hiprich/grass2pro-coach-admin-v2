@@ -6843,10 +6843,30 @@ html[data-surface="logo-studio"] body {
      content height and sticky disengages once you scroll past it —
      which was the v1.4 bug Cobby spotted on desktop Safari. */
 }
-@media (max-width: 900px) {
+/* Stack form + preview only in portrait under 900px. Phone landscape
+   (esp. iOS Chrome) often stays <900px wide while the URL bar shrinks
+   height — forcing 1fr here made a tall single column and heavy scroll.
+   In landscape we keep the default two-column grid so panels sit
+   side-by-side. */
+@media (max-width: 900px) and (orientation: portrait) {
   .logo-studio-grid {
     grid-template-columns: 1fr;
     gap: 24px;
+  }
+}
+
+/* Tight phone landscape: explicit equal-ish columns + min-width 0 so
+   grid/flex children can shrink inside the narrow chrome without
+   horizontal overflow. */
+@media (max-width: 900px) and (orientation: landscape) {
+  .logo-studio-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 16px;
+  }
+  .logo-studio-form,
+  .logo-studio-preview-col {
+    min-width: 0;
+    min-height: 0;
   }
 }
 .logo-studio-form {
@@ -7781,7 +7801,7 @@ html[data-surface="logo-studio"] body {
   top: 28px;
   z-index: 5;
 }
-@media (max-width: 900px) {
+@media (max-width: 900px) and (orientation: portrait) {
   .logo-studio-preview-sticky {
     /* On mobile, hug the very top of the viewport with a soft fade so
        form content doesn't visually butt up against the sticky edge. */
