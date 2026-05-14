@@ -507,7 +507,11 @@ export default function LogoStudio() {
   const [previewRasterError, setPreviewRasterError] = useState<string | null>(null);
   const previewRef = useRef<HTMLDivElement | null>(null);
   const previewDarkCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const previewLightCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  // Light preview uses <img> not <canvas>: iOS WebKit defers GPU uploads to
+  // off-screen canvases (the light pane is below the fold on mobile while the
+  // dark canvas is sticky/visible). Setting img.src = dataURL always flushes
+  // regardless of scroll position.
+  const previewLightImgRef = useRef<HTMLImageElement | null>(null);
   const previewRasterGenRef = useRef(0);
 
   // ---- Undo (v1.4) ---------------------------------------------------------
@@ -782,8 +786,8 @@ export default function LogoStudio() {
     if (wordmarkMode === "white") return "#f3f5ee";
     if (wordmarkMode === "custom") return wordmarkCustom;
     // "accent" — use the resolved accent so the wordmark colour-pairs
-    // with the mark on dark surfaces. The light-bg preview overrides
-    // this with its own dark colour for legibility.
+    // with the mark on dark surfaces. The light canvas reuses `svg`
+    // for accent/custom; only "white" substitutes dark ink on the card.
     return resolvedAccent;
   }, [wordmarkMode, wordmarkCustom, resolvedAccent]);
 
@@ -833,10 +837,17 @@ export default function LogoStudio() {
 
   const svg = useMemo(() => buildPartnerLogo(config), [config]);
 
-  const previewSvgLightSource = useMemo(
-    () => buildPartnerLogo({ ...config, wordmarkColor: "#11140e" }),
-    [config],
-  );
+  // Light card: use the exact same SVG string as the dark preview whenever the
+  // export wordmark is already meant to read on light (accent + custom). Only
+  // "white" (off-white #f3f5ee for dark surfaces) is swapped to dark ink on the
+  // card — same reference as `svg` avoids a second build PartnerLogo pass and
+  // any drift vs the dark canvas raster.
+  const previewSvgLightSource = useMemo(() => {
+    if (wordmarkMode === "white") {
+      return buildPartnerLogo({ ...config, wordmarkColor: "#11140e" });
+    }
+    return svg;
+  }, [wordmarkMode, config, svg]);
 
   const previewMarkupInvalidMessage = useMemo(() => {
     const vbDark = parseSvgViewBox(svg);
@@ -849,6 +860,14 @@ export default function LogoStudio() {
   // bitmaps onto visible <canvas> nodes. iOS / PWA often fails to paint
   // inline SVG, <img src=blob:…>, or off-screen canvases — on-screen canvas
   // matches the pixels coaches already get from "Download PNG".
+  //
+  // Why accent/custom Light was ever "different":
+  // ─────────────────────────────────────────────────────────────────────────
+  // It shouldn't be — same `svg` as Dark and same raster is correct. Only the
+  // "White" preset is special: exported wordmarks use cream #f3f5ee (meant for
+  // charcoal/navy placements). On our light preview card that's nearly
+  // invisible, so we substitute #11140e in a *second* SVG for the light pane
+  // only (Dark still shows the honest export pixels).
   useEffect(() => {
     if (previewMarkupInvalidMessage) return;
 
@@ -868,13 +887,30 @@ export default function LogoStudio() {
         try {
           if (cancelled || gen !== previewRasterGenRef.current) return;
           setPreviewRasterError(null);
-          const [cDark, cLight] = await Promise.all([
-            rasterizeSvgToCanvas(svg, rasterW, rhDark),
-            rasterizeSvgToCanvas(previewSvgLightSource, rasterW, rhLight),
-          ]);
+          const whiteWordmarkPreset = wordmarkMode === "white";
+
+          // Rasterise whichever SVG(s) we need this run.
+          const offscreenDark = await rasterizeSvgToCanvas(svg, rasterW, rhDark);
           if (cancelled || gen !== previewRasterGenRef.current) return;
-          paintPreviewCanvas(previewDarkCanvasRef.current, cDark);
-          paintPreviewCanvas(previewLightCanvasRef.current, cLight);
+
+          const offscreenLight = whiteWordmarkPreset
+            ? await rasterizeSvgToCanvas(previewSvgLightSource, rasterW, rhLight)
+            : offscreenDark;
+          if (cancelled || gen !== previewRasterGenRef.current) return;
+
+          await new Promise<void>((r) => requestAnimationFrame(() => r()));
+          if (cancelled || gen !== previewRasterGenRef.current) return;
+
+          // Dark preview — canvas, always on-screen (sticky).
+          paintPreviewCanvas(previewDarkCanvasRef.current, offscreenDark);
+
+          // Light preview — <img> via data URL. iOS WebKit silently drops
+          // drawImage() calls to off-screen <canvas> elements; setting img.src
+          // always flushes, regardless of scroll position.
+          const dataUrl = offscreenLight.toDataURL("image/png");
+          if (previewLightImgRef.current) {
+            previewLightImgRef.current.src = dataUrl;
+          }
         } catch (e) {
           if (cancelled || gen !== previewRasterGenRef.current) return;
           setPreviewRasterError(
@@ -888,7 +924,7 @@ export default function LogoStudio() {
       cancelled = true;
       window.clearTimeout(t);
     };
-  }, [svg, previewSvgLightSource, previewMarkupInvalidMessage]);
+  }, [svg, previewSvgLightSource, previewMarkupInvalidMessage, wordmarkMode]);
 
   const previewAltDark =
     brandName.trim() === ""
@@ -1729,11 +1765,13 @@ export default function LogoStudio() {
             <span className="logo-studio-preview-label">On light background</span>
             <div className="logo-studio-preview-svg">
               <div className="logo-studio-preview-canvas-wrap">
-                <canvas
-                  ref={previewLightCanvasRef}
+                {/* <img> not <canvas>: iOS WebKit defers off-screen canvas GPU
+                    uploads; img.src=dataURL always renders regardless of
+                    scroll position. */}
+                <img
+                  ref={previewLightImgRef}
                   className="logo-studio-preview-canvas"
-                  role="img"
-                  aria-label={previewAltLight}
+                  alt={previewAltLight}
                 />
               </div>
             </div>

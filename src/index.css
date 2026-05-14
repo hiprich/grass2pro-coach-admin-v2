@@ -7476,8 +7476,10 @@ html[data-surface="logo-studio"] body {
 .logo-studio-preview-dark {
   background: #11150e;
 }
+/* Slightly cooler than default wordmark cream (#f3f5ee) so pale custom
+   wordmarks stay visible while dragging the picker (export PNG is unchanged). */
 .logo-studio-preview-light {
-  background: #f3f5ee;
+  background: #e4e7df;
 }
 .logo-studio-preview-light .logo-studio-preview-label {
   color: #1a2110;
