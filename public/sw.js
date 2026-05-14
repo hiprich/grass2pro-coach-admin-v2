@@ -7,7 +7,7 @@
 
 // Bump when you need browsers to discard cached hashed assets aggressively
 // (e.g. Logo Studio preview pipeline, other SPA bundle changes sticking on clients).
-const CACHE_VERSION = 'v13'
+const CACHE_VERSION = 'v14'
 const CACHE_NAME = `g2p-coach-${CACHE_VERSION}`
 
 // Paths the SW must NEVER cache and must always send straight to the network.
