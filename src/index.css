@@ -200,23 +200,6 @@
     --tone-media-rest-bg: #2c2c34;
     --tone-media-rest-accent: #a09cb0;
   }
-
-  /* Coach dashboard: primary UI tints from Logo Studio “Partner Config” (--coach-brand-accent set in JS). */
-  html[data-coach-brand="1"][data-theme="light"] {
-    --primary: var(--coach-brand-accent);
-    --primary-strong: color-mix(in srgb, var(--coach-brand-accent) 72%, #0c140a);
-    --pitch: color-mix(in srgb, var(--coach-brand-accent) 58%, #4a7a38);
-    --primary-soft: color-mix(in srgb, var(--coach-brand-accent) 22%, #fffdf7);
-    --lime: color-mix(in srgb, var(--coach-brand-accent) 48%, #eef2dc);
-  }
-
-  html[data-coach-brand="1"][data-theme="dark"] {
-    --primary: color-mix(in srgb, var(--coach-brand-accent) 62%, #d4e8bc);
-    --primary-strong: color-mix(in srgb, var(--coach-brand-accent) 78%, #f0f6e8);
-    --pitch: color-mix(in srgb, var(--coach-brand-accent) 44%, #243018);
-    --primary-soft: color-mix(in srgb, var(--coach-brand-accent) 20%, #171c16);
-    --lime: color-mix(in srgb, var(--coach-brand-accent) 52%, #c9e970);
-  }
 }
 
 @layer base {
@@ -480,35 +463,6 @@
     gap: var(--space-3);
   }
 
-  .logged-in-as {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-2);
-    max-width: min(22rem, 100%);
-    min-width: 0;
-    padding: var(--space-2) var(--space-3);
-    border-radius: var(--radius-full);
-    border: 1px solid var(--border);
-    background: var(--surface-2);
-    font-size: var(--text-xs);
-    color: var(--muted);
-    line-height: 1.3;
-  }
-
-  .logged-in-as__icon {
-    flex-shrink: 0;
-    color: var(--primary);
-  }
-
-  .logged-in-as__text {
-    min-width: 0;
-  }
-
-  .logged-in-as__text strong {
-    color: var(--text);
-    font-weight: 700;
-  }
-
   .coach-pill {
     display: flex;
     align-items: center;
@@ -691,59 +645,6 @@
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
     gap: var(--space-4);
-  }
-
-  .overview-logo-studio {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-4);
-    padding: var(--space-5);
-    margin-bottom: var(--space-2);
-  }
-
-  .overview-logo-studio__body {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: flex-start;
-    gap: var(--space-4);
-    min-width: min(100%, 28rem);
-  }
-
-  .overview-logo-studio__icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 2.75rem;
-    height: 2.75rem;
-    border-radius: var(--radius-lg);
-    background: var(--primary-soft);
-    color: var(--primary);
-    flex-shrink: 0;
-  }
-
-  .overview-logo-studio__copy {
-    display: grid;
-    gap: var(--space-2);
-    max-width: 42rem;
-  }
-
-  .overview-logo-studio__title {
-    font-family: var(--font-display);
-    font-size: var(--text-lg);
-    font-weight: 700;
-    color: var(--text);
-    margin: 0;
-  }
-
-  .overview-logo-studio__copy p {
-    margin: 0;
-  }
-
-  .overview-logo-studio__cta {
-    text-decoration: none;
-    flex-shrink: 0;
   }
 
   .section-heading {
@@ -2663,11 +2564,6 @@
 
   .top-actions {
     gap: var(--space-2);
-  }
-
-  /* "Logged in as" chip — hides on narrow screens so the pill + theme toggle fit. Logo Studio keeps its own banner (not in .top-actions). */
-  .main-area .top-actions .logged-in-as {
-    display: none;
   }
 
   .coach-pill {
@@ -6822,12 +6718,14 @@ a.homepage-brand-linked:focus-visible {
    sticky inside the body fails to pin because the sticky element binds
    to body's scroll container which never actually scrolls. (Spent
    v1.4/v1.5 chasing this; logging here so we don't reintroduce it.) */
+html:has(.logo-studio),
 html[data-surface="logo-studio"] {
   height: auto;
   min-height: 100%;
   overflow: visible;
   overflow-y: auto;
 }
+html:has(.logo-studio) body,
 html[data-surface="logo-studio"] body {
   height: auto;
   min-height: 100%;
@@ -6861,29 +6759,6 @@ html[data-surface="logo-studio"] body {
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
-}
-.logo-studio-topbar-actions {
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.logo-studio .logged-in-as--studio {
-  width: 100%;
-  max-width: none;
-  justify-content: flex-start;
-  margin-top: -4px;
-  border-color: rgba(243, 245, 238, 0.16);
-  background: rgba(10, 15, 10, 0.55);
-  color: #a4ae98;
-  font-size: 13px;
-}
-.logo-studio .logged-in-as--studio .logged-in-as__icon {
-  color: #c9e970;
-}
-.logo-studio .logged-in-as--studio .logged-in-as__text strong {
-  color: #f3f5ee;
 }
 .logo-studio-back {
   display: inline-flex;
@@ -6929,36 +6804,6 @@ html[data-surface="logo-studio"] body {
 .logo-studio-public-link:focus-visible {
   outline: 2px solid #c9e970;
   outline-offset: 2px;
-}
-.logo-studio-sign-out {
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-  font: inherit;
-  text-decoration: none;
-  color: #cdd2c4;
-  font-size: 13px;
-  font-weight: 600;
-  padding: 6px 12px;
-  border: 1px solid #2a2f24;
-  border-radius: 999px;
-  background: rgba(243, 245, 238, 0.06);
-  transition: background 220ms ease, color 220ms ease, border-color 220ms ease, opacity 220ms ease;
-}
-.logo-studio-sign-out:hover:not(:disabled) {
-  background: rgba(201, 233, 112, 0.1);
-  border-color: rgba(201, 233, 112, 0.35);
-  color: #f3f5ee;
-}
-.logo-studio-sign-out:focus-visible {
-  outline: 2px solid #c9e970;
-  outline-offset: 2px;
-}
-.logo-studio-sign-out:disabled {
-  opacity: 0.65;
-  cursor: not-allowed;
 }
 .logo-studio-title-block {
   display: flex;
@@ -7466,75 +7311,6 @@ html[data-surface="logo-studio"] body {
   outline: 2px solid #c9e970;
   outline-offset: 2px;
 }
-.logo-studio-field-hint {
-  margin: 0 0 12px;
-  max-width: 42rem;
-  font-size: 12px;
-  line-height: 1.45;
-  color: #8a8f80;
-}
-.logo-studio-loading-hint {
-  margin: 0 0 14px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #c9e970;
-}
-.logo-studio-form--loading .logo-studio-form-ghost {
-  pointer-events: none;
-  opacity: 0.4;
-}
-.logo-studio-fonts {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr));
-  gap: 8px;
-}
-.logo-studio-font-btn {
-  appearance: none;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  text-align: left;
-  padding: 10px 12px;
-  background: #0b0d0a;
-  border: 1px solid #2a2f24;
-  border-radius: 10px;
-  color: #cdd2c4;
-  cursor: pointer;
-  font-family: inherit;
-  transition: border-color 180ms ease, color 180ms ease, background 180ms ease,
-    transform 180ms ease;
-}
-.logo-studio-font-btn:hover {
-  border-color: #c9e970;
-  color: #f3f5ee;
-  transform: translateY(-1px);
-}
-.logo-studio-font-btn.is-active {
-  background: rgba(201, 233, 112, 0.1);
-  border-color: #c9e970;
-  color: #f3f5ee;
-}
-.logo-studio-font-btn:focus-visible {
-  outline: 2px solid #c9e970;
-  outline-offset: 2px;
-}
-.logo-studio-font-btn-label {
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  color: inherit;
-}
-.logo-studio-font-btn-hint {
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 1.35;
-  color: #8a8f80;
-}
-.logo-studio-font-btn.is-active .logo-studio-font-btn-hint,
-.logo-studio-font-btn:hover .logo-studio-font-btn-hint {
-  color: rgba(205, 210, 196, 0.92);
-}
 /* Mark-shape chips. Each chip is a vertical stack: mini SVG icon (filled
    in lime so it reads at a glance) + label. Larger touch targets than the
    style buttons since a coach's eye is doing more work picking a shape. */
@@ -7651,11 +7427,39 @@ html[data-surface="logo-studio"] body {
   justify-content: center;
   flex: 1;
   width: 100%;
+  min-width: 0;
   min-height: 100px;
 }
-.logo-studio-preview-svg svg {
-  max-width: 100%;
+
+/* Bitmap previews — pixels copied from the same raster path as "Download PNG".
+   On-screen <canvas> avoids iOS / PWA paint bugs with inline SVG and <img>. */
+.logo-studio-preview-canvas-wrap {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  overflow: visible;
+}
+
+.logo-studio-preview-canvas {
+  display: block;
+  width: 100%;
   height: auto;
+  max-width: 100%;
+  vertical-align: top;
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
+}
+
+.logo-studio-preview-raster-error {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(201, 233, 112, 0.35);
+  background: rgba(201, 233, 112, 0.06);
+  color: #f3f5ee;
+  font-size: 13px;
+  line-height: 1.45;
 }
 .logo-studio-actions {
   display: flex;
@@ -7709,24 +7513,20 @@ html[data-surface="logo-studio"] body {
   font-weight: 500;
 }
 
-/* Save-to-profile panel. Sits below the export-action row as a quiet
-   commit affordance (hint + button). */
+/* Save-to-profile panel. Sits below the export-action row and looks like
+   a quiet "commit" affordance — the admin-code field + Save button line
+   up horizontally on wider screens and stack on narrow ones. The whole
+   block is intentionally subdued (no extra heading, no dividers) so the
+   primary visual weight stays on Download SVG / PNG, which are the
+   actions a coach will use most often. */
 .logo-studio-save {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
-  align-items: flex-end;
+  align-items: end;
   margin-top: 14px;
   padding-top: 14px;
   border-top: 1px solid #2a2f24;
-}
-.logo-studio-save-hint {
-  flex: 1 1 100%;
-  margin: 0;
-  font-size: 14px;
-  line-height: 1.45;
-  color: #cdd2c4;
-  max-width: 52ch;
 }
 .logo-studio-save-field {
   flex: 1 1 220px;
@@ -7735,65 +7535,6 @@ html[data-surface="logo-studio"] body {
 .logo-studio-save-btn {
   flex: 0 0 auto;
   min-width: 168px;
-}
-
-/* Post-save: coach can open dashboard or stay on Logo Studio */
-.logo-studio-postsave {
-  position: fixed;
-  inset: 0;
-  z-index: 2147483000;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  box-sizing: border-box;
-}
-.logo-studio-postsave-backdrop {
-  position: absolute;
-  inset: 0;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  background: rgba(7, 9, 6, 0.78);
-  backdrop-filter: blur(8px);
-  cursor: pointer;
-}
-.logo-studio-postsave-card {
-  position: relative;
-  z-index: 1;
-  width: 100%;
-  max-width: 420px;
-  padding: 22px 22px 20px;
-  background: #141811;
-  border: 1px solid #2a2f24;
-  border-radius: 16px;
-  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.45);
-  pointer-events: auto;
-}
-.logo-studio-postsave-title {
-  margin: 0 0 8px;
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  color: #f3f5ee;
-}
-.logo-studio-postsave-text {
-  margin: 0;
-  font-size: 14px;
-  line-height: 1.55;
-  color: #b6bfb0;
-}
-.logo-studio-postsave-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 18px;
-}
-.logo-studio-postsave-actions .logo-studio-btn {
-  flex: 1 1 auto;
-  min-width: 156px;
-  justify-content: center;
-  text-align: center;
-  text-decoration: none;
 }
 .logo-studio-btn:disabled {
   cursor: not-allowed;

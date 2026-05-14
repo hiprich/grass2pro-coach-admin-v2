@@ -6,8 +6,8 @@
 //  - Bumping CACHE_VERSION invalidates everything from prior deploys.
 
 // Bump when you need browsers to discard cached hashed assets aggressively
-// (e.g. Logo Studio defaults or other SPA bundle changes sticking on clients).
-const CACHE_VERSION = 'v7'
+// (e.g. Logo Studio preview pipeline, other SPA bundle changes sticking on clients).
+const CACHE_VERSION = 'v11'
 const CACHE_NAME = `g2p-coach-${CACHE_VERSION}`
 
 // Paths the SW must NEVER cache and must always send straight to the network.

@@ -465,7 +465,7 @@ export function buildPartnerLogo(config: PartnerLogoConfig): string {
         <text
           x="${geom.labelCx}"
           y="${geom.labelCy}"
-          dominant-baseline="central"
+          dominant-baseline="middle"
           text-anchor="middle"
           font-family="${fontStack}"
           font-weight="${monogramWeight}"
@@ -519,8 +519,13 @@ export function buildPartnerLogo(config: PartnerLogoConfig): string {
   // so it sits correctly when CSS rounds the SVG to a wider available box.
   return `<svg
     xmlns="http://www.w3.org/2000/svg"
+    width="${VB_W}"
+    height="${VB_H}"
     viewBox="0 0 ${VB_W} ${VB_H}"
     preserveAspectRatio="xMinYMid meet"
+    overflow="visible"
+    text-rendering="geometricPrecision"
+    shape-rendering="geometricPrecision"
     role="img"
     aria-label="${escapeXml(cfg.brandName)}${config.tagline ? ` \u2014 ${escapeXml(config.tagline)}` : ""}"
   >
