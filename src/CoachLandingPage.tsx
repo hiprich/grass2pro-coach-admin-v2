@@ -319,6 +319,8 @@ export default function CoachLandingPage({ coach }: { coach: CoachProfile }) {
       </header>
 
       <main className="coach-landing-main">
+        {/* Ambient hero: set `coach.heroYouTubeId` or `coach.heroVideoSrc` in coachProfiles.ts
+            (muted, looping). Without either, heroSrc/avatar fallback image is shown. */}
         <section className="coach-landing-hero">
           <div
             className="coach-landing-hero-photo"

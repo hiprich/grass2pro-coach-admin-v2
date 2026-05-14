@@ -9255,9 +9255,6 @@ function CoachDashboard() {
           {activeView === "safeguarding" && <Safeguarding players={data.players} />}
           {activeView === "payments" && <Payments payments={data.payments} />}
           {activeView === "consent" && <ConsentForm />}
-          <div className="coach-portal-note" role="note">
-            Parents sign in here: <a href="/portal">grass2pro.com/portal</a>
-          </div>
         </div>
       </main>
     </div>

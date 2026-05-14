@@ -16,7 +16,7 @@
 // require the coach magic-link cookie — unauthenticated visits redirect to
 // `/coach` (see bootstrap effect).
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ExternalLink } from "lucide-react";
 import type {
@@ -182,6 +182,52 @@ const SHAPE_OPTIONS: Array<{ value: PartnerLogoShape; label: string; icon: strin
   },
 ];
 
+function parseSvgViewBox(svgMarkup: string): { w: number; h: number } | null {
+  const m = svgMarkup.match(/viewBox="0\s+0\s+([\d.]+)\s+([\d.]+)"/);
+  if (!m) return null;
+  const w = Number(m[1]);
+  const h = Number(m[2]);
+  return Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0 ? { w, h } : null;
+}
+
+function buildPartnerConfigPayload(config: PartnerLogoConfig): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    brandName: config.brandName,
+    monogram: config.monogram,
+    tagline: config.tagline,
+    accent: config.accent,
+    ink: config.ink,
+    style: config.style,
+    shape: config.shape,
+    fontStyle: config.fontStyle,
+  };
+  if (config.accentGradient) payload.accentGradient = config.accentGradient;
+  if (config.wordmarkColor) payload.wordmarkColor = config.wordmarkColor;
+  if (config.taglineColor) payload.taglineColor = config.taglineColor;
+  if (config.outlineWidth) {
+    payload.outlineWidth = config.outlineWidth;
+    payload.outlineColor = config.outlineColor;
+  }
+  return payload;
+}
+
+/** Copy a rasterised bitmap onto a visible canvas (avoids <img>/inline-SVG quirks on iOS PWA). */
+function paintPreviewCanvas(
+  target: HTMLCanvasElement | null,
+  source: HTMLCanvasElement,
+): void {
+  if (!target) return;
+  const tw = source.width;
+  const th = source.height;
+  if (tw <= 0 || th <= 0) return;
+  target.width = tw;
+  target.height = th;
+  const ctx = target.getContext("2d");
+  if (!ctx) return;
+  ctx.clearRect(0, 0, tw, th);
+  ctx.drawImage(source, 0, 0);
+}
+
 // Slugify the brand name for use as a download filename. Strips
 // punctuation, lowercases, replaces whitespace with hyphens. Falls back
 // to "logo" if the name is empty or all punctuation.
@@ -211,7 +257,65 @@ function downloadBlob(blob: Blob, filename: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-// Convert the SVG string to a transparent-background PNG via the canvas
+/**
+ * Rasterise SVG markup to a canvas bitmap.
+ *
+ * iOS WKWebKit is picky:
+ * - Prefer UTF-8 `data:image/svg+xml` on `Image()` first; some PWA builds
+ *   are flaky with `blob:` URLs for SVG.
+ * - `drawImage()` can race SVG text decode — warm up with `decode()` + double rAF.
+ */
+async function rasterizeSvgToCanvas(
+  svg: string,
+  targetWidth: number,
+  targetHeight: number,
+): Promise<HTMLCanvasElement> {
+  const loadSvgIntoImage = (): Promise<HTMLImageElement> =>
+    new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error("Could not load SVG for rasterisation."));
+      // Prefer UTF-8 data URL — some iOS / PWA builds are flaky with blob: URLs on Image().
+      img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+    });
+
+  let img: HTMLImageElement;
+  try {
+    img = await loadSvgIntoImage();
+  } catch {
+    const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    try {
+      img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const el = new Image();
+        el.onload = () => resolve(el);
+        el.onerror = () => reject(new Error("Could not load SVG for rasterisation."));
+        el.src = url;
+      });
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  if (typeof img.decode === "function") {
+    await img.decode().catch(() => {});
+  }
+  await new Promise<void>((resolve) =>
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+  );
+
+  const canvas = document.createElement("canvas");
+  canvas.width = targetWidth;
+  canvas.height = targetHeight;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas 2D context not available.");
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.clearRect(0, 0, targetWidth, targetHeight);
+  ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+  return canvas;
+}
+
 // API. We render at 4x the SVG viewBox so the PNG is sharp at typical
 // retina display sizes (the SVG viewBox is 200x50 → canvas is 800x200,
 // upscaled to 1024x256 by setting an explicit width/height attribute).
@@ -220,37 +324,13 @@ async function svgToPngBlob(
   targetWidth = 1024,
   targetHeight = 256,
 ): Promise<Blob> {
-  const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  try {
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    await new Promise<void>((resolve, reject) => {
-      img.onload = () => resolve();
-      img.onerror = () => reject(new Error("Could not load SVG for rasterisation."));
-      img.src = url;
-    });
-
-    const canvas = document.createElement("canvas");
-    canvas.width = targetWidth;
-    canvas.height = targetHeight;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) throw new Error("Canvas 2D context not available.");
-    // Transparent background by default. We deliberately don't fill so
-    // the PNG works on any backdrop the coach pastes it onto.
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = "high";
-    ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
-
-    return await new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob(
-        (out) => (out ? resolve(out) : reject(new Error("PNG encoding failed."))),
-        "image/png",
-      );
-    });
-  } finally {
-    URL.revokeObjectURL(url);
-  }
+  const canvas = await rasterizeSvgToCanvas(svg, targetWidth, targetHeight);
+  return await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (out) => (out ? resolve(out) : reject(new Error("PNG encoding failed."))),
+      "image/png",
+    );
+  });
 }
 
 export default function LogoStudio() {
@@ -424,7 +504,11 @@ export default function LogoStudio() {
   }, [postSaveNavOpen]);
 
   const [exportError, setExportError] = useState<string | null>(null);
+  const [previewRasterError, setPreviewRasterError] = useState<string | null>(null);
   const previewRef = useRef<HTMLDivElement | null>(null);
+  const previewDarkCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const previewLightCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const previewRasterGenRef = useRef(0);
 
   // ---- Undo (v1.4) ---------------------------------------------------------
   // We snapshot every form-driven value into a single FormState object and
@@ -651,8 +735,9 @@ export default function LogoStudio() {
   // -------------------------------------------------------------------------
 
   // Use the data-surface pattern so this page can opt into custom global
-  // overrides without bleeding into the rest of admin.
-  useEffect(() => {
+  // overrides without bleeding into the rest of admin. useLayoutEffect so
+  // html/body overflow unlock applies before paint (see index.css).
+  useLayoutEffect(() => {
     const previous = document.documentElement.dataset.surface;
     document.documentElement.dataset.surface = "logo-studio";
     document.title = "Logo Studio — Grass2Pro";
@@ -748,6 +833,72 @@ export default function LogoStudio() {
 
   const svg = useMemo(() => buildPartnerLogo(config), [config]);
 
+  const previewSvgLightSource = useMemo(
+    () => buildPartnerLogo({ ...config, wordmarkColor: "#11140e" }),
+    [config],
+  );
+
+  const previewMarkupInvalidMessage = useMemo(() => {
+    const vbDark = parseSvgViewBox(svg);
+    const vbLight = parseSvgViewBox(previewSvgLightSource);
+    if (!vbDark || !vbLight) return "Invalid logo markup.";
+    return null;
+  }, [svg, previewSvgLightSource]);
+
+  // Live previews: rasterise the same SVG strings as PNG export, then paint
+  // bitmaps onto visible <canvas> nodes. iOS / PWA often fails to paint
+  // inline SVG, <img src=blob:…>, or off-screen canvases — on-screen canvas
+  // matches the pixels coaches already get from "Download PNG".
+  useEffect(() => {
+    if (previewMarkupInvalidMessage) return;
+
+    const vbDark = parseSvgViewBox(svg);
+    const vbLight = parseSvgViewBox(previewSvgLightSource);
+    if (!vbDark || !vbLight) return;
+
+    const gen = ++previewRasterGenRef.current;
+    let cancelled = false;
+
+    const rasterW = 800;
+    const rhDark = Math.max(32, Math.round((vbDark.h / vbDark.w) * rasterW));
+    const rhLight = Math.max(32, Math.round((vbLight.h / vbLight.w) * rasterW));
+
+    const t = window.setTimeout(() => {
+      void (async () => {
+        try {
+          if (cancelled || gen !== previewRasterGenRef.current) return;
+          setPreviewRasterError(null);
+          const [cDark, cLight] = await Promise.all([
+            rasterizeSvgToCanvas(svg, rasterW, rhDark),
+            rasterizeSvgToCanvas(previewSvgLightSource, rasterW, rhLight),
+          ]);
+          if (cancelled || gen !== previewRasterGenRef.current) return;
+          paintPreviewCanvas(previewDarkCanvasRef.current, cDark);
+          paintPreviewCanvas(previewLightCanvasRef.current, cLight);
+        } catch (e) {
+          if (cancelled || gen !== previewRasterGenRef.current) return;
+          setPreviewRasterError(
+            e instanceof Error ? e.message : "Preview could not be rendered.",
+          );
+        }
+      })();
+    }, 0);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t);
+    };
+  }, [svg, previewSvgLightSource, previewMarkupInvalidMessage]);
+
+  const previewAltDark =
+    brandName.trim() === ""
+      ? "Live logo preview on a dark background"
+      : `${brandName.trim()} logo preview on a dark background`;
+  const previewAltLight =
+    brandName.trim() === ""
+      ? "Live logo preview on a light background"
+      : `${brandName.trim()} logo preview on a light background`;
+
   // Download SVG.
   function handleDownloadSvg() {
     setExportError(null);
@@ -772,37 +923,8 @@ export default function LogoStudio() {
     }
   }
 
-  // Copy a JSON config that can be pasted straight into a coach's
-  // partner config (e.g. coachProfiles.ts → coach.partner). Phase G will
-  // replace this with a proper "save to my profile" button once coach
-  // profiles live in Airtable.
-  // Build the same sanitised partner-config payload that Copy JSON
-  // produces, but as an object (the Save handler stringifies it itself).
-  // Pulled out as a helper so Copy and Save can never drift apart in
-  // what fields they include — both call this and read the same shape.
-  function buildPartnerConfigPayload(): Record<string, unknown> {
-    const payload: Record<string, unknown> = {
-      brandName: config.brandName,
-      monogram: config.monogram,
-      tagline: config.tagline,
-      accent: config.accent,
-      ink: config.ink,
-      style: config.style,
-      shape: config.shape,
-      fontStyle: config.fontStyle,
-    };
-    if (config.accentGradient) payload.accentGradient = config.accentGradient;
-    if (config.wordmarkColor) payload.wordmarkColor = config.wordmarkColor;
-    if (config.taglineColor) payload.taglineColor = config.taglineColor;
-    if (config.outlineWidth) {
-      payload.outlineWidth = config.outlineWidth;
-      payload.outlineColor = config.outlineColor;
-    }
-    return payload;
-  }
-
   const partnerSavePayloadJson = useMemo(
-    () => JSON.stringify(buildPartnerConfigPayload()),
+    () => JSON.stringify(buildPartnerConfigPayload(config)),
     [config],
   );
 
@@ -852,7 +974,7 @@ export default function LogoStudio() {
     setSaveState("saving");
     setSaveErrorMessage(null);
     try {
-      const payload = buildPartnerConfigPayload();
+      const payload = buildPartnerConfigPayload(config);
       const response = await fetch("/api/coach-partner-save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -902,7 +1024,7 @@ export default function LogoStudio() {
 
   async function handleCopyConfig() {
     setCopyState("idle");
-    const text = JSON.stringify(buildPartnerConfigPayload(), null, 2);
+    const text = JSON.stringify(buildPartnerConfigPayload(config), null, 2);
     try {
       await navigator.clipboard.writeText(text);
       setCopyState("copied");
@@ -948,18 +1070,20 @@ export default function LogoStudio() {
               <span>View my public page</span>
               <ExternalLink size={14} aria-hidden="true" />
             </a>
-            <button
-              type="button"
-              className="logo-studio-sign-out"
-              onClick={() => {
-                void handleCoachSignOut();
-              }}
-              disabled={signingOut}
-              aria-busy={signingOut}
-              data-testid="button-studio-sign-out"
-            >
-              {signingOut ? "Signing out…" : "Sign out"}
-            </button>
+            {sessionEmail ? (
+              <button
+                type="button"
+                className="logo-studio-sign-out"
+                onClick={() => {
+                  void handleCoachSignOut();
+                }}
+                disabled={signingOut}
+                aria-busy={signingOut}
+                data-testid="button-studio-sign-out"
+              >
+                {signingOut ? "Signing out…" : "Sign out"}
+              </button>
+            ) : null}
           </div>
         </div>
         {loggedInAsName ? <LoggedInAsNotice name={loggedInAsName} variant="studio" /> : null}
@@ -1585,10 +1709,16 @@ export default function LogoStudio() {
               data-testid="preview-dark"
             >
               <span className="logo-studio-preview-label">On dark background</span>
-              <div
-                className="logo-studio-preview-svg"
-                dangerouslySetInnerHTML={{ __html: svg }}
-              />
+              <div className="logo-studio-preview-svg">
+                <div className="logo-studio-preview-canvas-wrap">
+                  <canvas
+                    ref={previewDarkCanvasRef}
+                    className="logo-studio-preview-canvas"
+                    role="img"
+                    aria-label={previewAltDark}
+                  />
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1597,18 +1727,23 @@ export default function LogoStudio() {
             data-testid="preview-light"
           >
             <span className="logo-studio-preview-label">On light background</span>
-            <div
-              className="logo-studio-preview-svg"
-              // Re-build with a dark wordmark colour so it stays legible
-              // on the white card. Mark + tagline accents stay coloured.
-              dangerouslySetInnerHTML={{
-                __html: buildPartnerLogo({
-                  ...config,
-                  wordmarkColor: "#11140e",
-                }),
-              }}
-            />
+            <div className="logo-studio-preview-svg">
+              <div className="logo-studio-preview-canvas-wrap">
+                <canvas
+                  ref={previewLightCanvasRef}
+                  className="logo-studio-preview-canvas"
+                  role="img"
+                  aria-label={previewAltLight}
+                />
+              </div>
+            </div>
           </div>
+
+          {(previewMarkupInvalidMessage ?? previewRasterError) ? (
+            <p className="logo-studio-preview-raster-error" role="alert">
+              {previewMarkupInvalidMessage ?? previewRasterError}
+            </p>
+          ) : null}
 
           <div className="logo-studio-actions">
             <button
