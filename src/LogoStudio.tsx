@@ -505,13 +505,13 @@ export default function LogoStudio() {
 
   const [exportError, setExportError] = useState<string | null>(null);
   const [previewRasterError, setPreviewRasterError] = useState<string | null>(null);
+  // Light preview src driven by React state so every raster result is committed
+  // to the DOM via the normal React update cycle. Mutating a ref directly
+  // (img.src = …) is skipped by React's reconciler and can silently have no
+  // effect on both Safari/Mac and iOS WebKit.
+  const [lightPreviewDataUrl, setLightPreviewDataUrl] = useState<string>("");
   const previewRef = useRef<HTMLDivElement | null>(null);
   const previewDarkCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  // Light preview uses <img> not <canvas>: iOS WebKit defers GPU uploads to
-  // off-screen canvases (the light pane is below the fold on mobile while the
-  // dark canvas is sticky/visible). Setting img.src = dataURL always flushes
-  // regardless of scroll position.
-  const previewLightImgRef = useRef<HTMLImageElement | null>(null);
   const previewRasterGenRef = useRef(0);
 
   // ---- Undo (v1.4) ---------------------------------------------------------
@@ -901,16 +901,14 @@ export default function LogoStudio() {
           await new Promise<void>((r) => requestAnimationFrame(() => r()));
           if (cancelled || gen !== previewRasterGenRef.current) return;
 
-          // Dark preview — canvas, always on-screen (sticky).
+          // Dark preview — canvas (always sticky/visible).
           paintPreviewCanvas(previewDarkCanvasRef.current, offscreenDark);
 
-          // Light preview — <img> via data URL. iOS WebKit silently drops
-          // drawImage() calls to off-screen <canvas> elements; setting img.src
-          // always flushes, regardless of scroll position.
-          const dataUrl = offscreenLight.toDataURL("image/png");
-          if (previewLightImgRef.current) {
-            previewLightImgRef.current.src = dataUrl;
-          }
+          // Light preview — data URL driven by React state so the reconciler
+          // always commits the new src to the DOM. Direct ref mutation
+          // (img.src = …) is invisible to React and was silently dropped on
+          // both Safari/Mac and iOS WebKit.
+          setLightPreviewDataUrl(offscreenLight.toDataURL("image/png"));
         } catch (e) {
           if (cancelled || gen !== previewRasterGenRef.current) return;
           setPreviewRasterError(
@@ -1765,11 +1763,11 @@ export default function LogoStudio() {
             <span className="logo-studio-preview-label">On light background</span>
             <div className="logo-studio-preview-svg">
               <div className="logo-studio-preview-canvas-wrap">
-                {/* <img> not <canvas>: iOS WebKit defers off-screen canvas GPU
-                    uploads; img.src=dataURL always renders regardless of
-                    scroll position. */}
+                {/* <img> with src bound to React state — the reconciler
+                    commits every data URL update to the DOM, unlike direct
+                    ref mutation which Safari and iOS WebKit can silently drop. */}
                 <img
-                  ref={previewLightImgRef}
+                  src={lightPreviewDataUrl || undefined}
                   className="logo-studio-preview-canvas"
                   alt={previewAltLight}
                 />
