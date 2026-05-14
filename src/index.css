@@ -6718,6 +6718,8 @@ a.homepage-brand-linked:focus-visible {
    sticky inside the body fails to pin because the sticky element binds
    to body's scroll container which never actually scrolls. (Spent
    v1.4/v1.5 chasing this; logging here so we don't reintroduce it.) */
+   /* Fixes iPhone preview safari layout constraint */
+
 html:has(.logo-studio),
 html[data-surface="logo-studio"] {
   height: auto;
