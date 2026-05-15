@@ -341,6 +341,7 @@ export const handler = async (event) => {
   const fields = {
     "Consent Record": consentRecordLabel,
     "Consent Status": consentStatus,
+    "Submitted At": submittedAt.toISOString(),
     ...permissionFields,
     "Parental Responsibility Confirmed": Boolean(payload.parentalResponsibility),
     "Child Consulted": Boolean(payload.childConsulted),
@@ -539,6 +540,18 @@ export const handler = async (event) => {
       // reject any label that isn't already in its option list.
       { typecast: true },
     );
+    // Mirror grants onto the linked Players row so coaches who browse the
+    // Players grid in Airtable see the same partial/full consent the dashboard
+    // derives from Media Consents. The audit row remains the source of truth;
+    // this is a best-effort sync for visibility in the player profile table.
+    if (playerId && hasAirtableConfig() && !record.demo) {
+      try {
+        await syncPlayerConsentFromSubmission(playerId, permissions, infoSharing, consentStatus);
+      } catch (error) {
+        console.warn("[media-consent] Player consent checkbox sync failed:", error?.message || error);
+      }
+    }
+
     return json(200, {
       ok: true,
       id: record.id,
@@ -563,6 +576,50 @@ export const handler = async (event) => {
     return json(500, { error: "Unable to save consent record." });
   }
 };
+
+// Players-table columns coaches expect in the Airtable grid (tried in order).
+const PLAYER_CONSENT_FIELD_SYNC = [
+  { key: "photoTraining", candidates: ["Photo Consent", "Photo Permission"] },
+  { key: "videoTraining", candidates: ["Video Consent", "Video Permission"] },
+  { key: "photoMatch", candidates: ["Match Photo Consent", "Match Photo Permission"] },
+  { key: "videoMatch", candidates: ["Match Video Consent", "Match Video Permission"] },
+  { key: "website", candidates: ["Website Consent", "Website Permission", "Website Use"] },
+  { key: "social", candidates: ["Social Consent", "Social Permission", "Social Media Use"] },
+  { key: "internalReports", candidates: ["Internal Reports Consent", "Internal Coaching Use"] },
+  { key: "press", candidates: ["Press Consent", "Press/Partner Use"] },
+];
+
+const PLAYER_INFO_SHARING_FIELD_SYNC = [
+  { key: "emergencyContact", candidates: ["Emergency Contact Consent", "Emergency Contact Sharing"] },
+  { key: "medicalInformation", candidates: ["Medical Information Consent", "Medical Information Sharing"] },
+];
+
+async function updatePlayerFieldWithFallback(table, recordId, candidates, value) {
+  let lastError = null;
+  for (const fieldName of candidates) {
+    try {
+      await airtableUpdate(table, recordId, { [fieldName]: value });
+      return;
+    } catch (error) {
+      lastError = error;
+      if (!isUnknownFieldError(error)) throw error;
+    }
+  }
+  if (lastError) throw lastError;
+}
+
+async function syncPlayerConsentFromSubmission(playerId, permissions, infoSharing, consentStatus) {
+  const table = tableName("AIRTABLE_PLAYERS_TABLE", "Players", TABLE_IDS.PLAYERS);
+  for (const { key, candidates } of PLAYER_CONSENT_FIELD_SYNC) {
+    await updatePlayerFieldWithFallback(table, playerId, candidates, Boolean(permissions[key]));
+  }
+  for (const { key, candidates } of PLAYER_INFO_SHARING_FIELD_SYNC) {
+    await updatePlayerFieldWithFallback(table, playerId, candidates, Boolean(infoSharing[key]));
+  }
+  if (consentStatus) {
+    await updatePlayerFieldWithFallback(table, playerId, ["Consent Status", "Media Consent Status"], consentStatus);
+  }
+}
 
 function playerNameOf(record) {
   const fields = record?.fields || {};

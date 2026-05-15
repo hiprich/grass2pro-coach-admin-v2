@@ -360,6 +360,64 @@ function parsePartnerConfig(raw) {
   }
 }
 
+function coachBioFromFields(fields) {
+  for (const name of ["Bio", "Profile Bio", "About", "Description"]) {
+    const value = stringValue(fields[name]).trim();
+    if (value) return value;
+  }
+  return "";
+}
+
+export function coachSlugFromFields(fields) {
+  for (const name of ["Public Slug", "URL Slug", "Page Slug", "Slug"]) {
+    const raw = stringValue(fields[name]).trim().toLowerCase();
+    if (raw) return raw.replace(/^\/+/, "").split(/[/?#]/)[0];
+  }
+  return "";
+}
+
+export function coachLocationFromFields(fields) {
+  for (const name of [
+    "Location",
+    "Venue",
+    "Area",
+    "City",
+    "Training location",
+    "Address",
+  ]) {
+    const value = stringValue(fields[name]).trim();
+    if (value) return value;
+  }
+  return "";
+}
+
+/** Public landing-page fields stored on the Coaches row (merged over static coachProfiles). */
+export function coachPublicLandingOverrides(record) {
+  if (!record) return null;
+  const fields = record?.fields || {};
+  const bio = coachBioFromFields(fields);
+  const avatarUrl = firstAttachmentUrl(fields["Avatar Image"] || fields.Avatar || fields.Photo);
+  const location = coachLocationFromFields(fields);
+  const name = stringValue(fields["Full Name"] || fields.Name || fields["Coach Name"], "").trim();
+  const overrides = {};
+  if (bio) overrides.bio = bio;
+  if (avatarUrl) overrides.avatarUrl = avatarUrl;
+  if (location) overrides.location = location;
+  if (name) overrides.name = name;
+  return Object.keys(overrides).length > 0 ? overrides : null;
+}
+
+export async function findCoachRecordByPublicSlug(slug) {
+  if (!hasAirtableConfig()) return null;
+  const normalized = String(slug || "").trim().toLowerCase();
+  if (!normalized) return null;
+  const records = await airtableList(
+    tableName("AIRTABLE_COACHES_TABLE", "Coaches", TABLE_IDS.COACHES),
+    { pageSize: "100" },
+  );
+  return records.find((record) => coachSlugFromFields(record?.fields || {}) === normalized) || null;
+}
+
 export function normaliseCoach(record) {
   const fields = record?.fields || {};
   return {
@@ -368,6 +426,8 @@ export function normaliseCoach(record) {
     role: stringValue(fields.Role || fields.Title, "Coach admin"),
     credential: stringValue(fields.Qualification || fields.Credential || fields.Qualifications, "Safeguarding lead"),
     avatarUrl: firstAttachmentUrl(fields["Avatar Image"] || fields.Avatar || fields.Photo),
+    bio: coachBioFromFields(fields),
+    publicSlug: coachSlugFromFields(fields),
     email: stringValue(fields.Email),
     phone: stringValue(fields.Phone),
     dbsStatus: stringValue(fields["DBS Status"]),
@@ -529,12 +589,69 @@ export function buildSidebar(players, counts = {}) {
   return [
     { id: "overview", label: "Overview", count: players.length, icon: "home" },
     { id: "players", label: "Players", count: players.length, icon: "users" },
+    { id: "registrations", label: "Enquiries", count: counts.registrations ?? 0, icon: "mail" },
     { id: "sessions", label: "Sessions", count: counts.sessions ?? 0, icon: "calendar" },
     { id: "attendance", label: "Attendance", count: counts.attendance ?? 0, icon: "clipboard" },
     { id: "safeguarding", label: "Safeguarding", count: needsAction, icon: "shield" },
     { id: "payments", label: "Payments", count: counts.payments ?? 0, icon: "pound" },
+    { id: "announcements", label: "Announcements", count: counts.announcements ?? 0, icon: "megaphone" },
     { id: "consent", label: "Consent Form", count: 0, icon: "file" },
   ];
+}
+
+// ---------- Coach announcements (parent-facing board) ----------
+
+const ANNOUNCEMENTS_TABLE = () =>
+  tableName("AIRTABLE_ANNOUNCEMENTS_TABLE", "Announcements", process.env.AIRTABLE_ANNOUNCEMENTS_TABLE_ID || "");
+
+export function normaliseAnnouncement(record) {
+  const fields = record?.fields || {};
+  const coachLink = fields.Coach;
+  const coachIds = Array.isArray(coachLink) ? coachLink : coachLink ? [coachLink] : [];
+  return {
+    id: record.id,
+    title: stringValue(fields.Title || fields.Name, "Announcement"),
+    body: stringValue(fields.Body || fields.Message || fields.Notes, ""),
+    active: fields.Active === undefined ? true : boolValue(fields.Active),
+    publishedAt: stringValue(fields["Published At"] || fields["Created At"] || record?.createdTime, ""),
+    coachId: coachIds[0] || null,
+  };
+}
+
+export async function listAnnouncementsForCoachIds(coachIds) {
+  if (!hasAirtableConfig() || !coachIds?.length) return [];
+  const table = ANNOUNCEMENTS_TABLE();
+  if (!table) return [];
+  const uniqueIds = [...new Set(coachIds.filter(Boolean))];
+  const clauses = uniqueIds.map((id) => `FIND('${escapeFormulaString(id)}', ARRAYJOIN({Coach}))`);
+  const formula = clauses.length === 1 ? clauses[0] : `OR(${clauses.join(",")})`;
+  const records = await airtableList(table, {
+    filterByFormula: formula,
+    pageSize: "100",
+  });
+  return records
+    .map(normaliseAnnouncement)
+    .sort((a, b) => Date.parse(b.publishedAt || "") - Date.parse(a.publishedAt || ""));
+}
+
+export async function createCoachAnnouncement({ coachId, title, body }) {
+  if (!hasAirtableConfig()) {
+    return normaliseAnnouncement({
+      id: `demo_ann_${Date.now()}`,
+      fields: { Title: title, Body: body, Active: true, Coach: [coachId] },
+      createdTime: new Date().toISOString(),
+    });
+  }
+  const table = ANNOUNCEMENTS_TABLE();
+  const fields = {
+    Title: title,
+    Body: body,
+    Active: true,
+    Coach: [coachId],
+    "Published At": new Date().toISOString(),
+  };
+  const created = await airtableCreate(table, fields, { typecast: true });
+  return normaliseAnnouncement(created);
 }
 
 export async function getCoachAndPlayers() {
@@ -1600,6 +1717,43 @@ function demoSessions(scope = "upcoming") {
   if (scope === "all") return all;
   if (scope === "past") return all.filter((s) => s.state === "completed");
   return all.filter((s) => s.state === "scheduled");
+}
+
+// ---------- Coach Registrations (landing-page enquiries) ----------
+
+const COACH_REGISTRATIONS_TABLE = "Coach Registrations";
+
+export function normaliseCoachRegistration(record) {
+  const fields = record?.fields || {};
+  const coachLink = fields.Coach;
+  const coachId = Array.isArray(coachLink) ? coachLink[0] : coachLink || null;
+  return {
+    id: record.id,
+    parentName: stringValue(fields["Parent Name"]),
+    parentEmail: stringValue(fields["Parent Email"]),
+    parentPhone: stringValue(fields["Parent Phone"]),
+    childName: stringValue(fields["Child Name"]),
+    ageGroup: stringValue(fields["Child Age Group"]),
+    message: stringValue(fields.Message),
+    coachSlug: stringValue(fields["Coach Slug"]),
+    status: stringValue(fields.Status) || "New",
+    submittedAt: stringValue(fields["Submitted At"]),
+    coachNotified: Boolean(fields["Coach Notified"]),
+    source: stringValue(fields.Source),
+    coachId,
+  };
+}
+
+export async function listCoachRegistrationsForCoach(coachRecordId) {
+  if (!hasAirtableConfig() || !coachRecordId) return [];
+  const formula = `FIND('${escapeFormulaString(coachRecordId)}', ARRAYJOIN({Coach}))`;
+  const records = await airtableList(COACH_REGISTRATIONS_TABLE, {
+    filterByFormula: formula,
+    pageSize: "100",
+  });
+  return records
+    .map(normaliseCoachRegistration)
+    .sort((a, b) => Date.parse(b.submittedAt || "") - Date.parse(a.submittedAt || ""));
 }
 
 function demoAttendance() {

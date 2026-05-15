@@ -16,8 +16,10 @@ import {
   Home,
   Lock,
   LogOut,
+  Mail,
   MapPin,
   Maximize2,
+  Megaphone,
   Menu,
   Moon,
   Palette,
@@ -28,9 +30,11 @@ import {
   QrCode,
   RotateCcw,
   Search,
+  Settings,
   ShieldCheck,
   Sun,
   Trash2,
+  User,
   Users,
   Video,
   X,
@@ -72,6 +76,8 @@ type Coach = {
   role: string;
   credential: string;
   avatarUrl?: string;
+  bio?: string;
+  publicSlug?: string;
   email?: string;
   partner?: Partial<PartnerLogoConfig> | null;
 };
@@ -607,10 +613,12 @@ const demoData: AdminData = {
   sidebar: [
     { id: "overview", label: "Overview", count: demoPlayers.length, icon: "home" },
     { id: "players", label: "Players", count: demoPlayers.length, icon: "users" },
+    { id: "registrations", label: "Enquiries", count: 0, icon: "mail" },
     { id: "sessions", label: "Sessions", count: demoSessions.length, icon: "calendar" },
     { id: "attendance", label: "Attendance", count: demoAttendance.length, icon: "clipboard" },
     { id: "safeguarding", label: "Safeguarding", count: demoPlayers.filter((p) => p.consentStatus === "grey" || p.consentStatus === "red").length, icon: "shield" },
     { id: "payments", label: "Payments", count: demoPayments.length, icon: "pound" },
+    { id: "announcements", label: "Announcements", count: 0, icon: "megaphone" },
     { id: "consent", label: "Consent Form", count: 0, icon: "file" },
   ],
   updatedAt: new Date().toISOString(),
@@ -680,12 +688,18 @@ const infoSharingOptions = [
 const iconMap = {
   home: Home,
   users: Users,
+  mail: Mail,
+  user: User,
+  settings: Settings,
+  megaphone: Megaphone,
   shield: ShieldCheck,
   file: FileText,
   calendar: CalendarDays,
   clipboard: ClipboardList,
   pound: PoundSterling,
 };
+
+const accountNavItem = { id: "account", label: "Account", count: 0, icon: "settings" as const };
 
 function initials(name: string) {
   return name
@@ -765,10 +779,12 @@ const coachSessionFetchInit: RequestInit = { credentials: "include" };
 const navOrder: Array<{ id: string; label: string; icon: string }> = [
   { id: "overview", label: "Overview", icon: "home" },
   { id: "players", label: "Players", icon: "users" },
+  { id: "registrations", label: "Enquiries", icon: "mail" },
   { id: "sessions", label: "Sessions", icon: "calendar" },
   { id: "attendance", label: "Attendance", icon: "clipboard" },
   { id: "safeguarding", label: "Safeguarding", icon: "shield" },
   { id: "payments", label: "Payments", icon: "pound" },
+  { id: "announcements", label: "Announcements", icon: "megaphone" },
   { id: "consent", label: "Consent Form", icon: "file" },
 ];
 
@@ -792,10 +808,20 @@ function buildStableSidebar(data: {
   // before its sub-fetches resolve, and `?? computedCounts[…]` would happily
   // accept that zero — masking live data that the dedicated endpoints have
   // since loaded.
-  const liveDerivedIds = new Set(["overview", "players", "sessions", "attendance", "safeguarding", "payments"]);
+  const liveDerivedIds = new Set([
+    "overview",
+    "players",
+    "registrations",
+    "sessions",
+    "attendance",
+    "safeguarding",
+    "payments",
+  ]);
   const computedCounts: Record<string, number> = {
     overview: data.players.length,
     players: data.players.length,
+    registrations: 0,
+    announcements: 0,
     sessions: data.sessions.length,
     attendance: data.attendance.length,
     safeguarding: needsAction,
@@ -1678,6 +1704,9 @@ function Sidebar({
   open: boolean;
   onClose: () => void;
 }) {
+  const workspaceNav = sidebar.filter((item) => item.id !== "profile" && item.id !== "account");
+  const AccountIcon = iconMap[accountNavItem.icon];
+
   return (
     <aside className={`sidebar ${open ? "open" : ""}`} aria-label="Coach admin navigation">
       <div className="brand-row">
@@ -1690,7 +1719,7 @@ function Sidebar({
       <div className="sidebar-section">
         <div className="section-label">Workspace</div>
         <nav className="nav-list" aria-label="Main navigation">
-          {sidebar.map((item) => {
+          {workspaceNav.map((item) => {
             const Icon = iconMap[item.icon as keyof typeof iconMap] ?? Home;
             return (
               <button
@@ -1723,6 +1752,26 @@ function Sidebar({
             New
           </span>
         </a>
+      </div>
+      <div className="sidebar-section sidebar-account">
+        <div className="section-label">Your account</div>
+        <nav className="nav-list" aria-label="Account">
+          <button
+            type="button"
+            className={`nav-button ${activeView === accountNavItem.id ? "active" : ""}`}
+            onClick={() => {
+              onViewChange(accountNavItem.id);
+              onClose();
+            }}
+            data-testid={`button-nav-${accountNavItem.id}`}
+          >
+            <AccountIcon size={18} aria-hidden="true" />
+            <span>{accountNavItem.label}</span>
+            <span className="nav-count" data-testid={`text-nav-count-${accountNavItem.id}`}>
+              {accountNavItem.count}
+            </span>
+          </button>
+        </nav>
       </div>
       <div className="sidebar-card">
         <div className="safeguarding-note">
@@ -6682,6 +6731,16 @@ function readMagicLinkQuery(): { email: string; token: string; next: string } {
   };
 }
 
+// Coach invite emails link to /portal?parentEmail=… (and optional ?coach= slug).
+function readPortalInviteQuery(): { parentEmail: string; coachSlug: string } {
+  if (typeof window === "undefined") return { parentEmail: "", coachSlug: "" };
+  const params = new URLSearchParams(window.location.search);
+  return {
+    parentEmail: (params.get("parentEmail") || params.get("email") || "").trim(),
+    coachSlug: (params.get("coach") || "").trim().toLowerCase(),
+  };
+}
+
 // Sanitise a post-verify redirect target. Mirrors the server-side guard in
 // _parent-mailer.sanitiseNext() so a tampered link can never bounce a
 // signed-in parent off to an attacker-controlled domain. Only relative
@@ -6735,11 +6794,18 @@ const PARENT_LEAVE_REASONS = [
   "Other",
 ];
 
-function ParentSignInScreen({ onRequestLink, status, error, lastEmail }: {
+function ParentSignInScreen({
+  onRequestLink,
+  status,
+  error,
+  lastEmail,
+  inviteCoachName,
+}: {
   onRequestLink: (email: string) => void;
   status: "idle" | "submitting";
   error: string;
   lastEmail: string;
+  inviteCoachName?: string;
 }) {
   const [email, setEmail] = useState(lastEmail);
   return (
@@ -6752,6 +6818,11 @@ function ParentSignInScreen({ onRequestLink, status, error, lastEmail }: {
             <div className="portal-brand-title">Parent portal</div>
           </div>
         </div>
+        {inviteCoachName ? (
+          <p className="portal-sub" style={{ marginBottom: 12 }}>
+            <strong>{inviteCoachName}</strong> invited you to the parent portal. Use the email address your invite was sent to, then tap below for a sign-in link.
+          </p>
+        ) : null}
         <h1 className="portal-heading">Sign in to your portal</h1>
         <p className="portal-sub">
           Enter the email address you used when filling in your child&apos;s consent form. We&apos;ll send you a link to sign in.
@@ -7961,10 +8032,15 @@ function ParentOverviewScreen({
 }
 
 function ParentPortal() {
+  const portalInvite = useMemo(() => readPortalInviteQuery(), []);
+  const inviteCoach = useMemo(() => {
+    if (!portalInvite.coachSlug) return null;
+    return getCoachProfile(portalInvite.coachSlug);
+  }, [portalInvite.coachSlug]);
   const [view, setView] = useState<ParentPortalView>("sign-in");
   const [signInStatus, setSignInStatus] = useState<"idle" | "submitting">("idle");
   const [signInError, setSignInError] = useState("");
-  const [lastEmail, setLastEmail] = useState("");
+  const [lastEmail, setLastEmail] = useState(() => portalInvite.parentEmail);
   const [verifyError, setVerifyError] = useState("");
   const [summary, setSummary] = useState<ParentSummary | null>(null);
 
@@ -8080,10 +8156,12 @@ function ParentPortal() {
   if (view === "sign-in") {
     return (
       <ParentSignInScreen
+        key={lastEmail || portalInvite.parentEmail || "sign-in"}
         onRequestLink={requestLink}
         status={signInStatus}
         error={signInError}
-        lastEmail={lastEmail}
+        lastEmail={lastEmail || portalInvite.parentEmail}
+        inviteCoachName={inviteCoach?.name}
       />
     );
   }
@@ -8920,15 +8998,22 @@ function ParentScanPage() {
 // Wrapped in .portal-shell so the layout matches the parent portal
 // (consistent header, padding, max-width).
 function PublicRegisterPage() {
-  const initialParentEmail = (() => {
-    if (typeof window === "undefined") return undefined;
+  const searchParams = (() => {
+    if (typeof window === "undefined") return new URLSearchParams();
     try {
-      const params = new URLSearchParams(window.location.search);
-      const value = params.get("parentEmail");
-      return value ? value.trim() : undefined;
+      return new URLSearchParams(window.location.search);
     } catch {
-      return undefined;
+      return new URLSearchParams();
     }
+  })();
+  const initialParentEmail = (() => {
+    const value = searchParams.get("parentEmail");
+    return value ? value.trim() : undefined;
+  })();
+  const inviteCoach = (() => {
+    const slug = searchParams.get("coach")?.trim().toLowerCase();
+    if (!slug) return null;
+    return getCoachProfile(slug);
   })();
   return (
     <div className="portal-shell">
@@ -8942,6 +9027,17 @@ function PublicRegisterPage() {
             </p>
           </div>
         </header>
+        {inviteCoach ? (
+          <section className="payments-callout" role="note" style={{ marginBottom: 16 }}>
+            <Users size={20} aria-hidden="true" />
+            <div>
+              <strong>Completing registration for {inviteCoach.name}</strong>
+              <p>
+                Your coach invited you to finish safeguarding consent and player details. Use the same parent email address the invite was sent to.
+              </p>
+            </div>
+          </section>
+        ) : null}
         <ConsentForm initialParentEmail={initialParentEmail} compact />
         <p className="portal-footnote" style={{ marginTop: 18, textAlign: "center" }}>
           Already registered another child? <a href="/portal">Open the parent portal</a>.
@@ -9071,6 +9167,740 @@ function AppRoot() {
   return <HomepageCover />;
 }
 
+type CoachRegistrationRow = {
+  id: string;
+  parentName: string;
+  parentEmail: string;
+  parentPhone: string;
+  childName: string;
+  ageGroup: string;
+  message: string;
+  coachSlug: string;
+  status: string;
+  submittedAt: string;
+  coachNotified: boolean;
+  source: string;
+};
+
+function formatRegistrationWhen(iso: string) {
+  const parsed = Date.parse(iso);
+  if (!Number.isFinite(parsed)) return iso || "—";
+  return new Date(parsed).toLocaleString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function CoachRegistrationsPanel({ onInvited }: { onInvited: () => void }) {
+  const [rows, setRows] = useState<CoachRegistrationRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    fetch(apiPath("/coach-registrations"), coachSessionFetchInit)
+      .then(async (response) => {
+        if (response.status === 401 || response.status === 403) {
+          throw new CoachAuthRequiredError();
+        }
+        if (!response.ok) {
+          const body = (await response.json().catch(() => ({}))) as { error?: string };
+          throw new Error(body.error || "Could not load enquiries.");
+        }
+        return response.json() as Promise<{ registrations?: CoachRegistrationRow[] }>;
+      })
+      .then((payload) => {
+        if (!mounted) return;
+        setRows(payload.registrations ?? []);
+      })
+      .catch((e: unknown) => {
+        if (!mounted) return;
+        if (e instanceof CoachAuthRequiredError) throw e;
+        setError(e instanceof Error ? e.message : "Could not load enquiries.");
+      })
+      .finally(() => {
+        if (mounted) setLoading(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  async function acceptAndInvite(registration: CoachRegistrationRow) {
+    if (busyId) return;
+    setBusyId(registration.id);
+    setToast(null);
+    try {
+      const response = await fetch(apiPath("/coach-registrations"), {
+        ...coachSessionFetchInit,
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(coachSessionFetchInit.headers as Record<string, string> | undefined) },
+        body: JSON.stringify({ action: "accept-invite", registrationId: registration.id }),
+      });
+      const body = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        registration?: CoachRegistrationRow;
+      };
+      if (!response.ok) {
+        throw new Error(body.error || "Could not send invite.");
+      }
+      const updated = body.registration ?? { ...registration, status: "Invited" };
+      setRows((prev) => prev.map((row) => (row.id === registration.id ? { ...row, ...updated } : row)));
+      if (registration.status === "New") onInvited();
+      setToast(`Invite sent to ${registration.parentEmail}.`);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Could not send invite.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  if (loading) {
+    return (
+      <section className="panel player-table-card" aria-busy="true">
+        <p className="portal-sub">Loading landing-page enquiries…</p>
+      </section>
+    );
+  }
+
+  return (
+    <>
+      {toast ? (
+        <section className="payments-callout" role="status">
+          <CheckCircle2 size={20} aria-hidden="true" />
+          <div>
+            <strong>{toast}</strong>
+            <p>Status in Airtable is now Invited. The parent can sign in at the parent portal.</p>
+          </div>
+        </section>
+      ) : null}
+      {error ? (
+        <section className="payments-callout" role="alert">
+          <AlertTriangle size={20} aria-hidden="true" />
+          <div>
+            <strong>Something went wrong</strong>
+            <p>{error}</p>
+          </div>
+        </section>
+      ) : null}
+      <section className="panel player-table-card" aria-labelledby="registrations-title">
+        <div className="toolbar">
+          <div>
+            <div className="page-kicker">Enquiries</div>
+            <h2 id="registrations-title" className="page-title">
+              Landing-page registrations
+            </h2>
+            <p className="portal-sub" style={{ marginTop: 8, maxWidth: 640 }}>
+              Parents who used your <code>/c/</code> link appear here. Accept and send the full registration invite when you are ready to onboard them.
+            </p>
+          </div>
+        </div>
+        {rows.length === 0 ? (
+          <div className="empty-state">
+            <Mail size={32} aria-hidden="true" />
+            <h3>No enquiries yet</h3>
+            <p>Share your coach landing link so parents can register interest.</p>
+          </div>
+        ) : (
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">Parent</th>
+                  <th scope="col">Child</th>
+                  <th scope="col">Age</th>
+                  <th scope="col">Submitted</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row.id} data-testid={`row-registration-${row.id}`}>
+                    <td>
+                      <div className="table-primary">{row.parentName}</div>
+                      <div className="table-secondary">{row.parentEmail}</div>
+                      {row.parentPhone ? <div className="table-secondary">{row.parentPhone}</div> : null}
+                    </td>
+                    <td>{row.childName}</td>
+                    <td>{row.ageGroup}</td>
+                    <td>{formatRegistrationWhen(row.submittedAt)}</td>
+                    <td>
+                      <span className={`status-pill status-pill--${row.status === "New" ? "amber" : "neutral"}`}>
+                        {row.status}
+                      </span>
+                    </td>
+                    <td>
+                      {row.status === "New" || row.status === "Invited" ? (
+                        <button
+                          type="button"
+                          className="primary-button"
+                          disabled={busyId === row.id}
+                          onClick={() => void acceptAndInvite(row)}
+                          data-testid={`button-accept-invite-${row.id}`}
+                        >
+                          {busyId === row.id
+                            ? "Sending…"
+                            : row.status === "Invited"
+                              ? "Resend invite"
+                              : "Accept & send invite"}
+                        </button>
+                      ) : (
+                        <span className="table-secondary">—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </>
+  );
+}
+
+type CoachProfilePayload = {
+  id: string;
+  name: string;
+  email: string;
+  signInEmail: string;
+  phone: string;
+  location: string;
+  bio: string;
+  role: string;
+  credential: string;
+  avatarUrl: string;
+  publicSlug: string;
+  publicPagePath: string | null;
+  emailChangePending?: boolean;
+};
+
+type CoachAnnouncementRow = {
+  id: string;
+  title: string;
+  body: string;
+  active: boolean;
+  publishedAt: string;
+};
+
+async function fileToSquareJpegBase64(file: File): Promise<string> {
+  const bitmap = await createImageBitmap(file);
+  const crop = Math.min(bitmap.width, bitmap.height);
+  const canvas = document.createElement("canvas");
+  canvas.width = 600;
+  canvas.height = 600;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Could not prepare image.");
+  const sx = (bitmap.width - crop) / 2;
+  const sy = (bitmap.height - crop) / 2;
+  ctx.drawImage(bitmap, sx, sy, crop, crop, 0, 0, 600, 600);
+  bitmap.close();
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Could not encode image."))), "image/jpeg", 0.88);
+  });
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 1) binary += String.fromCharCode(bytes[i]!);
+  return btoa(binary);
+}
+
+function CoachAccountPanel({
+  coach,
+  onCoachUpdate,
+}: {
+  coach: Coach;
+  onCoachUpdate: (coach: Coach) => void;
+}) {
+  const [profile, setProfile] = useState<CoachProfilePayload | null>(null);
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [location, setLocation] = useState("");
+  const [publicSlug, setPublicSlug] = useState("");
+  const [bio, setBio] = useState("");
+  const [role, setRole] = useState("");
+  const [credential, setCredential] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    fetch(apiPath("/coach-profile"), coachSessionFetchInit)
+      .then(async (response) => {
+        if (!response.ok) {
+          const body = (await response.json().catch(() => ({}))) as { error?: string };
+          throw new Error(body.error || "Could not load account.");
+        }
+        return response.json() as Promise<{ profile?: CoachProfilePayload }>;
+      })
+      .then((payload) => {
+        if (!mounted || !payload.profile) return;
+        const p = payload.profile;
+        setProfile(p);
+        setName(p.name);
+        setEmail(p.email);
+        setPhone(p.phone);
+        setLocation(p.location);
+        setPublicSlug(p.publicSlug);
+        setBio(p.bio);
+        setRole(p.role);
+        setCredential(p.credential);
+      })
+      .catch((e: unknown) => {
+        if (!mounted) return;
+        setError(e instanceof Error ? e.message : "Could not load account.");
+      })
+      .finally(() => {
+        if (mounted) setLoading(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  function applyProfileToCoach(p: CoachProfilePayload) {
+    onCoachUpdate({
+      ...coach,
+      name: p.name,
+      email: p.email,
+      role: p.role,
+      credential: p.credential,
+      bio: p.bio,
+      avatarUrl: p.avatarUrl,
+      publicSlug: p.publicSlug,
+    });
+  }
+
+  async function saveAccount() {
+    setSaving(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const response = await fetch(apiPath("/coach-profile"), {
+        ...coachSessionFetchInit,
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: name.trim(),
+          email: email.trim(),
+          phone: phone.trim(),
+          location: location.trim(),
+          publicSlug: publicSlug.trim(),
+          bio,
+          role,
+          credential,
+        }),
+      });
+      const body = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        message?: string;
+        profile?: CoachProfilePayload;
+      };
+      if (!response.ok) throw new Error(body.error || "Could not save account.");
+      if (body.profile) {
+        setProfile(body.profile);
+        applyProfileToCoach(body.profile);
+      }
+      setMessage(
+        body.message ||
+          "Account saved. Your public page updates when your Public Slug matches /c/your-slug.",
+      );
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Could not save account.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function onPhotoSelected(file: File | null) {
+    if (!file) return;
+    setUploading(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const imageBase64 = await fileToSquareJpegBase64(file);
+      const response = await fetch(apiPath("/coach-profile"), {
+        ...coachSessionFetchInit,
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "upload-avatar", imageBase64, contentType: "image/jpeg" }),
+      });
+      const body = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        profile?: CoachProfilePayload;
+      };
+      if (!response.ok) throw new Error(body.error || "Could not upload photo.");
+      if (body.profile) {
+        setProfile(body.profile);
+        applyProfileToCoach(body.profile);
+      }
+      setMessage("Photo uploaded. It appears on your public page when your slug matches this Coaches row.");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Could not upload photo.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <section className="panel player-table-card" aria-busy="true">
+        <p className="portal-sub">Loading your account…</p>
+      </section>
+    );
+  }
+
+  const avatarSrc = profile?.avatarUrl || coach.avatarUrl;
+  const publicPath = profile?.publicPagePath || (publicSlug.trim() ? `/c/${publicSlug.trim()}` : null);
+
+  return (
+    <>
+      {message ? (
+        <section className="payments-callout" role="status">
+          <CheckCircle2 size={20} aria-hidden="true" />
+          <div>
+            <strong>{message}</strong>
+            {profile?.emailChangePending ? (
+              <p style={{ marginTop: 8 }}>
+                Sign out and request a new magic link at <strong>{email}</strong> before your next visit.
+              </p>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
+      {error ? (
+        <section className="payments-callout" role="alert">
+          <AlertTriangle size={20} aria-hidden="true" />
+          <div>
+            <strong>Something went wrong</strong>
+            <p>{error}</p>
+          </div>
+        </section>
+      ) : null}
+      <section className="panel player-table-card" aria-labelledby="coach-account-title">
+        <div className="toolbar">
+          <div>
+            <div className="page-kicker">Account</div>
+            <h2 id="coach-account-title" className="page-title">
+              Profile &amp; contact
+            </h2>
+            <p className="portal-sub" style={{ marginTop: 8, maxWidth: 640 }}>
+              Manage sign-in, contact details, and your{" "}
+              {publicPath ? (
+                <a href={publicPath} target="_blank" rel="noreferrer">
+                  public coach page
+                </a>
+              ) : (
+                "public coach page"
+              )}
+              . Photo and bio sync from Airtable when your public slug is set.
+            </p>
+          </div>
+        </div>
+        <h3 className="subsection-title" style={{ marginTop: 8 }}>
+          Photo
+        </h3>
+        <div className="form-pair" style={{ alignItems: "flex-start", marginBottom: 24 }}>
+          <div>
+            <span className="coach-pill avatar" style={{ width: 120, height: 120, borderRadius: 16 }}>
+              {avatarSrc ? (
+                <img src={avatarSrc} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              ) : (
+                <span style={{ fontSize: 32 }}>{initials(name || coach.name)}</span>
+              )}
+            </span>
+            <label className="secondary-button" style={{ display: "inline-block", marginTop: 12, cursor: uploading ? "wait" : "pointer" }}>
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                style={{ display: "none" }}
+                disabled={uploading}
+                onChange={(event) => void onPhotoSelected(event.target.files?.[0] ?? null)}
+                data-testid="input-coach-avatar"
+              />
+              {uploading ? "Uploading…" : "Upload photo"}
+            </label>
+            <p className="field-help">Square photos work best. Max 2 MB. Saved to Airtable → Avatar Image.</p>
+          </div>
+        </div>
+        <h3 className="subsection-title">Contact &amp; sign-in</h3>
+        <div className="form-layout form-layout--compact">
+          <div className="form-pair">
+            <label className="form-field">
+              <span>Full name</span>
+              <input value={name} onChange={(event) => setName(event.target.value)} data-testid="input-coach-name" />
+            </label>
+            <label className="form-field">
+              <span>Email (magic link sign-in)</span>
+              <input
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                autoComplete="email"
+                data-testid="input-coach-email"
+              />
+            </label>
+          </div>
+          <div className="form-pair">
+            <label className="form-field">
+              <span>Phone</span>
+              <input value={phone} onChange={(event) => setPhone(event.target.value)} data-testid="input-coach-phone" />
+            </label>
+            <label className="form-field">
+              <span>Training location</span>
+              <input
+                value={location}
+                onChange={(event) => setLocation(event.target.value)}
+                placeholder="e.g. South London · SE22"
+                data-testid="input-coach-location"
+              />
+            </label>
+          </div>
+        </div>
+        <h3 className="subsection-title">Public page</h3>
+        <div className="form-layout form-layout--compact">
+          <label className="form-field">
+            <span>Public page slug</span>
+            <input
+              value={publicSlug}
+              onChange={(event) => setPublicSlug(event.target.value.toLowerCase())}
+              placeholder="cobby-jones"
+              data-testid="input-coach-public-slug"
+            />
+            <p className="field-help">
+              {publicPath ? (
+                <>
+                  Parents visit <a href={publicPath}>{publicPath}</a>. Use lowercase letters, numbers, and hyphens.
+                </>
+              ) : (
+                "Set a slug so your /c/your-name page loads bio and photo from Airtable."
+              )}
+            </p>
+          </label>
+          <label className="form-field">
+            <span>Intro / bio</span>
+            <textarea
+              value={bio}
+              onChange={(event) => setBio(event.target.value)}
+              rows={5}
+              maxLength={4000}
+              placeholder="Tell parents about your coaching style, qualifications, and sessions."
+              data-testid="input-coach-bio"
+            />
+          </label>
+          <div className="form-pair">
+            <label className="form-field">
+              <span>Role line</span>
+              <input value={role} onChange={(event) => setRole(event.target.value)} data-testid="input-coach-role" />
+            </label>
+            <label className="form-field">
+              <span>Credential line</span>
+              <input
+                value={credential}
+                onChange={(event) => setCredential(event.target.value)}
+                data-testid="input-coach-credential"
+              />
+            </label>
+          </div>
+          <button
+            type="button"
+            className="primary-button"
+            disabled={saving}
+            onClick={() => void saveAccount()}
+            data-testid="button-save-coach-account"
+          >
+            {saving ? "Saving…" : "Save account"}
+          </button>
+        </div>
+      </section>
+    </>
+  );
+}
+
+function CoachAnnouncementsPanel() {
+  const [rows, setRows] = useState<CoachAnnouncementRow[]>([]);
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [publishing, setPublishing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const refreshAnnouncements = useCallback(() => {
+    return fetch(apiPath("/coach-announcements"), coachSessionFetchInit)
+      .then(async (response) => {
+        if (!response.ok) {
+          const payload = (await response.json().catch(() => ({}))) as { error?: string };
+          throw new Error(payload.error || "Could not load announcements.");
+        }
+        return response.json() as Promise<{ announcements?: CoachAnnouncementRow[] }>;
+      })
+      .then((payload) => {
+        setRows(payload.announcements ?? []);
+      });
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    refreshAnnouncements()
+      .catch((e: unknown) => {
+        if (!mounted) return;
+        setError(e instanceof Error ? e.message : "Could not load announcements.");
+      })
+      .finally(() => {
+        if (mounted) setLoading(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [refreshAnnouncements]);
+
+  async function publish() {
+    if (publishing) return;
+    setPublishing(true);
+    setToast(null);
+    setError(null);
+    try {
+      const response = await fetch(apiPath("/coach-announcements"), {
+        ...coachSessionFetchInit,
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: title.trim(), body: body.trim() }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        announcement?: CoachAnnouncementRow;
+      };
+      if (!response.ok) throw new Error(payload.error || "Could not publish.");
+      if (payload.announcement) {
+        setRows((prev) => [payload.announcement!, ...prev]);
+      } else {
+        await refreshAnnouncements();
+      }
+      setTitle("");
+      setBody("");
+      setToast("Announcement published. Parents linked to your squad can see it in the parent portal when that board is enabled.");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Could not publish.");
+    } finally {
+      setPublishing(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <section className="panel player-table-card" aria-busy="true">
+        <p className="portal-sub">Loading announcements…</p>
+      </section>
+    );
+  }
+
+  return (
+    <>
+      {toast ? (
+        <section className="payments-callout" role="status">
+          <Megaphone size={20} aria-hidden="true" />
+          <div>
+            <strong>{toast}</strong>
+          </div>
+        </section>
+      ) : null}
+      {error ? (
+        <section className="payments-callout" role="alert">
+          <AlertTriangle size={20} aria-hidden="true" />
+          <div>
+            <strong>Announcements</strong>
+            <p>{error}</p>
+          </div>
+        </section>
+      ) : null}
+      <section className="panel player-table-card" aria-labelledby="announcements-title">
+        <div className="toolbar">
+          <div>
+            <div className="page-kicker">Broadcast</div>
+            <h2 id="announcements-title" className="page-title">
+              Squad announcements
+            </h2>
+            <p className="portal-sub" style={{ marginTop: 8, maxWidth: 640 }}>
+              Post a message for parents of players linked to you. Rows land in Airtable → <strong>Announcements</strong> (Coach link, Title, Body, Active, Published At).
+            </p>
+          </div>
+        </div>
+        <div className="form-layout form-layout--compact" style={{ marginBottom: 24 }}>
+          <label className="form-field">
+            <span>Title</span>
+            <input
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              maxLength={120}
+              placeholder="e.g. Saturday session moved"
+              data-testid="input-announcement-title"
+            />
+          </label>
+          <label className="form-field">
+            <span>Message</span>
+            <textarea
+              value={body}
+              onChange={(event) => setBody(event.target.value)}
+              rows={4}
+              maxLength={4000}
+              placeholder="What parents need to know this week."
+              data-testid="input-announcement-body"
+            />
+          </label>
+          <button
+            type="button"
+            className="primary-button"
+            disabled={publishing || !title.trim() || !body.trim()}
+            onClick={() => void publish()}
+            data-testid="button-publish-announcement"
+          >
+            {publishing ? "Publishing…" : "Publish to parents"}
+          </button>
+        </div>
+        {rows.length === 0 ? (
+          <div className="empty-state">
+            <Megaphone size={32} aria-hidden="true" />
+            <h3>No announcements yet</h3>
+            <p>Your published messages will appear here and in Airtable.</p>
+          </div>
+        ) : (
+          <ul className="portal-tip-list" style={{ listStyle: "none", padding: 0, margin: 0 }}>
+            {rows.map((row) => (
+              <li
+                key={row.id}
+                style={{
+                  border: "1px solid var(--border-subtle)",
+                  borderRadius: 12,
+                  padding: "14px 16px",
+                  marginBottom: 12,
+                }}
+                data-testid={`announcement-${row.id}`}
+              >
+                <strong>{row.title}</strong>
+                <p style={{ margin: "8px 0 0", whiteSpace: "pre-wrap" }}>{row.body}</p>
+                <p className="field-help" style={{ marginTop: 8 }}>
+                  {row.publishedAt ? formatRegistrationWhen(row.publishedAt) : "Published"}
+                  {row.active ? "" : " · Inactive"}
+                </p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </>
+  );
+}
+
 function CoachDashboard() {
   const [data, setData] = useState<AdminData | null>(null);
   const [activeView, setActiveView] = useState("overview");
@@ -9184,12 +10014,34 @@ function CoachDashboard() {
   const title = {
     overview: "Overview",
     players: "Players",
+    registrations: "Enquiries",
     sessions: "Sessions",
     attendance: "Attendance",
     safeguarding: "Safeguarding",
     payments: "Payments",
+    profile: "My profile",
+    announcements: "Announcements",
     consent: "Consent Form",
   }[activeView] ?? "Overview";
+
+  function applyCoachUpdate(updated: Coach) {
+    setData((prev) => {
+      if (!prev) return prev;
+      return { ...prev, coach: updated };
+    });
+  }
+
+  function decrementNewRegistrationCount() {
+    setData((prev) => {
+      if (!prev) return prev;
+      const sidebar = prev.sidebar.map((item) =>
+        item.id === "registrations"
+          ? { ...item, count: Math.max(0, item.count - 1) }
+          : item,
+      );
+      return { ...prev, sidebar };
+    });
+  }
 
   return (
     <div className="app-shell">
@@ -9251,6 +10103,9 @@ function CoachDashboard() {
           {activeView === "players" && (
             <PlayerList players={data.players} onPlayerUpdate={applyPlayerUpdate} />
           )}
+          {activeView === "registrations" && (
+            <CoachRegistrationsPanel onInvited={decrementNewRegistrationCount} />
+          )}
           {activeView === "sessions" && (
             <Sessions
               sessions={data.sessions}
@@ -9263,6 +10118,10 @@ function CoachDashboard() {
           {activeView === "attendance" && <Attendance attendance={data.attendance} sessions={data.sessions} />}
           {activeView === "safeguarding" && <Safeguarding players={data.players} />}
           {activeView === "payments" && <Payments payments={data.payments} />}
+          {activeView === "account" && (
+            <CoachAccountPanel coach={data.coach} onCoachUpdate={applyCoachUpdate} />
+          )}
+          {activeView === "announcements" && <CoachAnnouncementsPanel />}
           {activeView === "consent" && <ConsentForm />}
         </div>
       </main>

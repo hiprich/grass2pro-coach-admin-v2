@@ -17,8 +17,28 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CoachProfile } from "./coachProfiles";
 import { renderTagline } from "./coachProfiles";
+import { apiPath } from "./lib/apiPath";
 import { buildPartnerLogo } from "./partnerLogo";
 import { enableRegistrationPush } from "./lib/registrationPush";
+
+type PublicCoachOverrides = {
+  bio?: string;
+  avatarUrl?: string;
+  location?: string;
+  name?: string;
+};
+
+function mergeCoachWithOverrides(staticCoach: CoachProfile, overrides: PublicCoachOverrides | null): CoachProfile {
+  if (!overrides) return staticCoach;
+  const avatarSrc = overrides.avatarUrl || staticCoach.avatarSrc;
+  return {
+    ...staticCoach,
+    ...(overrides.name ? { name: overrides.name } : {}),
+    ...(overrides.bio ? { bio: overrides.bio } : {}),
+    ...(overrides.location ? { location: overrides.location } : {}),
+    ...(overrides.avatarUrl ? { avatarSrc, heroSrc: staticCoach.heroSrc || avatarSrc } : {}),
+  };
+}
 
 // Derive a human-readable role label from a coach's `kicker` (the all-caps
 // eyebrow shown above their name, e.g. "FA TALENT ID L2 SCOUT · PUREPRO
@@ -168,10 +188,35 @@ function whatsappLink(coach: CoachProfile, prefilledChild?: string): string | nu
   return `https://wa.me/${coach.whatsappE164}?text=${text}`;
 }
 
-export default function CoachLandingPage({ coach }: { coach: CoachProfile }) {
+export default function CoachLandingPage({ coach: staticCoach }: { coach: CoachProfile }) {
+  const [overrides, setOverrides] = useState<PublicCoachOverrides | null>(null);
+  const coach = useMemo(
+    () => mergeCoachWithOverrides(staticCoach, overrides),
+    [staticCoach, overrides],
+  );
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [status, setStatus] = useState<RegistrationStatus>({ state: "idle" });
   const [showForm, setShowForm] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    const params = new URLSearchParams({ slug: staticCoach.slug });
+    if (staticCoach.airtableRecordId) {
+      params.set("recordId", staticCoach.airtableRecordId);
+    }
+    fetch(apiPath(`/public-coach-profile?${params.toString()}`))
+      .then((response) => (response.ok ? response.json() : null))
+      .then((payload: { overrides?: PublicCoachOverrides | null } | null) => {
+        if (!mounted) return;
+        setOverrides(payload?.overrides ?? null);
+      })
+      .catch(() => {
+        /* static profile is the fallback */
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [staticCoach.slug, staticCoach.airtableRecordId]);
 
   // Drop a "coach landing page" data attribute on <html> so the global theme
   // overrides in index.css can flip to dark + brand-on without affecting any
