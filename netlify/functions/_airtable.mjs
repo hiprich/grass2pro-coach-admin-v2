@@ -604,6 +604,20 @@ export function buildSidebar(players, counts = {}) {
 const ANNOUNCEMENTS_TABLE = () =>
   tableName("AIRTABLE_ANNOUNCEMENTS_TABLE", "Announcements", process.env.AIRTABLE_ANNOUNCEMENTS_TABLE_ID || "");
 
+/** Shown to coaches when the Announcements table is missing or misconfigured. */
+export const COACH_ANNOUNCEMENTS_UNAVAILABLE =
+  "Squad broadcasts aren't available for your account yet. Ask your Grass2Pro admin to enable parent announcements.";
+
+export function isAnnouncementsSetupError(error) {
+  const detail = String(error?.message || error || "");
+  return (
+    detail.includes("NOT_FOUND") ||
+    detail.includes("Could not find table") ||
+    detail.includes("UNKNOWN_FIELD_NAME") ||
+    detail.includes("UNKNOWN_FIELD")
+  );
+}
+
 export function normaliseAnnouncement(record) {
   const fields = record?.fields || {};
   const coachLink = fields.Coach;
@@ -643,15 +657,27 @@ export async function createCoachAnnouncement({ coachId, title, body }) {
     });
   }
   const table = ANNOUNCEMENTS_TABLE();
-  const fields = {
+  const baseFields = {
     Title: title,
     Body: body,
     Active: true,
     Coach: [coachId],
+  };
+  const withPublishedAt = {
+    ...baseFields,
     "Published At": new Date().toISOString(),
   };
-  const created = await airtableCreate(table, fields, { typecast: true });
-  return normaliseAnnouncement(created);
+  try {
+    const created = await airtableCreate(table, withPublishedAt, { typecast: true });
+    return normaliseAnnouncement(created);
+  } catch (error) {
+    const detail = String(error?.message || "");
+    if (detail.includes("UNKNOWN_FIELD") && /published/i.test(detail)) {
+      const created = await airtableCreate(table, baseFields, { typecast: true });
+      return normaliseAnnouncement(created);
+    }
+    throw error;
+  }
 }
 
 export async function getCoachAndPlayers() {

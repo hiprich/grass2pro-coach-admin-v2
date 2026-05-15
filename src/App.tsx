@@ -9732,6 +9732,7 @@ function CoachAnnouncementsPanel() {
   const [body, setBody] = useState("");
   const [loading, setLoading] = useState(true);
   const [publishing, setPublishing] = useState(false);
+  const [available, setAvailable] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -9742,10 +9743,14 @@ function CoachAnnouncementsPanel() {
           const payload = (await response.json().catch(() => ({}))) as { error?: string };
           throw new Error(payload.error || "Could not load announcements.");
         }
-        return response.json() as Promise<{ announcements?: CoachAnnouncementRow[] }>;
+        return response.json() as Promise<{
+          announcements?: CoachAnnouncementRow[];
+          available?: boolean;
+        }>;
       })
       .then((payload) => {
         setRows(payload.announcements ?? []);
+        setAvailable(payload.available !== false);
       });
   }, []);
 
@@ -9778,8 +9783,10 @@ function CoachAnnouncementsPanel() {
       });
       const payload = (await response.json().catch(() => ({}))) as {
         error?: string;
+        available?: boolean;
         announcement?: CoachAnnouncementRow;
       };
+      if (payload.available === false) setAvailable(false);
       if (!response.ok) throw new Error(payload.error || "Could not publish.");
       if (payload.announcement) {
         setRows((prev) => [payload.announcement!, ...prev]);
@@ -9818,8 +9825,17 @@ function CoachAnnouncementsPanel() {
         <section className="payments-callout" role="alert">
           <AlertTriangle size={20} aria-hidden="true" />
           <div>
-            <strong>Announcements</strong>
+            <strong>Couldn&apos;t publish</strong>
             <p>{error}</p>
+          </div>
+        </section>
+      ) : null}
+      {!available && !error ? (
+        <section className="payments-callout" role="status">
+          <Megaphone size={20} aria-hidden="true" />
+          <div>
+            <strong>Squad broadcasts aren&apos;t available yet</strong>
+            <p>Ask your Grass2Pro admin to enable parent announcements for your club.</p>
           </div>
         </section>
       ) : null}
@@ -9831,7 +9847,7 @@ function CoachAnnouncementsPanel() {
               Squad announcements
             </h2>
             <p className="portal-sub" style={{ marginTop: 8, maxWidth: 640 }}>
-              Post a message for parents of players linked to you. Rows land in Airtable → <strong>Announcements</strong> (Coach link, Title, Body, Active, Published At).
+              Post a message for parents of players linked to you.
             </p>
           </div>
         </div>
@@ -9860,7 +9876,7 @@ function CoachAnnouncementsPanel() {
           <button
             type="button"
             className="primary-button"
-            disabled={publishing || !title.trim() || !body.trim()}
+            disabled={!available || publishing || !title.trim() || !body.trim()}
             onClick={() => void publish()}
             data-testid="button-publish-announcement"
           >
@@ -9871,7 +9887,7 @@ function CoachAnnouncementsPanel() {
           <div className="empty-state">
             <Megaphone size={32} aria-hidden="true" />
             <h3>No announcements yet</h3>
-            <p>Your published messages will appear here and in Airtable.</p>
+            <p>Your published messages will appear here.</p>
           </div>
         ) : (
           <ul className="portal-tip-list" style={{ listStyle: "none", padding: 0, margin: 0 }}>
