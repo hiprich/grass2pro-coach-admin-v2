@@ -311,6 +311,28 @@ function recordIdArray(value) {
   return out;
 }
 
+// Combine linked-record coach IDs from whichever column(s) exist on the row.
+function uniqRecordIdsFromFields(fields, keys) {
+  const seen = new Set();
+  const out = [];
+  for (const key of keys) {
+    if (!fields || !Object.prototype.hasOwnProperty.call(fields, key)) continue;
+    for (const id of recordIdArray(fields[key])) {
+      if (!seen.has(id)) {
+        seen.add(id);
+        out.push(id);
+      }
+    }
+  }
+  return out;
+}
+
+/** Player sheet: primary coach link is often named "Coach" or "Lead Coach". */
+const PLAYER_COACH_LINK_FIELDS = ["Coach", "Lead Coach", "Coaches"];
+
+/** Announcements sheet: announcement rows link to Coaches. */
+const ANNOUNCEMENT_COACH_LINK_FIELDS = ["Coach", "Lead Coach"];
+
 function readableValue(value, fallback = "") {
   if (Array.isArray(value)) {
     const cleaned = value.filter((entry) => entry && !looksLikeRecordId(String(entry)));
@@ -577,6 +599,7 @@ export function normalisePlayer(record) {
     ),
     reviewDue: stringValue(fields["Review Due"] || fields["Next Review"], new Date().toISOString()),
     progressScore: numberValue(fields["Progress Score"] || fields.Progress, 0),
+    coachIds: uniqRecordIdsFromFields(fields, PLAYER_COACH_LINK_FIELDS),
   };
 }
 
@@ -601,8 +624,12 @@ export function buildSidebar(players, counts = {}) {
 
 // ---------- Coach announcements (parent-facing board) ----------
 
+// Fallback name matches the most common real-world table name ("Coach
+// Announcements"). If your base uses a different name, set
+// AIRTABLE_ANNOUNCEMENTS_TABLE (or AIRTABLE_ANNOUNCEMENTS_TABLE_ID) in your
+// Netlify environment variables.
 const ANNOUNCEMENTS_TABLE = () =>
-  tableName("AIRTABLE_ANNOUNCEMENTS_TABLE", "Announcements", process.env.AIRTABLE_ANNOUNCEMENTS_TABLE_ID || "");
+  tableName("AIRTABLE_ANNOUNCEMENTS_TABLE", "Coach Announcements", process.env.AIRTABLE_ANNOUNCEMENTS_TABLE_ID || "");
 
 /** Shown to coaches when the Announcements table is missing or misconfigured. */
 export const COACH_ANNOUNCEMENTS_UNAVAILABLE =
@@ -620,8 +647,7 @@ export function isAnnouncementsSetupError(error) {
 
 export function normaliseAnnouncement(record) {
   const fields = record?.fields || {};
-  const coachLink = fields.Coach;
-  const coachIds = Array.isArray(coachLink) ? coachLink : coachLink ? [coachLink] : [];
+  const coachIds = uniqRecordIdsFromFields(fields, ANNOUNCEMENT_COACH_LINK_FIELDS);
   return {
     id: record.id,
     title: stringValue(fields.Title || fields.Name, "Announcement"),
@@ -636,14 +662,15 @@ export async function listAnnouncementsForCoachIds(coachIds) {
   if (!hasAirtableConfig() || !coachIds?.length) return [];
   const table = ANNOUNCEMENTS_TABLE();
   if (!table) return [];
-  const uniqueIds = [...new Set(coachIds.filter(Boolean))];
-  const clauses = uniqueIds.map((id) => `FIND('${escapeFormulaString(id)}', ARRAYJOIN({Coach}))`);
-  const formula = clauses.length === 1 ? clauses[0] : `OR(${clauses.join(",")})`;
-  const records = await airtableList(table, {
-    filterByFormula: formula,
-    pageSize: "100",
-  });
+  const idSet = new Set(coachIds.filter(Boolean));
+  // List then filter in code so we don't depend on Airtable formula quirks
+  // (ARRAYJOIN + FIND on linked Coach fields can fail across bases/field names).
+  const records = await airtableList(table, { pageSize: "100" });
   return records
+    .filter((rec) => {
+      const linked = uniqRecordIdsFromFields(rec?.fields || {}, ANNOUNCEMENT_COACH_LINK_FIELDS);
+      return linked.some((id) => idSet.has(id));
+    })
     .map(normaliseAnnouncement)
     .sort((a, b) => Date.parse(b.publishedAt || "") - Date.parse(a.publishedAt || ""));
 }

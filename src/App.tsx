@@ -32,6 +32,7 @@ import {
   Search,
   Settings,
   ShieldCheck,
+  Sparkles,
   Sun,
   Trash2,
   User,
@@ -128,6 +129,7 @@ type Player = {
   medicalInformationConsent?: boolean;
   reviewDue: string;
   progressScore: number;
+  coachIds?: string[];
 };
 
 // Pitch surface options. Title Case to match the Airtable singleSelect.
@@ -6554,11 +6556,23 @@ function CoachPortal() {
 // and write to the signed-in parent's email.
 // ---------------------------------------------------------------------------
 
+/** Coach broadcast surfaced to parents linked to players on their squad */
+type ParentCoachAnnouncement = {
+  id: string;
+  title: string;
+  body: string;
+  publishedAt: string;
+  coachId: string;
+  coachName: string;
+  coachAvatarUrl: string;
+};
+
 type ParentSummary = {
   email: string;
   players: Player[];
   sessions: Session[];
   attendance: AttendanceRecord[];
+  coachAnnouncements?: ParentCoachAnnouncement[];
 };
 
 type ParentPortalView = "sign-in" | "check-email" | "verifying" | "overview" | "verify-error";
@@ -7743,6 +7757,181 @@ function ParentNotificationsCard({ flash }: { flash: PushFlash }) {
   );
 }
 
+// Stable threshold computed once at module load so render stays pure.
+const PCN_NEW_THRESHOLD_MS = 48 * 60 * 60 * 1000;
+function pcnIsNew(publishedAt: string, nowMs: number): boolean {
+  if (!publishedAt) return false;
+  return nowMs - Date.parse(publishedAt) < PCN_NEW_THRESHOLD_MS;
+}
+
+function ParentCoachNewsRail({
+  announcements,
+  players,
+  nowMs,
+}: {
+  announcements: ParentCoachAnnouncement[];
+  players: Player[];
+  nowMs: number;
+}) {
+  const rosterHasCoachLinks = players.some((p) => (p.coachIds?.length ?? 0) > 0);
+  const hasAnnouncements = announcements.length > 0;
+
+  return (
+    <section
+      className="pcn-rail"
+      aria-label="Messages from coaches"
+      data-testid="section-portal-coach-news"
+    >
+      {/* ── Section label row ─────────────────────────────── */}
+      <div className="pcn-label-row">
+        <span className="pcn-label-icon" aria-hidden="true">
+          <Megaphone size={15} strokeWidth={2.5} />
+        </span>
+        <span className="pcn-label-text">Coach broadcast</span>
+        {hasAnnouncements && (
+          <span
+            className="pcn-label-count"
+            aria-label={`${announcements.length} message${announcements.length !== 1 ? "s" : ""}`}
+          >
+            {announcements.length}
+          </span>
+        )}
+      </div>
+
+      {hasAnnouncements ? (
+        /* ── Live announcement cards ────────────────────── */
+        <div className="pcn-cards">
+          {announcements.map((item) => (
+            <article
+              key={item.id}
+              className="pcn-card"
+              data-testid={`portal-coach-announcement-${item.id}`}
+            >
+              {/* Pitch-green left stripe */}
+              <div className="pcn-card-stripe" aria-hidden="true" />
+
+              {/* Hero band: avatar + coach name + NEW badge */}
+              <div className="pcn-card-hero">
+                <div className="pcn-card-avatar-wrap">
+                  {item.coachAvatarUrl ? (
+                    <img
+                      className="pcn-card-avatar-img"
+                      src={item.coachAvatarUrl}
+                      alt={item.coachName}
+                      width={72}
+                      height={72}
+                    />
+                  ) : (
+                    <div className="pcn-card-avatar-initials" aria-hidden="true">
+                      {item.coachName
+                        .split(" ")
+                        .slice(0, 2)
+                        .map((w) => w[0])
+                        .join("")
+                        .toUpperCase()}
+                    </div>
+                  )}
+                  <div className="pcn-card-avatar-ring" aria-hidden="true" />
+                </div>
+
+                <div className="pcn-card-meta">
+                  <p className="pcn-card-from">Message from your coach</p>
+                  <p className="pcn-card-coach-name">{item.coachName}</p>
+                  {item.publishedAt && (
+                    <time className="pcn-card-time" dateTime={item.publishedAt}>
+                      {formatRegistrationWhen(item.publishedAt)}
+                    </time>
+                  )}
+                </div>
+
+                {pcnIsNew(item.publishedAt, nowMs) && (
+                  <span className="pcn-card-new-chip" aria-label="New">
+                    <Sparkles size={11} strokeWidth={2.5} aria-hidden="true" />
+                    New
+                  </span>
+                )}
+              </div>
+
+              {/* Message body */}
+              <div className="pcn-card-body">
+                <h3 className="pcn-card-title">{item.title}</h3>
+                <p className="pcn-card-text">{item.body}</p>
+              </div>
+
+              {/* Motivational footer strip */}
+              <div className="pcn-card-footer">
+                <span className="pcn-card-footer-ball" aria-hidden="true">⚽</span>
+                <span className="pcn-card-footer-copy">
+                  Lace up, hydrate, and bring your best energy to the pitch!
+                </span>
+              </div>
+
+              {/* Decorative pitch-line overlay */}
+              <div className="pcn-card-pitch-deco" aria-hidden="true">
+                <div className="pcn-card-pitch-line pcn-card-pitch-line--1" />
+                <div className="pcn-card-pitch-line pcn-card-pitch-line--2" />
+                <div className="pcn-card-pitch-circle" />
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        /* ── Empty state ────────────────────────────────── */
+        <div
+          className="pcn-empty"
+          role="status"
+          data-testid="portal-coach-news-empty"
+        >
+          {/* Animated pitch markings (background deco) */}
+          <div className="pcn-empty-pitch" aria-hidden="true">
+            <div className="pcn-empty-pitch-arc" />
+            <div className="pcn-empty-pitch-line" />
+            <div className="pcn-empty-pitch-spot" />
+          </div>
+
+          {/* Big megaphone disc */}
+          <div className="pcn-empty-icon" aria-hidden="true">
+            <Megaphone size={52} strokeWidth={1.8} />
+          </div>
+
+          <div className="pcn-empty-copy">
+            <span className="pcn-empty-chip">
+              {rosterHasCoachLinks ? "⚡ Ready to receive" : "⏳ Setting up"}
+            </span>
+            <h3 className="pcn-empty-title">
+              {rosterHasCoachLinks
+                ? "Your coach's broadcasts land here"
+                : "Coach channel coming soon"}
+            </h3>
+            <p className="pcn-empty-body">
+              {rosterHasCoachLinks ? (
+                <>
+                  When <strong>your coach</strong> publishes a message — match prep, training tips,
+                  motivational shout-outs — it drops right here in{" "}
+                  <strong>real time</strong>. Check back before the next session!
+                </>
+              ) : (
+                <>
+                  Once your child is linked to their coach in the club system, every
+                  announcement they publish will appear here instantly —{" "}
+                  <strong>no refresh needed</strong>.
+                </>
+              )}
+            </p>
+          </div>
+
+          {/* Floating decorative elements */}
+          <div className="pcn-empty-floats" aria-hidden="true">
+            <span className="pcn-empty-float pcn-empty-float--1">⚽</span>
+            <span className="pcn-empty-float pcn-empty-float--2">🏃</span>
+            <span className="pcn-empty-float pcn-empty-float--3">⚽</span>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 // localStorage key for the parent-portal onboarding hint card. Bumping the
 // suffix in future (e.g. ":v2") re-shows the card to existing parents when
 // the hint copy changes meaningfully.
@@ -7959,6 +8148,8 @@ function ParentOverviewScreen({
           {message.text}
         </div>
       ) : null}
+
+      <ParentCoachNewsRail announcements={summary.coachAnnouncements ?? []} players={summary.players} nowMs={now.getTime()} />
 
       {!onboardingDismissed && summary.players.length > 0 ? (
         <div
@@ -9795,7 +9986,7 @@ function CoachAnnouncementsPanel() {
       }
       setTitle("");
       setBody("");
-      setToast("Announcement published. Parents linked to your squad can see it in the parent portal when that board is enabled.");
+      setToast("Published! Parents linked to each child's squad will see this at the top of their portal.");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Could not publish.");
     } finally {
