@@ -200,6 +200,26 @@
     --tone-media-rest-bg: #2c2c34;
     --tone-media-rest-accent: #a09cb0;
   }
+
+  /* Coach dashboard: Logo Studio partner accent → primary tokens. App.tsx sets
+     data-coach-brand="1" and --coach-brand-accent on <html> when coach.partner
+     exists (from Airtable "Partner Config"). Drives .avatar gradient, primary
+     buttons, nav Logo Studio link tones, and overview-logo-studio icon. */
+  html[data-coach-brand="1"][data-theme="light"] {
+    --primary: var(--coach-brand-accent);
+    --primary-strong: color-mix(in srgb, var(--coach-brand-accent) 72%, #0c140a);
+    --pitch: color-mix(in srgb, var(--coach-brand-accent) 58%, #4a7a38);
+    --primary-soft: color-mix(in srgb, var(--coach-brand-accent) 22%, #fffdf7);
+    --lime: color-mix(in srgb, var(--coach-brand-accent) 48%, #eef2dc);
+  }
+
+  html[data-coach-brand="1"][data-theme="dark"] {
+    --primary: color-mix(in srgb, var(--coach-brand-accent) 62%, #d4e8bc);
+    --primary-strong: color-mix(in srgb, var(--coach-brand-accent) 78%, #f0f6e8);
+    --pitch: color-mix(in srgb, var(--coach-brand-accent) 44%, #243018);
+    --primary-soft: color-mix(in srgb, var(--coach-brand-accent) 20%, #171c16);
+    --lime: color-mix(in srgb, var(--coach-brand-accent) 52%, #c9e970);
+  }
 }
 
 @layer base {
@@ -587,6 +607,61 @@
 
   .panel {
     padding: var(--space-6);
+  }
+
+  /* Overview — Logo Studio / club branding shortcut. Icon uses --primary /
+     --primary-soft so it tracks coach brand when tokens are overridden above. */
+  .overview-logo-studio {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+    padding: var(--space-5);
+    margin-bottom: var(--space-2);
+  }
+
+  .overview-logo-studio__body {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: var(--space-4);
+    min-width: min(100%, 28rem);
+  }
+
+  .overview-logo-studio__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    border-radius: var(--radius-lg);
+    background: var(--primary-soft);
+    color: var(--primary);
+    flex-shrink: 0;
+  }
+
+  .overview-logo-studio__copy {
+    display: grid;
+    gap: var(--space-2);
+    max-width: 42rem;
+  }
+
+  .overview-logo-studio__title {
+    font-family: var(--font-display);
+    font-size: var(--text-lg);
+    font-weight: 700;
+    color: var(--text);
+    margin: 0;
+  }
+
+  .overview-logo-studio__copy p {
+    margin: 0;
+  }
+
+  .overview-logo-studio__cta {
+    text-decoration: none;
+    flex-shrink: 0;
   }
 
   .hero-copy {
