@@ -12,10 +12,13 @@
 // player not linked to this parent's email.
 import {
   TABLE_IDS,
+  airtableGet,
   airtableList,
   hasAirtableConfig,
   json,
+  listAnnouncementsForCoachIds,
   normaliseAttendance,
+  normaliseCoach,
   normalisePlayer,
   normaliseSession,
   tableName,
@@ -97,6 +100,76 @@ async function loadAttendanceForPlayers(playerIds) {
     .filter((row) => playerIdSet.has(row.playerId));
 }
 
+async function buildParentCoachAnnouncements(players) {
+  const coachIds = new Set();
+  for (const p of players) {
+    const ids = p.coachIds;
+    if (Array.isArray(ids)) {
+      for (const id of ids) {
+        if (id && typeof id === "string") coachIds.add(id);
+      }
+    }
+  }
+  const uniqueCoachIds = [...coachIds];
+
+  // Diagnostic: log exactly what we found so Netlify function logs show the
+  // full chain when debugging a "no announcements" complaint.
+  console.log(
+    `[parent-data] buildParentCoachAnnouncements: ${players.length} player(s), ` +
+    `coachIds=[${uniqueCoachIds.join(", ") || "none"}]`,
+  );
+
+  if (uniqueCoachIds.length === 0 || !hasAirtableConfig()) {
+    console.log("[parent-data] Skipping announcements — no coach IDs on player records or Airtable not configured.");
+    return [];
+  }
+
+  let rows;
+  try {
+    rows = await listAnnouncementsForCoachIds(uniqueCoachIds);
+    console.log(`[parent-data] listAnnouncementsForCoachIds returned ${rows.length} row(s).`);
+  } catch (error) {
+    // Log the full error so Netlify function logs surface table-name
+    // mismatches, token issues, or NOT_FOUND for the Announcements table.
+    console.error("[parent-data] coach announcements fetch failed:", error?.message || error);
+    return [];
+  }
+
+  const active = rows.filter((r) => r.active);
+  console.log(`[parent-data] ${active.length} active announcement(s) after filtering.`);
+
+  const coachesTable = tableName("AIRTABLE_COACHES_TABLE", "Coaches", TABLE_IDS.COACHES);
+  const coachMini = new Map();
+  await Promise.all(
+    uniqueCoachIds.map(async (cid) => {
+      try {
+        const rec = await airtableGet(coachesTable, cid);
+        const c = normaliseCoach(rec);
+        coachMini.set(cid, { name: c.name || "Coach", avatarUrl: c.avatarUrl ? String(c.avatarUrl) : "" });
+      } catch {
+        coachMini.set(cid, { name: "Your coach", avatarUrl: "" });
+      }
+    }),
+  );
+
+  return active.map((a) => {
+    const cid = a.coachId || "";
+    // Fall back: if the announcement's Coach link is missing, scan all coaches
+    // we loaded for this parent — use the first one as the attribution.
+    const fallbackCoach = coachMini.size > 0 ? coachMini.values().next().value : null;
+    const mini = (cid && coachMini.get(cid)) || fallbackCoach;
+    return {
+      id: a.id,
+      title: a.title,
+      body: a.body,
+      publishedAt: a.publishedAt || "",
+      coachId: cid || (coachMini.size > 0 ? uniqueCoachIds[0] : ""),
+      coachName: mini?.name || "Your coach",
+      coachAvatarUrl: mini?.avatarUrl || "",
+    };
+  });
+}
+
 export const handler = async (event) => {
   const method = (event.httpMethod || "GET").toUpperCase();
   if (method !== "GET") {
@@ -116,15 +189,17 @@ export const handler = async (event) => {
           players: [],
           sessions: [],
           attendance: [],
+          coachAnnouncements: [],
         }),
         parentEmail,
       );
     }
 
     const playerIds = players.map((player) => player.id);
-    const [sessions, attendance] = await Promise.all([
+    const [sessions, attendance, coachAnnouncements] = await Promise.all([
       loadRecentSessions(),
       loadAttendanceForPlayers(playerIds),
+      buildParentCoachAnnouncements(players),
     ]);
 
     // Only return attendance/sessions that intersect this parent's children.
@@ -140,6 +215,7 @@ export const handler = async (event) => {
         players,
         sessions,
         attendance: scopedAttendance,
+        coachAnnouncements,
       }),
       parentEmail,
     );
