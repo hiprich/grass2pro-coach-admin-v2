@@ -15,6 +15,17 @@ alwaysApply: true
 - Prefer squash merge on GitHub for a tidy history unless the repo standard says otherwise.
 - Do not push secrets; Airtable tokens and API keys stay server-side (Netlify env, Worker secrets, never `VITE_` for secrets).
 
+### Faster commit + push from the repo root
+
+From the project directory (after `git checkout` a feature branch, not `main`):
+
+| Command | What it does |
+|--------|----------------|
+| `npm run git:save -- "feat: short message"` | `git add -A`, commit, `git push` (sets upstream if missing). |
+| `npm run git:ship -- "feat: short message"` | Same, but runs **`npm run lint`** and **`npm run build`** first. |
+
+The `--` is required so npm forwards the commit message to the script. The script **refuses `main`** so you keep shipping through PRs.
+
 **Enforcement (optional):** In GitHub → repo **Settings → Branches** → add a rule on `main`: require a PR before merging, disallow force-push. That prevents accidental direct pushes regardless of tooling.
 
 ## Airtable
