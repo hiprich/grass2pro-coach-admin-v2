@@ -376,6 +376,93 @@ export function normaliseCoach(record) {
   };
 }
 
+/** Coaches table: omit from GET /api/public-coaches when checked/true. */
+function isHiddenFromPublicCoachDirectory(fields) {
+  return boolValue(fields["Hide from directory"]) || boolValue(fields["Directory hidden"]);
+}
+
+function sanitisePublicDirectoryPartner(partner) {
+  if (!partner || typeof partner !== "object" || Array.isArray(partner)) return null;
+  const brandName = stringValue(partner.brandName, "").trim();
+  if (!brandName) return null;
+  const monogram = stringValue(partner.monogram, "").trim();
+  const tagline = stringValue(partner.tagline, "").trim();
+  return {
+    brandName,
+    ...(monogram ? { monogram } : {}),
+    ...(tagline ? { tagline } : {}),
+  };
+}
+
+/**
+ * Public-safe projection for the parent-facing coach directory. Omits email,
+ * phone, DBS/first-aid, and internal-only fields.
+ */
+export function normalisePublicDirectoryCoach(record) {
+  if (!record) return null;
+  const fields = record?.fields || {};
+  if (isHiddenFromPublicCoachDirectory(fields)) return null;
+
+  const name = stringValue(fields["Full Name"] || fields.Name || fields["Coach Name"], "Grass2Pro Coach");
+  const role = stringValue(fields.Role || fields.Title, "Coach admin");
+  const credential = stringValue(fields.Qualification || fields.Credential || fields.Qualifications, "");
+  const location = stringValue(
+    fields.Location ||
+      fields.Venue ||
+      fields.Area ||
+      fields.City ||
+      fields["Training location"] ||
+      fields.Address,
+    "",
+  ).trim();
+  const avatarUrl = firstAttachmentUrl(fields["Avatar Image"] || fields.Avatar || fields.Photo);
+  const rawHint = stringValue(fields["Public Slug"] || fields["URL Slug"] || fields["Page Slug"] || fields.Slug, "")
+    .trim()
+    .toLowerCase();
+  const publicSlugHint = rawHint.replace(/^\/+/, "").split(/[/?#]/)[0] || "";
+  const partner = sanitisePublicDirectoryPartner(parsePartnerConfig(fields["Partner Config"]));
+
+  return {
+    id: record?.id || "coach",
+    name,
+    role,
+    credential: credential.trim(),
+    location,
+    avatarUrl: avatarUrl || "",
+    publicSlugHint,
+    partner,
+  };
+}
+
+/**
+ * All Coaches rows suitable for the public directory (no AIRTABLE_COACH_FILTER).
+ * Add optional checkbox "Hide from directory" on the Coaches table to opt out.
+ */
+export async function listPublicCoachDirectoryRows() {
+  if (!hasAirtableConfig()) {
+    const demo = normalisePublicDirectoryCoach({
+      id: "rect8JRrno85KaRNG",
+      fields: {
+        "Full Name": "Hope Bouhe",
+        Role: "FA Talent ID Level 2 Scout",
+        Qualification: "FA Talent ID Level 2",
+        Location: "Colindale Football Centre, Great Strand, NW9 5PE",
+      },
+    });
+    return demo ? [demo] : [];
+  }
+
+  const table = tableName("AIRTABLE_COACHES_TABLE", "Coaches", TABLE_IDS.COACHES);
+  const records = await airtableList(table, { pageSize: 100, maxRecords: 200 });
+  const out = [];
+  for (const rec of records) {
+    const row = normalisePublicDirectoryCoach(rec);
+    if (row) out.push(row);
+  }
+  out.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+  return out;
+}
+
 export function normalisePlayer(record) {
   const fields = record?.fields || {};
   const consentStatus = normaliseConsentStatus(fields);

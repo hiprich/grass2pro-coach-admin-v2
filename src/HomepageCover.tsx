@@ -263,7 +263,7 @@ export default function HomepageCover() {
               See my child's progress
             </a>
             <a
-              href="#coaches"
+              href="/coaches"
               className="homepage-cta homepage-cta-secondary"
               data-testid="cta-coach"
             >

@@ -138,6 +138,20 @@ export function getCoachProfile(slug: string): CoachProfile | null {
   return COACH_PROFILES[key] ?? null;
 }
 
+/** Map a row from GET /api/public-coaches to a static `/c/:slug` when possible. */
+export function resolvePublishedCoachSlug(entry: {
+  id: string;
+  publicSlugHint?: string;
+}): string | null {
+  const hint = (entry.publicSlugHint || "").trim().toLowerCase();
+  if (hint && getCoachProfile(hint)) return hint;
+  for (const slug of listCoachSlugs()) {
+    const p = getCoachProfile(slug);
+    if (p?.airtableRecordId && p.airtableRecordId === entry.id) return slug;
+  }
+  return null;
+}
+
 // Compute whole years between an ISO start date and now, rolling over on the
 // anniversary (not on the calendar year boundary). Pure function, defensive:
 // returns 0 for invalid input or future dates so the UI never shows "-1 years".
