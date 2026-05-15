@@ -22,8 +22,6 @@ import {
   tableName,
   TABLE_IDS,
 } from "./_airtable.mjs";
-import { sendRegistrationConfirmationEmail } from "./_registration-mailer.mjs";
-
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
 const COACH_REGISTRATIONS_TABLE = "Coach Registrations";
 
@@ -326,31 +324,19 @@ export const handler = async (event) => {
     }
   }
 
-  const parentEmailResult = await sendRegistrationConfirmationEmail({
-    to: parentEmail,
-    parentName,
-    coachName: coach.name,
-    childName,
-    ageGroup,
-  });
-
-  let parentPushSent = 0;
-  if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
-    try {
-      const pushUtil = await import("./_parent-push-util.mjs");
-      const parentId = await pushUtil.findParentIdByEmail(parentEmail);
-      if (parentId) {
-        const pushResult = await pushUtil.sendRegistrationPushToParent({
-          parentId,
-          coachName: coach.name,
-          childName,
-          coachSlug,
-        });
-        parentPushSent = pushResult.sent;
-      }
-    } catch (error) {
-      console.warn("[coach-register] parent push failed:", error?.message || error);
-    }
+  let parentEmailSent = false;
+  try {
+    const { sendRegistrationConfirmationEmail } = await import("./_registration-mailer.mjs");
+    const parentEmailResult = await sendRegistrationConfirmationEmail({
+      to: parentEmail,
+      parentName,
+      coachName: coach.name,
+      childName,
+      ageGroup,
+    });
+    parentEmailSent = parentEmailResult.ok;
+  } catch (error) {
+    console.warn("[coach-register] parent confirmation email failed:", error?.message || error);
   }
 
   return json(200, {
@@ -358,7 +344,8 @@ export const handler = async (event) => {
     coach: coach.name,
     notified: emailResult.ok,
     registrationId: airtableResult?.id || null,
-    parentEmailSent: parentEmailResult.ok,
-    parentPushSent: parentPushSent > 0,
+    parentEmailSent,
+    // Web Push after register is handled client-side via parent-registration-push.
+    parentPushSent: false,
   });
-}
+};
