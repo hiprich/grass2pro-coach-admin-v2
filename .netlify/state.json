@@ -1,0 +1,21 @@
+{
+	"dbConnectionString": "postgres://localhost:54497/postgres",
+	"geolocation": {
+		"data": {
+			"city": "Wandsworth",
+			"country": {
+				"code": "GB",
+				"name": "United Kingdom"
+			},
+			"subdivision": {
+				"code": "ENG",
+				"name": "England"
+			},
+			"timezone": "Europe/London",
+			"latitude": 51.4719,
+			"longitude": -0.1616,
+			"postalCode": "SW11"
+		},
+		"timestamp": 1778850895828
+	}
+}

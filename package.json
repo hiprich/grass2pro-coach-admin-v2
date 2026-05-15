@@ -10,7 +10,8 @@
     "git:save": "bash scripts/git-save-push.sh",
     "git:ship": "bash scripts/git-save-push.sh --verify",
     "preview": "vite preview",
-    "sync:partners": "node scripts/sync-partner-configs.mjs"
+    "sync:partners": "node scripts/sync-partner-configs.mjs",
+    "airtable:setup": "node scripts/airtable-setup-tables.mjs"
   },
   "dependencies": {
     "lucide-react": "^1.9.0",
