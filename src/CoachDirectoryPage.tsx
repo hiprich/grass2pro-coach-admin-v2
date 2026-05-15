@@ -28,6 +28,32 @@ function initials(name: string): string {
   return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
 }
 
+/** Searchable text: API row plus static /c/:slug profile when linked (venue/bio often live only in coachProfiles). */
+function directoryEntrySearchHaystack(entry: PublicCoachDirectoryEntry): string {
+  const partner = entry.partner?.brandName || "";
+  const chunks: string[] = [entry.name, entry.role, entry.location, entry.credential, partner];
+  const slug = resolvePublishedCoachSlug(entry);
+  if (slug) {
+    const p = getCoachProfile(slug);
+    if (p) {
+      chunks.push(
+        p.name,
+        p.tagline,
+        p.location,
+        p.bio,
+        p.pricingNote,
+        p.ageGroups,
+        p.kicker ?? "",
+        ...(p.specialisms ?? []),
+        ...(p.credentials ?? []),
+      );
+      if (p.partner?.brandName) chunks.push(p.partner.brandName);
+      if (p.partner?.tagline) chunks.push(p.partner.tagline);
+    }
+  }
+  return chunks.filter(Boolean).join(" ").toLowerCase();
+}
+
 export default function CoachDirectoryPage() {
   const [coaches, setCoaches] = useState<PublicCoachDirectoryEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -66,11 +92,7 @@ export default function CoachDirectoryPage() {
     if (!coaches) return [];
     const q = query.trim().toLowerCase();
     if (!q) return coaches;
-    return coaches.filter((c) => {
-      const partner = c.partner?.brandName || "";
-      const hay = [c.name, c.role, c.location, c.credential, partner].join(" ").toLowerCase();
-      return hay.includes(q);
-    });
+    return coaches.filter((c) => directoryEntrySearchHaystack(c).includes(q));
   }, [coaches, query]);
 
   return (
