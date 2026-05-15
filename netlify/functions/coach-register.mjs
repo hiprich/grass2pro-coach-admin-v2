@@ -23,11 +23,6 @@ import {
   TABLE_IDS,
 } from "./_airtable.mjs";
 import { sendRegistrationConfirmationEmail } from "./_registration-mailer.mjs";
-import {
-  findParentIdByEmail,
-  hasWebPushConfig,
-  sendRegistrationPushToParent,
-} from "./_parent-push-util.mjs";
 
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
 const COACH_REGISTRATIONS_TABLE = "Coach Registrations";
@@ -248,7 +243,7 @@ async function sendCoachEmail(coachName, coachEmail, payload) {
   }
 }
 
-export async function handler(event) {
+export const handler = async (event) => {
   if (event.httpMethod !== "POST") {
     return json(405, { error: "Method not allowed" });
   }
@@ -340,11 +335,12 @@ export async function handler(event) {
   });
 
   let parentPushSent = 0;
-  if (hasWebPushConfig()) {
+  if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
     try {
-      const parentId = await findParentIdByEmail(parentEmail);
+      const pushUtil = await import("./_parent-push-util.mjs");
+      const parentId = await pushUtil.findParentIdByEmail(parentEmail);
       if (parentId) {
-        const pushResult = await sendRegistrationPushToParent({
+        const pushResult = await pushUtil.sendRegistrationPushToParent({
           parentId,
           coachName: coach.name,
           childName,

@@ -1,6 +1,7 @@
 // Shared Web Push helpers for immediate (non-scheduled) parent notifications.
+// web-push is loaded dynamically so Netlify's esbuild bundle does not emit a
+// CJS wrapper that require()'s ESM modules (502 on coach-register).
 
-import webpush from "web-push";
 import {
   airtableList,
   airtableUpdate,
@@ -11,6 +12,15 @@ import {
 import { normaliseEmail } from "./_parent-session.mjs";
 
 export const KIND_REGISTRATION = "Registration Confirmation";
+
+let webpushPromise;
+
+async function getWebPush() {
+  if (!webpushPromise) {
+    webpushPromise = import("web-push").then((mod) => mod.default);
+  }
+  return webpushPromise;
+}
 
 function pushSubsTable() {
   return tableName(
@@ -24,13 +34,14 @@ function parentsTable() {
   return tableName("AIRTABLE_PARENTS_TABLE", "Parents/Guardians", TABLE_IDS.PARENTS);
 }
 
-export function configureWebPush() {
+export async function configureWebPush() {
   const publicKey = process.env.VAPID_PUBLIC_KEY;
   const privateKey = process.env.VAPID_PRIVATE_KEY;
   const subject = process.env.VAPID_SUBJECT || "mailto:noreply@grass2pro.com";
   if (!publicKey || !privateKey) {
     throw new Error("VAPID env vars not configured.");
   }
+  const webpush = await getWebPush();
   webpush.setVapidDetails(subject, publicKey, privateKey);
 }
 
@@ -80,6 +91,7 @@ async function sendOne(subscriptionRecord, payload) {
       auth: String(fields["Auth Key"] || ""),
     },
   };
+  const webpush = await getWebPush();
   return webpush.sendNotification(pushSub, payload);
 }
 
@@ -89,7 +101,7 @@ export async function sendRegistrationPushToParent({ parentId, coachName, childN
     return { sent: 0, attempted: 0, skipped: true };
   }
 
-  configureWebPush();
+  await configureWebPush();
   const subscriptions = await findActiveSubscriptionsForParent(parentId);
   if (subscriptions.length === 0) {
     return { sent: 0, attempted: 0, skipped: false };
@@ -117,4 +129,11 @@ export async function sendRegistrationPushToParent({ parentId, coachName, childN
     }
   }
   return { sent, attempted: subscriptions.length, skipped: false };
+}
+
+/** Send one push to a raw subscription (e.g. brand-new opt-in after registration). */
+export async function sendPushToEndpoint(endpoint, keys, payload) {
+  await configureWebPush();
+  const webpush = await getWebPush();
+  return webpush.sendNotification({ endpoint, keys }, payload);
 }
