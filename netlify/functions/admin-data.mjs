@@ -6,6 +6,7 @@ import {
   hasAirtableConfig,
   json,
   listAttendance,
+  listCoachRegistrationsForCoach,
   listMediaConsents,
   listSessions,
   mergeMediaConsentsIntoPlayers,
@@ -39,6 +40,16 @@ export const handler = async (event) => {
 
     const players = mergeMediaConsentsIntoPlayers(base.players, mediaConsents);
 
+    let registrationCount = 0;
+    if (gate.sessionEmail && base.coach?.id) {
+      try {
+        const registrations = await listCoachRegistrationsForCoach(base.coach.id);
+        registrationCount = registrations.filter((row) => row.status === "New").length;
+      } catch (error) {
+        console.error("admin-data registrations lookup failed:", error);
+      }
+    }
+
     return wrapCoachResponse(
       gate,
       json(200, {
@@ -49,6 +60,7 @@ export const handler = async (event) => {
         sidebar: buildSidebar(players, {
           sessions: sessions.length,
           attendance: attendance.length,
+          registrations: registrationCount,
         }),
         updatedAt: new Date().toISOString(),
       }),

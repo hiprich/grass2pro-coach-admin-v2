@@ -413,6 +413,19 @@
     letter-spacing: 0.04em;
   }
 
+  .sidebar-account {
+    border-top: 1px solid var(--border);
+    padding-top: var(--space-4);
+  }
+
+  .subsection-title {
+    margin: var(--space-5) 0 var(--space-3);
+    font-family: var(--font-display);
+    font-size: var(--text-sm);
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+
   .sidebar-card {
     display: grid;
     gap: var(--space-3);
