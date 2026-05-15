@@ -6339,6 +6339,192 @@ a.homepage-brand-linked:focus-visible {
   color: #8a9078;
 }
 
+/* /coaches — public directory + search (same dark surface as homepage). */
+.coach-directory__topbar {
+  justify-content: space-between;
+  gap: 16px;
+}
+.coach-directory__nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+}
+.coach-directory__nav-link {
+  font-size: 14px;
+  font-weight: 600;
+  color: #cdd2c4;
+  text-decoration: none;
+}
+.coach-directory__nav-link:hover {
+  color: #c9e970;
+}
+.coach-directory__main {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 32px 48px;
+}
+.coach-directory__intro {
+  padding: 8px 0 28px;
+  max-width: 42rem;
+}
+.coach-directory__kicker {
+  margin: 0 0 10px;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #8a9078;
+  font-weight: 600;
+}
+.coach-directory__title {
+  margin: 0 0 14px;
+  font-size: clamp(1.85rem, 1.2rem + 2.4vw, 2.6rem);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #ffffff;
+}
+.coach-directory__lede {
+  margin: 0;
+  font-size: 1.05rem;
+  line-height: 1.55;
+  color: #cdd2c4;
+}
+.coach-directory__search-wrap {
+  margin-bottom: 28px;
+  max-width: 28rem;
+}
+.coach-directory__search-label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #8a9078;
+}
+.coach-directory__search-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid #2a2f24;
+  background: #11150e;
+  color: #f3f5ee;
+  font-size: 16px;
+  outline: none;
+}
+.coach-directory__search-input:focus {
+  border-color: #c9e970;
+  box-shadow: 0 0 0 3px rgba(201, 233, 112, 0.2);
+}
+.coach-directory__search-input::placeholder {
+  color: #6a7060;
+}
+.coach-directory__message {
+  margin: 0 0 20px;
+  font-size: 15px;
+  color: #cdd2c4;
+}
+.coach-directory__message--error {
+  color: #ffb4a8;
+}
+.coach-directory__grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 18px;
+}
+.coach-directory__card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 22px;
+  background: #11150e;
+  border: 1px solid #2a2f24;
+  border-radius: 14px;
+  min-height: 100%;
+}
+.coach-directory__card-top {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+.coach-directory__avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: #1a1f15;
+  box-shadow: 0 0 0 2px rgba(201, 233, 112, 0.22);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.coach-directory__avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.coach-directory__avatar-fallback {
+  font-size: 15px;
+  font-weight: 800;
+  color: #c9e970;
+  letter-spacing: 0.02em;
+}
+.coach-directory__card-text {
+  min-width: 0;
+  flex: 1;
+}
+.coach-directory__card-name {
+  margin: 0 0 4px;
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: #ffffff;
+  letter-spacing: -0.01em;
+}
+.coach-directory__card-role {
+  margin: 0 0 6px;
+  font-size: 0.88rem;
+  color: #cdd2c4;
+  line-height: 1.35;
+}
+.coach-directory__card-location {
+  margin: 0 0 4px;
+  font-size: 0.82rem;
+  color: #9aa090;
+  line-height: 1.4;
+}
+.coach-directory__card-partner {
+  margin: 0 0 4px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #c9e970;
+}
+.coach-directory__card-credential {
+  margin: 0;
+  font-size: 0.78rem;
+  color: #7a8068;
+  line-height: 1.35;
+}
+.coach-directory__card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.coach-directory__no-page {
+  font-size: 13px;
+  color: #8a9078;
+  line-height: 1.4;
+}
+
 /* Page 2 — the surface revealed when the cover flips open. The whole
    hero is itself a giant tap target that flips the book back closed,
    so we add cursor: pointer + a soft hover lift on the bottom-right

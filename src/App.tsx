@@ -38,6 +38,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { PushCapability, PushSubscriptionRow } from "./lib/pushClient";
+import CoachDirectoryPage from "./CoachDirectoryPage";
 import CoachLandingPage, { CoachNotFoundPage } from "./CoachLandingPage";
 import CoachRegistrationPage from "./CoachRegistrationPage";
 import HomepageCover from "./HomepageCover";
@@ -8998,6 +8999,12 @@ function shouldRenderCoachRegistration(): boolean {
   return /^\/coach-registration(\/|\?|$)/i.test(window.location.pathname + window.location.search);
 }
 
+// `/coaches` — public directory + client-side search (Airtable-backed list).
+function shouldRenderCoachDirectory(): boolean {
+  if (typeof window === "undefined") return false;
+  return /^\/coaches(\/|\?|$)/i.test(window.location.pathname + window.location.search);
+}
+
 // `/admin` (case-insensitive, with optional trailing slash or query string)
 // routes through CoachDashboard. The parent-facing homepage now lives at
 // "/", so cold visitors who type grass2pro.com land on the cover, and the
@@ -9041,6 +9048,8 @@ function AppRoot() {
   // Bounce /home → / before any other routing decisions so the rest of the
   // matchers see the canonical URL. Returns true if we rewrote the URL.
   handleLegacyHomeRedirect();
+
+  if (shouldRenderCoachDirectory()) return <CoachDirectoryPage />;
 
   const coachSlug = matchCoachLandingSlug();
   if (coachSlug !== null) {
