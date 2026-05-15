@@ -7,6 +7,12 @@
 [functions]
   node_bundler = "esbuild"
 
+# Bundle each function as one file (avoids CJS require() of .mjs on Lambda).
+[functions."coach-register"]
+  node_bundler = "esbuild"
+[functions."parent-registration-push"]
+  node_bundler = "esbuild"
+
 [[edge_functions]]
   function = "c-slug-prerender"
   path = "/c/*"

@@ -5,29 +5,14 @@
 //   1. Validates the payload (required fields + length caps + email shape)
 //   2. Writes a row to the "Coach Registrations" Airtable table, linking it
 //      back to the Coaches table when we have a recordId for the slug
-//   3. Sends the coach an email via Resend with the parent's details
-//   4. Sends the parent a confirmation email and a Web Push (if subscribed)
+//   3. Sends the coach and parent confirmation emails via Resend (best-effort)
 //
 // The email send is best-effort: even if Resend fails (or RESEND_API_KEY is
 // unset locally), the Airtable row still lands so no enquiry is ever lost.
 // We return 200 on the Airtable write so the parent always sees success and
 // the failure is logged for the coach to chase up later.
 
-import {
-  airtableCreate,
-  airtableGet,
-  hasAirtableConfig,
-  normaliseCoach,
-  resolveCoachRecordIdFromSlug,
-  tableName,
-  TABLE_IDS,
-} from "./_airtable.mjs";
-import { sendRegistrationConfirmationEmail } from "./_registration-mailer.mjs";
-import {
-  findParentIdByEmail,
-  hasWebPushConfig,
-  sendRegistrationPushToParent,
-} from "./_parent-push-util.mjs";
+import { airtableCreate } from "./_airtable.mjs";
 
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
 const COACH_REGISTRATIONS_TABLE = "Coach Registrations";
@@ -35,9 +20,7 @@ const COACH_REGISTRATIONS_TABLE = "Coach Registrations";
 // Coach metadata for routing the email + linking the Airtable record back to
 // the matching Coach row. Mirrors src/coachProfiles.ts but kept local to the
 // function so the .mjs bundle doesn't reach into the React app source. Keep
-// these in sync when adding new coaches.
-// Keep slugs in sync with src/coachProfiles.ts and resolveCoachRecordIdFromSlug
-// in _airtable.mjs (hope-bouhe, cobby-jones, etc.).
+// these in sync when adding new coaches (every `slug` in coachProfiles.ts).
 const HOPE_COACH = {
   name: "Hope Bouhe",
   airtableRecordId: "rect8JRrno85KaRNG",
@@ -56,76 +39,6 @@ const COACH_DIRECTORY = {
   cobby: COBBY_COACH,
   "cobby-jones": COBBY_COACH,
 };
-
-function coachEmailFromEnv(coachSlug, fallback) {
-  if (coachSlug.startsWith("hope")) {
-    return process.env.HOPE_EMAIL || process.env.G2P_LEADS_EMAIL || fallback;
-  }
-  if (coachSlug.startsWith("cobby")) {
-    return process.env.COBBY_EMAIL || process.env.G2P_LEADS_EMAIL || fallback;
-  }
-  return process.env.G2P_LEADS_EMAIL || fallback;
-}
-
-/** Prefer Coaches row email when we have a record id; env overrides are fallback only. */
-async function enrichCoachFromAirtable(coachSlug, coach) {
-  if (!coach?.airtableRecordId || !hasAirtableConfig()) return coach;
-  try {
-    const table = tableName("AIRTABLE_COACHES_TABLE", "Coaches", TABLE_IDS.COACHES);
-    const record = await airtableGet(table, coach.airtableRecordId);
-    const row = normaliseCoach(record);
-    const email =
-      (row.email && row.email.includes("@") ? row.email : null) ||
-      coach.email ||
-      coachEmailFromEnv(coachSlug, "leads@grass2pro.com");
-    return {
-      ...coach,
-      name: row.name || coach.name,
-      email: String(email).trim().toLowerCase(),
-    };
-  } catch (error) {
-    console.warn("[coach-register] Could not enrich coach from Airtable:", error);
-    return coach;
-  }
-}
-
-/** Static directory first, then slug map + Coaches row (Public Slug) via Airtable. */
-async function resolveCoachForRegistration(coachSlug) {
-  const fromDirectory = COACH_DIRECTORY[coachSlug];
-  if (fromDirectory) return enrichCoachFromAirtable(coachSlug, fromDirectory);
-
-  const recordId = await resolveCoachRecordIdFromSlug(coachSlug);
-  if (!recordId) return null;
-
-  if (!hasAirtableConfig()) {
-    return {
-      name: coachSlug,
-      airtableRecordId: recordId,
-      email: process.env.G2P_LEADS_EMAIL || "leads@grass2pro.com",
-    };
-  }
-
-  try {
-    const table = tableName("AIRTABLE_COACHES_TABLE", "Coaches", TABLE_IDS.COACHES);
-    const record = await airtableGet(table, recordId);
-    const row = normaliseCoach(record);
-    const email =
-      (row.email && row.email.includes("@") ? row.email : null) ||
-      coachEmailFromEnv(coachSlug, "leads@grass2pro.com");
-    return {
-      name: row.name || "Grass2Pro Coach",
-      airtableRecordId: recordId,
-      email: String(email).trim().toLowerCase(),
-    };
-  } catch (error) {
-    console.warn("[coach-register] Could not load coach from Airtable:", error);
-    return {
-      name: coachSlug,
-      airtableRecordId: recordId,
-      email: process.env.G2P_LEADS_EMAIL || "leads@grass2pro.com",
-    };
-  }
-}
 
 const json = (statusCode, body) => ({
   statusCode,
@@ -211,6 +124,80 @@ function buildCoachEmailText({ coachName, parentName, parentEmail, parentPhone, 
   ].join("\n");
 }
 
+async function coachNotifyEmail(coach) {
+  const fallback = coach.email;
+  if (!coach.airtableRecordId || !process.env.AIRTABLE_TOKEN) return fallback;
+  try {
+    const { airtableGet, tableName, TABLE_IDS } = await import("./_airtable.mjs");
+    const table = tableName("AIRTABLE_COACHES_TABLE", "Coaches", TABLE_IDS.COACHES);
+    const record = await airtableGet(table, coach.airtableRecordId);
+    const email = record?.fields?.Email;
+    if (email && String(email).includes("@")) return String(email).trim().toLowerCase();
+  } catch (error) {
+    console.warn("[coach-register] coach email lookup failed:", error?.message || error);
+  }
+  return fallback;
+}
+
+function buildParentConfirmText({ parentName, coachName, childName, ageGroup }) {
+  const first = parentName.split(/\s+/)[0] || "there";
+  const coachFirst = coachName.split(/\s+/)[0] || coachName;
+  const base = (process.env.PARENT_PORTAL_BASE_URL || process.env.SITE_URL || "").replace(/\/+$/, "");
+  const portal = base ? `${base}/portal` : "/portal";
+  return [
+    `Hi ${first},`,
+    "",
+    `Thanks for registering ${childName} (${ageGroup}) with ${coachName} on Grass2Pro.`,
+    "",
+    `We've passed your details to ${coachFirst}. They'll be in touch within 24 hours.`,
+    "",
+    `Parent portal: ${portal}`,
+    "",
+    "— Grass2Pro",
+  ].join("\n");
+}
+
+function buildParentConfirmHtml({ parentName, coachName, childName, ageGroup }) {
+  const first = escapeHtml(parentName.split(/\s+/)[0] || "there");
+  const safeCoach = escapeHtml(coachName);
+  const coachFirst = escapeHtml(coachName.split(/\s+/)[0] || coachName);
+  const safeChild = escapeHtml(childName);
+  const safeAge = escapeHtml(ageGroup);
+  const base = (process.env.PARENT_PORTAL_BASE_URL || process.env.SITE_URL || "").replace(/\/+$/, "");
+  const link = escapeHtml(base ? `${base}/portal` : "/portal");
+  return `<!doctype html><html lang="en"><body style="margin:0;padding:0;background:#0b0d0a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#f3f5ee;"><div style="max-width:560px;margin:0 auto;padding:32px 20px;"><div style="background:#11140e;border:2px solid #c9e970;border-radius:18px;padding:28px;"><div style="font-size:12px;color:#c9e970;font-weight:800;margin-bottom:6px;">REGISTRATION RECEIVED</div><h1 style="font-size:22px;color:#fff;">Hi ${first}, we've got your enquiry.</h1><p style="color:#d6d9cf;">Thanks for registering <strong style="color:#fff;">${safeChild}</strong> (${safeAge}) with <strong style="color:#fff;">${safeCoach}</strong>.</p><p style="color:#d6d9cf;">We've passed your details to ${coachFirst}. They'll be in touch within 24 hours.</p><a href="${link}" style="display:inline-block;background:#c9e970;color:#1a2110;padding:14px 22px;border-radius:999px;font-weight:800;text-decoration:none;">Open parent portal</a></div></div></body></html>`;
+}
+
+async function sendParentConfirmationEmail({ to, parentName, coachName, childName, ageGroup }) {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    console.warn("[coach-register] RESEND_API_KEY not set; skipping parent confirmation");
+    return { ok: false };
+  }
+  const subject = `Registration received — ${childName} with ${coachName}`;
+  try {
+    const response = await fetch(RESEND_ENDPOINT, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        from: process.env.EMAIL_FROM || "Grass2Pro <noreply@grass2pro.com>",
+        to: [to],
+        subject,
+        text: buildParentConfirmText({ parentName, coachName, childName, ageGroup }),
+        html: buildParentConfirmHtml({ parentName, coachName, childName, ageGroup }),
+      }),
+    });
+    if (!response.ok) {
+      console.error("[coach-register] parent Resend rejected:", response.status, await response.text());
+      return { ok: false };
+    }
+    return { ok: true };
+  } catch (error) {
+    console.error("[coach-register] parent Resend failed:", error);
+    return { ok: false };
+  }
+}
+
 async function sendCoachEmail(coachName, coachEmail, payload) {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
@@ -269,7 +256,7 @@ export async function handler(event) {
   }
 
   const coachSlug = clean(body.coachSlug, 40).toLowerCase();
-  const coach = await resolveCoachForRegistration(coachSlug);
+  const coach = COACH_DIRECTORY[coachSlug];
   if (!coach) {
     return json(404, { error: "Unknown coach" });
   }
@@ -314,9 +301,11 @@ export async function handler(event) {
     return json(500, { error: "We couldn't save your enquiry. Please try again or message the coach on WhatsApp." });
   }
 
+  const notifyEmail = await coachNotifyEmail(coach);
+
   // Best-effort coach notification. We don't gate the user-visible success
   // on the email landing — coaches can recover from Airtable.
-  const emailResult = await sendCoachEmail(coach.name, coach.email, {
+  const emailResult = await sendCoachEmail(coach.name, notifyEmail, {
     parentName, parentEmail, parentPhone, childName, ageGroup, message, source,
   });
 
@@ -324,6 +313,9 @@ export async function handler(event) {
   // rows still need a manual nudge if Resend has a bad day.
   if (emailResult.ok && airtableResult?.id) {
     try {
+      // We use airtableCreate above for the initial write; updating the
+      // checkbox uses the same generic helper. Inline import avoids loading
+      // it on the validation early-out paths.
       const { airtableUpdate } = await import("./_airtable.mjs");
       await airtableUpdate(COACH_REGISTRATIONS_TABLE, airtableResult.id, { "Coach Notified": true });
     } catch (error) {
@@ -331,7 +323,7 @@ export async function handler(event) {
     }
   }
 
-  const parentEmailResult = await sendRegistrationConfirmationEmail({
+  const parentEmailResult = await sendParentConfirmationEmail({
     to: parentEmail,
     parentName,
     coachName: coach.name,
@@ -339,30 +331,12 @@ export async function handler(event) {
     ageGroup,
   });
 
-  let parentPushSent = 0;
-  if (hasWebPushConfig()) {
-    try {
-      const parentId = await findParentIdByEmail(parentEmail);
-      if (parentId) {
-        const pushResult = await sendRegistrationPushToParent({
-          parentId,
-          coachName: coach.name,
-          childName,
-          coachSlug,
-        });
-        parentPushSent = pushResult.sent;
-      }
-    } catch (error) {
-      console.warn("[coach-register] parent push failed:", error?.message || error);
-    }
-  }
-
   return json(200, {
     ok: true,
     coach: coach.name,
     notified: emailResult.ok,
     registrationId: airtableResult?.id || null,
     parentEmailSent: parentEmailResult.ok,
-    parentPushSent: parentPushSent > 0,
+    parentPushSent: false,
   });
 }

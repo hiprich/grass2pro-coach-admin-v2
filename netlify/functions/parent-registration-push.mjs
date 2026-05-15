@@ -18,11 +18,10 @@ import {
 import { normaliseEmail } from "./_parent-session.mjs";
 import {
   buildRegistrationPushPayload,
-  configureWebPush,
   hasWebPushConfig,
+  sendPushToEndpoint,
   sendRegistrationPushToParent,
 } from "./_parent-push-util.mjs";
-import webpush from "web-push";
 
 const COACH_REGISTRATIONS_TABLE = "Coach Registrations";
 const REGISTRATION_MAX_AGE_MS = 30 * 60 * 1000;
@@ -196,9 +195,8 @@ export const handler = async (event) => {
       pushSent = result.sent;
       // Brand-new subscription: send immediately even if parent had no prior rows.
       if (pushSent === 0) {
-        configureWebPush();
         const payload = buildRegistrationPushPayload({ coachName, childName, coachSlug });
-        await webpush.sendNotification({ endpoint, keys: { p256dh, auth } }, payload);
+        await sendPushToEndpoint(endpoint, { p256dh, auth }, payload);
         pushSent = 1;
       }
     } catch (error) {
