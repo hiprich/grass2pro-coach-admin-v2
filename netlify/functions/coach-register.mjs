@@ -5,15 +5,29 @@
 //   1. Validates the payload (required fields + length caps + email shape)
 //   2. Writes a row to the "Coach Registrations" Airtable table, linking it
 //      back to the Coaches table when we have a recordId for the slug
-//   3. Sends Hope (or whichever coach owns the slug) an email via Resend with
-//      the parent's details so he can reply directly without opening Airtable
+//   3. Sends the coach an email via Resend with the parent's details
+//   4. Sends the parent a confirmation email and a Web Push (if subscribed)
 //
 // The email send is best-effort: even if Resend fails (or RESEND_API_KEY is
 // unset locally), the Airtable row still lands so no enquiry is ever lost.
 // We return 200 on the Airtable write so the parent always sees success and
 // the failure is logged for the coach to chase up later.
 
-import { airtableCreate } from "./_airtable.mjs";
+import {
+  airtableCreate,
+  airtableGet,
+  hasAirtableConfig,
+  normaliseCoach,
+  resolveCoachRecordIdFromSlug,
+  tableName,
+  TABLE_IDS,
+} from "./_airtable.mjs";
+import { sendRegistrationConfirmationEmail } from "./_registration-mailer.mjs";
+import {
+  findParentIdByEmail,
+  hasWebPushConfig,
+  sendRegistrationPushToParent,
+} from "./_parent-push-util.mjs";
 
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
 const COACH_REGISTRATIONS_TABLE = "Coach Registrations";
@@ -21,7 +35,9 @@ const COACH_REGISTRATIONS_TABLE = "Coach Registrations";
 // Coach metadata for routing the email + linking the Airtable record back to
 // the matching Coach row. Mirrors src/coachProfiles.ts but kept local to the
 // function so the .mjs bundle doesn't reach into the React app source. Keep
-// these in sync when adding new coaches (every `slug` in coachProfiles.ts).
+// these in sync when adding new coaches.
+// Keep slugs in sync with src/coachProfiles.ts and resolveCoachRecordIdFromSlug
+// in _airtable.mjs (hope-bouhe, cobby-jones, etc.).
 const HOPE_COACH = {
   name: "Hope Bouhe",
   airtableRecordId: "rect8JRrno85KaRNG",
@@ -40,6 +56,76 @@ const COACH_DIRECTORY = {
   cobby: COBBY_COACH,
   "cobby-jones": COBBY_COACH,
 };
+
+function coachEmailFromEnv(coachSlug, fallback) {
+  if (coachSlug.startsWith("hope")) {
+    return process.env.HOPE_EMAIL || process.env.G2P_LEADS_EMAIL || fallback;
+  }
+  if (coachSlug.startsWith("cobby")) {
+    return process.env.COBBY_EMAIL || process.env.G2P_LEADS_EMAIL || fallback;
+  }
+  return process.env.G2P_LEADS_EMAIL || fallback;
+}
+
+/** Prefer Coaches row email when we have a record id; env overrides are fallback only. */
+async function enrichCoachFromAirtable(coachSlug, coach) {
+  if (!coach?.airtableRecordId || !hasAirtableConfig()) return coach;
+  try {
+    const table = tableName("AIRTABLE_COACHES_TABLE", "Coaches", TABLE_IDS.COACHES);
+    const record = await airtableGet(table, coach.airtableRecordId);
+    const row = normaliseCoach(record);
+    const email =
+      (row.email && row.email.includes("@") ? row.email : null) ||
+      coach.email ||
+      coachEmailFromEnv(coachSlug, "leads@grass2pro.com");
+    return {
+      ...coach,
+      name: row.name || coach.name,
+      email: String(email).trim().toLowerCase(),
+    };
+  } catch (error) {
+    console.warn("[coach-register] Could not enrich coach from Airtable:", error);
+    return coach;
+  }
+}
+
+/** Static directory first, then slug map + Coaches row (Public Slug) via Airtable. */
+async function resolveCoachForRegistration(coachSlug) {
+  const fromDirectory = COACH_DIRECTORY[coachSlug];
+  if (fromDirectory) return enrichCoachFromAirtable(coachSlug, fromDirectory);
+
+  const recordId = await resolveCoachRecordIdFromSlug(coachSlug);
+  if (!recordId) return null;
+
+  if (!hasAirtableConfig()) {
+    return {
+      name: coachSlug,
+      airtableRecordId: recordId,
+      email: process.env.G2P_LEADS_EMAIL || "leads@grass2pro.com",
+    };
+  }
+
+  try {
+    const table = tableName("AIRTABLE_COACHES_TABLE", "Coaches", TABLE_IDS.COACHES);
+    const record = await airtableGet(table, recordId);
+    const row = normaliseCoach(record);
+    const email =
+      (row.email && row.email.includes("@") ? row.email : null) ||
+      coachEmailFromEnv(coachSlug, "leads@grass2pro.com");
+    return {
+      name: row.name || "Grass2Pro Coach",
+      airtableRecordId: recordId,
+      email: String(email).trim().toLowerCase(),
+    };
+  } catch (error) {
+    console.warn("[coach-register] Could not load coach from Airtable:", error);
+    return {
+      name: coachSlug,
+      airtableRecordId: recordId,
+      email: process.env.G2P_LEADS_EMAIL || "leads@grass2pro.com",
+    };
+  }
+}
 
 const json = (statusCode, body) => ({
   statusCode,
@@ -183,7 +269,7 @@ export async function handler(event) {
   }
 
   const coachSlug = clean(body.coachSlug, 40).toLowerCase();
-  const coach = COACH_DIRECTORY[coachSlug];
+  const coach = await resolveCoachForRegistration(coachSlug);
   if (!coach) {
     return json(404, { error: "Unknown coach" });
   }
@@ -238,9 +324,6 @@ export async function handler(event) {
   // rows still need a manual nudge if Resend has a bad day.
   if (emailResult.ok && airtableResult?.id) {
     try {
-      // We use airtableCreate above for the initial write; updating the
-      // checkbox uses the same generic helper. Inline import avoids loading
-      // it on the validation early-out paths.
       const { airtableUpdate } = await import("./_airtable.mjs");
       await airtableUpdate(COACH_REGISTRATIONS_TABLE, airtableResult.id, { "Coach Notified": true });
     } catch (error) {
@@ -248,9 +331,38 @@ export async function handler(event) {
     }
   }
 
+  const parentEmailResult = await sendRegistrationConfirmationEmail({
+    to: parentEmail,
+    parentName,
+    coachName: coach.name,
+    childName,
+    ageGroup,
+  });
+
+  let parentPushSent = 0;
+  if (hasWebPushConfig()) {
+    try {
+      const parentId = await findParentIdByEmail(parentEmail);
+      if (parentId) {
+        const pushResult = await sendRegistrationPushToParent({
+          parentId,
+          coachName: coach.name,
+          childName,
+          coachSlug,
+        });
+        parentPushSent = pushResult.sent;
+      }
+    } catch (error) {
+      console.warn("[coach-register] parent push failed:", error?.message || error);
+    }
+  }
+
   return json(200, {
     ok: true,
     coach: coach.name,
     notified: emailResult.ok,
+    registrationId: airtableResult?.id || null,
+    parentEmailSent: parentEmailResult.ok,
+    parentPushSent: parentPushSent > 0,
   });
 }

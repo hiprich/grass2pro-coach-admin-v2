@@ -5,7 +5,8 @@
 // no auth, no sidebar, no chrome. Just the coach, what they do, where they
 // do it, and a single primary CTA — "Register with [Coach]" — that opens a
 // short form. The form posts to /api/coach-register, which writes to
-// Airtable's "Coach Registrations" table and emails the coach via Resend.
+// Airtable's "Coach Registrations" table, emails the coach, confirms the parent
+// by email, and offers a Web Push confirmation when the browser allows it.
 //
 // Brand language: lime-on-black, mirroring the "Register with Hope" CTA mock
 // the user sent. The page deliberately reads as a different surface than
@@ -17,6 +18,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { CoachProfile } from "./coachProfiles";
 import { renderTagline } from "./coachProfiles";
 import { buildPartnerLogo } from "./partnerLogo";
+import { enableRegistrationPush } from "./lib/registrationPush";
 
 // Derive a human-readable role label from a coach's `kicker` (the all-caps
 // eyebrow shown above their name, e.g. "FA TALENT ID L2 SCOUT · PUREPRO
@@ -289,8 +291,26 @@ export default function CoachLandingPage({ coach }: { coach: CoachProfile }) {
         });
         return;
       }
-      setStatus({ state: "success", coachName: payload?.coach || coach.name });
+      const coachName = payload?.coach || coach.name;
+      const savedParentEmail = form.parentEmail.trim();
+      const savedParentName = form.parentName.trim();
+      const savedParentPhone = form.parentPhone.trim();
+      const savedChildName = form.childName.trim();
+      const registrationId =
+        typeof payload?.registrationId === "string" ? payload.registrationId : "";
+
+      setStatus({ state: "success", coachName });
       setForm(EMPTY_FORM);
+
+      void enableRegistrationPush({
+        registrationId,
+        parentEmail: savedParentEmail,
+        parentName: savedParentName,
+        parentPhone: savedParentPhone,
+        coachName,
+        childName: savedChildName,
+        coachSlug: coach.slug,
+      });
     } catch {
       setStatus({
         state: "error",
@@ -480,12 +500,19 @@ export default function CoachLandingPage({ coach }: { coach: CoachProfile }) {
             <p className="coach-landing-register-blurb">
               Share a few details and {coach.name.split(" ")[0]} will reply directly to talk through fit, schedule and the next session.
             </p>
+            <p className="coach-landing-register-blurb">
+              Ready for safeguarding consent?{" "}
+              <a href={`/register?coach=${encodeURIComponent(coach.slug)}`}>Complete the full registration form</a>.
+            </p>
 
             {status.state === "success" ? (
               <div className="coach-landing-success" role="status">
                 <div className="coach-landing-success-tick" aria-hidden="true">✓</div>
                 <h3>Sent — {status.coachName} will be in touch.</h3>
-                <p>Check your inbox in the next 24 hours. If you don't hear back, message {status.coachName.split(" ")[0]} on WhatsApp.</p>
+                <p>
+                  We&apos;ve emailed you a confirmation and notified {status.coachName.split(" ")[0]}.
+                  Allow notifications if prompted — you&apos;ll get an on-screen confirmation too.
+                </p>
                 {waLink ? (
                   <a className="coach-landing-secondary" href={waLink} target="_blank" rel="noopener">
                     Open WhatsApp
