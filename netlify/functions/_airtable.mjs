@@ -624,12 +624,8 @@ export function buildSidebar(players, counts = {}) {
 
 // ---------- Coach announcements (parent-facing board) ----------
 
-// Fallback name matches the most common real-world table name ("Coach
-// Announcements"). If your base uses a different name, set
-// AIRTABLE_ANNOUNCEMENTS_TABLE (or AIRTABLE_ANNOUNCEMENTS_TABLE_ID) in your
-// Netlify environment variables.
 const ANNOUNCEMENTS_TABLE = () =>
-  tableName("AIRTABLE_ANNOUNCEMENTS_TABLE", "Coach Announcements", process.env.AIRTABLE_ANNOUNCEMENTS_TABLE_ID || "");
+  tableName("AIRTABLE_ANNOUNCEMENTS_TABLE", "Announcements", process.env.AIRTABLE_ANNOUNCEMENTS_TABLE_ID || "");
 
 /** Shown to coaches when the Announcements table is missing or misconfigured. */
 export const COACH_ANNOUNCEMENTS_UNAVAILABLE =
