@@ -131,6 +131,23 @@ export const COACH_PROFILES: Record<string, CoachProfile> = {
       // anchor opening in a new tab.
     },
   },
+  "cobby-jones": {
+    slug: "cobby-jones",
+    name: "Cobby Jones",
+    tagline: "Grass2Pro coach",
+    kicker: "GRASS2PRO COACH",
+    bio: "I'm Cobby — a Grass2Pro coach. Replace this intro in coachProfiles.ts with your own story for parents.",
+    specialisms: [
+      "Small-group technical sessions",
+      "Match-day support for parents and players",
+      "Progress tracking on Grass2Pro",
+    ],
+    ageGroups: "Contact for age groups",
+    location: "Venue on request",
+    pricingNote: "Contact Cobby for pricing",
+    avatarSrc: "/coaches/cobby-jones-avatar.jpg",
+    airtableRecordId: "recmp3FJkW3A9yyvm",
+  },
 };
 
 export function getCoachProfile(slug: string): CoachProfile | null {
