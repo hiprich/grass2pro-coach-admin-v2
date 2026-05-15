@@ -21,16 +21,24 @@ const COACH_REGISTRATIONS_TABLE = "Coach Registrations";
 // Coach metadata for routing the email + linking the Airtable record back to
 // the matching Coach row. Mirrors src/coachProfiles.ts but kept local to the
 // function so the .mjs bundle doesn't reach into the React app source. Keep
-// these in sync when adding new coaches.
+// these in sync when adding new coaches (every `slug` in coachProfiles.ts).
+const HOPE_COACH = {
+  name: "Hope Bouhe",
+  airtableRecordId: "rect8JRrno85KaRNG",
+  email: process.env.HOPE_EMAIL || process.env.G2P_LEADS_EMAIL || "leads@grass2pro.com",
+};
+
+const COBBY_COACH = {
+  name: "Cobby Jones",
+  airtableRecordId: "recmp3FJkW3A9yyvm",
+  email: process.env.COBBY_EMAIL || process.env.G2P_LEADS_EMAIL || "leads@grass2pro.com",
+};
+
 const COACH_DIRECTORY = {
-  hope: {
-    name: "Hope Bouhe",
-    airtableRecordId: "rect8JRrno85KaRNG",
-    // Inbound enquiries get sent here first. We default to a single env-driven
-    // address so we can swap mailbox without redeploying — falls back to the
-    // shared Grass2Pro inbox so we never drop a lead.
-    email: process.env.HOPE_EMAIL || process.env.G2P_LEADS_EMAIL || "leads@grass2pro.com",
-  },
+  hope: HOPE_COACH,
+  "hope-bouhe": HOPE_COACH,
+  cobby: COBBY_COACH,
+  "cobby-jones": COBBY_COACH,
 };
 
 const json = (statusCode, body) => ({
