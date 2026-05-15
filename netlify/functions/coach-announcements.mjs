@@ -4,9 +4,11 @@
 //   POST /api/coach-announcements { title, body }
 
 import {
+  COACH_ANNOUNCEMENTS_UNAVAILABLE,
   createCoachAnnouncement,
   findCoachRecordByNormalisedEmail,
   hasAirtableConfig,
+  isAnnouncementsSetupError,
   json,
   listAnnouncementsForCoachIds,
 } from "./_airtable.mjs";
@@ -23,7 +25,10 @@ export const handler = async (event) => {
 
   if (method === "GET") {
     if (!hasAirtableConfig() || !gate.sessionEmail) {
-      return wrapCoachResponse(gate, json(200, { ok: true, announcements: [], demo: true }));
+      return wrapCoachResponse(
+        gate,
+        json(200, { ok: true, announcements: [], demo: true, available: true }),
+      );
     }
     try {
       const coach = await findCoachRecordByNormalisedEmail(normaliseEmail(gate.sessionEmail));
@@ -31,17 +36,13 @@ export const handler = async (event) => {
         return wrapCoachResponse(gate, json(404, { error: "Coach profile not found." }));
       }
       const announcements = await listAnnouncementsForCoachIds([coach.id]);
-      return wrapCoachResponse(gate, json(200, { ok: true, announcements }));
+      return wrapCoachResponse(gate, json(200, { ok: true, announcements, available: true }));
     } catch (error) {
       console.error("[coach-announcements] GET", error);
-      const detail = String(error?.message || "");
-      if (detail.includes("NOT_FOUND") || detail.includes("Could not find table")) {
+      if (isAnnouncementsSetupError(error)) {
         return wrapCoachResponse(
           gate,
-          json(503, {
-            error:
-              "Announcements table is not set up in Airtable yet. Add a table named Announcements with Coach (link), Title, Body, Active, and Published At.",
-          }),
+          json(200, { ok: true, announcements: [], available: false }),
         );
       }
       return wrapCoachResponse(gate, json(500, { error: "Could not load announcements." }));
@@ -68,7 +69,12 @@ export const handler = async (event) => {
     if (!hasAirtableConfig() || !gate.sessionEmail) {
       return wrapCoachResponse(
         gate,
-        json(200, { ok: true, demo: true, announcement: { title, body: text } }),
+        json(200, {
+          ok: true,
+          demo: true,
+          available: true,
+          announcement: { title, body: text },
+        }),
       );
     }
 
@@ -78,17 +84,13 @@ export const handler = async (event) => {
         return wrapCoachResponse(gate, json(404, { error: "Coach profile not found." }));
       }
       const announcement = await createCoachAnnouncement({ coachId: coach.id, title, body: text });
-      return wrapCoachResponse(gate, json(201, { ok: true, announcement }));
+      return wrapCoachResponse(gate, json(201, { ok: true, announcement, available: true }));
     } catch (error) {
       console.error("[coach-announcements] POST", error);
-      const detail = String(error?.message || "");
-      if (detail.includes("NOT_FOUND") || detail.includes("UNKNOWN_FIELD")) {
+      if (isAnnouncementsSetupError(error)) {
         return wrapCoachResponse(
           gate,
-          json(503, {
-            error:
-              "Could not publish — check the Announcements table exists with Coach, Title, Body, Active, and Published At fields.",
-          }),
+          json(503, { error: COACH_ANNOUNCEMENTS_UNAVAILABLE, available: false }),
         );
       }
       return wrapCoachResponse(gate, json(500, { error: "Could not publish announcement." }));
