@@ -9829,7 +9829,7 @@ function CoachAccountPanel({
               Profile &amp; contact
             </h2>
             <p className="portal-sub" style={{ marginTop: 8, maxWidth: 640 }}>
-              Manage sign-in, contact details, and your{" "}
+              Manage your sign-in details, contact info, and{" "}
               {publicPath ? (
                 <a href={publicPath} target="_blank" rel="noreferrer">
                   public coach page
@@ -9837,7 +9837,7 @@ function CoachAccountPanel({
               ) : (
                 "public coach page"
               )}
-              . Photo and bio sync from Airtable when your public slug is set.
+              .
             </p>
           </div>
         </div>
@@ -10034,7 +10034,7 @@ function CoachAccountPanel({
                   Parents visit <a href={publicPath}>{publicPath}</a>. Use lowercase letters, numbers, and hyphens.
                 </>
               ) : (
-                "Set a slug so your /c/your-name page loads bio and photo from Airtable."
+                "Use lowercase letters, numbers and hyphens — e.g. cobby-jones"
               )}
             </p>
           </label>
