@@ -13,6 +13,7 @@ import {
   ClipboardList,
   Clock,
   FileText,
+  FlipHorizontal2,
   Home,
   Lock,
   LogOut,
@@ -29,6 +30,7 @@ import {
   Printer,
   QrCode,
   RotateCcw,
+  RotateCw,
   Search,
   Settings,
   ShieldCheck,
@@ -39,6 +41,8 @@ import {
   Users,
   Video,
   X,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
@@ -60,6 +64,13 @@ import {
   updatePushPrefs,
 } from "./lib/pushClient";
 import { apiAvailable, apiPath } from "./lib/apiPath";
+import {
+  DEFAULT_COACH_AVATAR_EDIT,
+  drawCoachAvatarToCanvas,
+  loadImageElementFromFile,
+  renderCoachAvatarToJpegBase64,
+  type CoachAvatarEditState,
+} from "./lib/coachAvatarEditor";
 import { postCoachAuth } from "./lib/coachAuthClient";
 
 type ConsentStatus = "green" | "amber" | "red" | "grey";
@@ -9580,27 +9591,6 @@ type CoachAnnouncementRow = {
   publishedAt: string;
 };
 
-async function fileToSquareJpegBase64(file: File): Promise<string> {
-  const bitmap = await createImageBitmap(file);
-  const crop = Math.min(bitmap.width, bitmap.height);
-  const canvas = document.createElement("canvas");
-  canvas.width = 600;
-  canvas.height = 600;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("Could not prepare image.");
-  const sx = (bitmap.width - crop) / 2;
-  const sy = (bitmap.height - crop) / 2;
-  ctx.drawImage(bitmap, sx, sy, crop, crop, 0, 0, 600, 600);
-  bitmap.close();
-  const blob = await new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Could not encode image."))), "image/jpeg", 0.88);
-  });
-  const bytes = new Uint8Array(await blob.arrayBuffer());
-  let binary = "";
-  for (let i = 0; i < bytes.length; i += 1) binary += String.fromCharCode(bytes[i]!);
-  return btoa(binary);
-}
-
 function CoachAccountPanel({
   coach,
   onCoachUpdate,
@@ -9622,6 +9612,16 @@ function CoachAccountPanel({
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [avatarCacheBust, setAvatarCacheBust] = useState(0);
+  const [draftImage, setDraftImage] = useState<HTMLImageElement | null>(null);
+  const [avatarEdit, setAvatarEdit] = useState<CoachAvatarEditState>(DEFAULT_COACH_AVATAR_EDIT);
+  const avatarFileInputRef = useRef<HTMLInputElement>(null);
+  const avatarPreviewCanvasRef = useRef<HTMLCanvasElement>(null);
+  const avatarDragRef = useRef<{ active: boolean; lastX: number; lastY: number }>({
+    active: false,
+    lastX: 0,
+    lastY: 0,
+  });
 
   useEffect(() => {
     let mounted = true;
@@ -9657,6 +9657,21 @@ function CoachAccountPanel({
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    const canvas = avatarPreviewCanvasRef.current;
+    if (!canvas || !draftImage) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const pr = Math.min(typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1, 2);
+    const css = 220;
+    canvas.width = Math.round(css * pr);
+    canvas.height = Math.round(css * pr);
+    canvas.style.width = `${css}px`;
+    canvas.style.height = `${css}px`;
+    ctx.setTransform(pr, 0, 0, pr, 0, 0);
+    drawCoachAvatarToCanvas(ctx, draftImage, avatarEdit, css);
+  }, [draftImage, avatarEdit]);
 
   function applyProfileToCoach(p: CoachProfilePayload) {
     onCoachUpdate({
@@ -9712,13 +9727,39 @@ function CoachAccountPanel({
     }
   }
 
-  async function onPhotoSelected(file: File | null) {
+  function bustedAvatarSrc(url: string | undefined | null) {
+    if (!url) return "";
+    const sep = url.includes("?") ? "&" : "?";
+    return `${url}${sep}g2pav=${avatarCacheBust}`;
+  }
+
+  async function beginDraftFromFile(file: File | null) {
     if (!file) return;
+    setError(null);
+    setMessage(null);
+    try {
+      const img = await loadImageElementFromFile(file);
+      setDraftImage(img);
+      setAvatarEdit(DEFAULT_COACH_AVATAR_EDIT);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Could not read image.");
+    } finally {
+      if (avatarFileInputRef.current) avatarFileInputRef.current.value = "";
+    }
+  }
+
+  function closeAvatarDraft() {
+    setDraftImage(null);
+    setAvatarEdit(DEFAULT_COACH_AVATAR_EDIT);
+  }
+
+  async function saveEditedAvatar() {
+    if (!draftImage) return;
     setUploading(true);
     setError(null);
     setMessage(null);
     try {
-      const imageBase64 = await fileToSquareJpegBase64(file);
+      const imageBase64 = await renderCoachAvatarToJpegBase64(draftImage, avatarEdit);
       const response = await fetch(apiPath("/coach-profile"), {
         ...coachSessionFetchInit,
         method: "POST",
@@ -9733,8 +9774,10 @@ function CoachAccountPanel({
       if (body.profile) {
         setProfile(body.profile);
         applyProfileToCoach(body.profile);
+        setAvatarCacheBust((n) => n + 1);
       }
-      setMessage("Photo uploaded. It appears on your public page when your slug matches this Coaches row.");
+      closeAvatarDraft();
+      setMessage("Photo saved. It appears on your dashboard and public page when your slug matches this Coaches row.");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Could not upload photo.");
     } finally {
@@ -9750,7 +9793,8 @@ function CoachAccountPanel({
     );
   }
 
-  const avatarSrc = profile?.avatarUrl || coach.avatarUrl;
+  const avatarRaw = profile?.avatarUrl || coach.avatarUrl;
+  const avatarSrc = bustedAvatarSrc(avatarRaw);
   const publicPath = profile?.publicPagePath || (publicSlug.trim() ? `/c/${publicSlug.trim()}` : null);
 
   return (
@@ -9800,28 +9844,145 @@ function CoachAccountPanel({
         <h3 className="subsection-title" style={{ marginTop: 8 }}>
           Photo
         </h3>
-        <div className="form-pair" style={{ alignItems: "flex-start", marginBottom: 24 }}>
-          <div>
+        <div className="coach-avatar-account-block">
+          <div className="coach-avatar-account-block__current">
             <span className="coach-pill avatar" style={{ width: 120, height: 120, borderRadius: 16 }}>
-              {avatarSrc ? (
-                <img src={avatarSrc} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              {avatarRaw ? (
+                <img
+                  key={avatarSrc}
+                  src={avatarSrc}
+                  alt=""
+                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                />
               ) : (
                 <span style={{ fontSize: 32 }}>{initials(name || coach.name)}</span>
               )}
             </span>
-            <label className="secondary-button" style={{ display: "inline-block", marginTop: 12, cursor: uploading ? "wait" : "pointer" }}>
-              <input
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                style={{ display: "none" }}
-                disabled={uploading}
-                onChange={(event) => void onPhotoSelected(event.target.files?.[0] ?? null)}
-                data-testid="input-coach-avatar"
-              />
-              {uploading ? "Uploading…" : "Upload photo"}
-            </label>
-            <p className="field-help">Square photos work best. Max 2 MB. Saved to Airtable → Avatar Image.</p>
+            <div className="coach-avatar-account-block__actions">
+              <label className="secondary-button" style={{ cursor: uploading ? "wait" : "pointer" }}>
+                <input
+                  ref={avatarFileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  style={{ display: "none" }}
+                  disabled={uploading}
+                  onChange={(event) => void beginDraftFromFile(event.target.files?.[0] ?? null)}
+                  data-testid="input-coach-avatar"
+                />
+                {draftImage ? "Choose different photo" : uploading ? "Working…" : "Replace or upload photo"}
+              </label>
+              <p className="field-help">
+                JPEG, PNG or WebP — max 2 MB. Crop, rotate and zoom below before saving. Replaces your Airtable
+                avatar.
+              </p>
+            </div>
           </div>
+
+          {draftImage ? (
+            <div className="coach-avatar-editor" aria-label="Photo adjustments">
+              <div className="coach-avatar-editor__row">
+                <div
+                  className="coach-avatar-editor__preview"
+                  onPointerDown={(e) => {
+                    if (!draftImage) return;
+                    avatarDragRef.current = { active: true, lastX: e.clientX, lastY: e.clientY };
+                    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                  }}
+                  onPointerMove={(e) => {
+                    if (!avatarDragRef.current.active || !draftImage) return;
+                    const dx = (e.clientX - avatarDragRef.current.lastX) / 220;
+                    const dy = (e.clientY - avatarDragRef.current.lastY) / 220;
+                    avatarDragRef.current.lastX = e.clientX;
+                    avatarDragRef.current.lastY = e.clientY;
+                    setAvatarEdit((s) => ({
+                      ...s,
+                      panNormX: Math.max(-1, Math.min(1, s.panNormX + dx * 2.2)),
+                      panNormY: Math.max(-1, Math.min(1, s.panNormY + dy * 2.2)),
+                    }));
+                  }}
+                  onPointerUp={(e) => {
+                    avatarDragRef.current.active = false;
+                    try {
+                      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+                    } catch {
+                      /* already released */
+                    }
+                  }}
+                  onPointerCancel={() => {
+                    avatarDragRef.current.active = false;
+                  }}
+                >
+                  <canvas ref={avatarPreviewCanvasRef} className="coach-avatar-editor__canvas" role="img" aria-label="Preview" />
+                  <span className="coach-avatar-editor__hint">Drag to reposition · square crop</span>
+                </div>
+
+                <div className="coach-avatar-editor__tools">
+                  <div className="coach-avatar-editor__tool-row">
+                    <button
+                      type="button"
+                      className="secondary-button coach-avatar-editor__icon-btn"
+                      title="Rotate 90°"
+                      onClick={() => setAvatarEdit((s) => ({ ...s, rotationDeg: (s.rotationDeg + 90) % 360 }))}
+                    >
+                      <RotateCw size={18} aria-hidden="true" />
+                      <span>Rotate</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-button coach-avatar-editor__icon-btn"
+                      title="Mirror"
+                      onClick={() => setAvatarEdit((s) => ({ ...s, flipH: !s.flipH }))}
+                    >
+                      <FlipHorizontal2 size={18} aria-hidden="true" />
+                      <span>Flip</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-button coach-avatar-editor__icon-btn"
+                      title="Reset adjustments"
+                      onClick={() => setAvatarEdit(DEFAULT_COACH_AVATAR_EDIT)}
+                    >
+                      <RotateCcw size={18} aria-hidden="true" />
+                      <span>Reset</span>
+                    </button>
+                  </div>
+                  <label className="coach-avatar-editor__zoom">
+                    <ZoomOut size={16} aria-hidden="true" />
+                    <span className="sr-only">Zoom</span>
+                    <input
+                      type="range"
+                      min={1}
+                      max={2.2}
+                      step={0.02}
+                      value={avatarEdit.zoom}
+                      onChange={(e) => setAvatarEdit((s) => ({ ...s, zoom: Number(e.target.value) }))}
+                    />
+                    <ZoomIn size={16} aria-hidden="true" />
+                    <span className="coach-avatar-editor__zoom-val">{avatarEdit.zoom.toFixed(2)}×</span>
+                  </label>
+                  <div className="coach-avatar-editor__save-row">
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      disabled={uploading}
+                      onClick={() => closeAvatarDraft()}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="primary-button"
+                      disabled={uploading}
+                      onClick={() => void saveEditedAvatar()}
+                      data-testid="button-coach-avatar-save"
+                    >
+                      {uploading ? "Saving…" : "Save photo"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
         <h3 className="subsection-title">Contact &amp; sign-in</h3>
         <div className="form-layout form-layout--compact">
