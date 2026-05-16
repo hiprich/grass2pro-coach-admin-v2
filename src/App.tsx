@@ -2291,12 +2291,15 @@ function Overview({
   // Pathway history ("moved from grassroots to academy") will come in a later
   // phase when we start writing pathway changes to a separate audit table, so
   // anything claiming movement over time is deliberately absent here.
-  const pathwayCounts = footballPathwayOptions.map((option) => ({
-    value: option.value,
-    label: option.label,
-    help: option.help,
-    count: players.filter((player) => player.footballPathway === option.value).length,
-  }));
+  // "Not currently with a team" is omitted from this grid — not needed as a KPI tile.
+  const pathwayCounts = footballPathwayOptions
+    .filter((option) => option.value !== "Not Currently With a Team")
+    .map((option) => ({
+      value: option.value,
+      label: option.label,
+      help: option.help,
+      count: players.filter((player) => player.footballPathway === option.value).length,
+    }));
   const pathwayUnset = players.filter(
     (player) => !player.footballPathway || player.footballPathway.trim() === "",
   ).length;
