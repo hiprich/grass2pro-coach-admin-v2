@@ -2291,9 +2291,13 @@ function Overview({
   // Pathway history ("moved from grassroots to academy") will come in a later
   // phase when we start writing pathway changes to a separate audit table, so
   // anything claiming movement over time is deliberately absent here.
-  // "Not currently with a team" is omitted from this grid — not needed as a KPI tile.
+  // "Not currently with a team" and "Other / unsure" are omitted from this grid
+  // — not needed as KPI tiles (pathway options stay on player records).
   const pathwayCounts = footballPathwayOptions
-    .filter((option) => option.value !== "Not Currently With a Team")
+    .filter(
+      (option) =>
+        option.value !== "Not Currently With a Team" && option.value !== "Other / Unsure",
+    )
     .map((option) => ({
       value: option.value,
       label: option.label,
