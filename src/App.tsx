@@ -10422,7 +10422,7 @@ function CoachDashboard() {
       />
       <main className="main-area" id="main-content">
         <header className="topbar">
-          <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
+          <div className="topbar-leading">
             <button className="icon-button mobile-menu" type="button" onClick={() => setSidebarOpen(true)} aria-label="Open sidebar" data-testid="button-open-sidebar">
               <Menu size={18} />
             </button>
