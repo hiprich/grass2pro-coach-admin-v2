@@ -115,7 +115,7 @@ export const demoData = {
     },
   ],
   sidebar: [
-    { id: "overview", label: "Overview", count: 5, icon: "home" },
+    { id: "overview", label: "Coach dashboard", count: 5, icon: "home" },
     { id: "players", label: "Players", count: 5, icon: "users" },
     { id: "sessions", label: "Sessions", count: 0, icon: "calendar" },
     { id: "attendance", label: "Attendance", count: 0, icon: "clipboard" },
@@ -610,7 +610,7 @@ export function buildSidebar(players, counts = {}) {
   // Attendance and Payments are sourced from their own endpoints; the
   // frontend backfills/overrides these counts from the live data it loads.
   return [
-    { id: "overview", label: "Overview", count: players.length, icon: "home" },
+    { id: "overview", label: "Coach dashboard", count: players.length, icon: "home" },
     { id: "players", label: "Players", count: players.length, icon: "users" },
     { id: "registrations", label: "Enquiries", count: counts.registrations ?? 0, icon: "mail" },
     { id: "sessions", label: "Sessions", count: counts.sessions ?? 0, icon: "calendar" },

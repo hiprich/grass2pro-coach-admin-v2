@@ -624,7 +624,7 @@ const demoData: AdminData = {
   attendance: demoAttendance,
   payments: demoPayments,
   sidebar: [
-    { id: "overview", label: "Overview", count: demoPlayers.length, icon: "home" },
+    { id: "overview", label: "Coach dashboard", count: demoPlayers.length, icon: "home" },
     { id: "players", label: "Players", count: demoPlayers.length, icon: "users" },
     { id: "registrations", label: "Enquiries", count: 0, icon: "mail" },
     { id: "sessions", label: "Sessions", count: demoSessions.length, icon: "calendar" },
@@ -790,7 +790,7 @@ const coachSessionFetchInit: RequestInit = { credentials: "include" };
 // missing or trimmed-down `sidebar` payloads from the backend never remove
 // operational pages (Sessions, Attendance, Payments) the coach needs to use.
 const navOrder: Array<{ id: string; label: string; icon: string }> = [
-  { id: "overview", label: "Overview", icon: "home" },
+  { id: "overview", label: "Coach dashboard", icon: "home" },
   { id: "players", label: "Players", icon: "users" },
   { id: "registrations", label: "Enquiries", icon: "mail" },
   { id: "sessions", label: "Sessions", icon: "calendar" },
@@ -10383,7 +10383,7 @@ function CoachDashboard() {
   if (!data) return <LoadingState />;
 
   const title = {
-    overview: "Overview",
+    overview: "Coach dashboard",
     players: "Players",
     registrations: "Enquiries",
     sessions: "Sessions",
@@ -10393,7 +10393,7 @@ function CoachDashboard() {
     profile: "My profile",
     announcements: "Announcements",
     consent: "Consent Form",
-  }[activeView] ?? "Overview";
+  }[activeView] ?? "Coach dashboard";
 
   function applyCoachUpdate(updated: Coach) {
     setData((prev) => {
