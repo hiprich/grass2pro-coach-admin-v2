@@ -2291,9 +2291,15 @@ function Overview({
   // Pathway history ("moved from grassroots to academy") will come in a later
   // phase when we start writing pathway changes to a separate audit table, so
   // anything claiming movement over time is deliberately absent here.
-  // "Not currently with a team" is omitted from this grid — not needed as a KPI tile.
+  // Overview shows only Grassroots / Academy / School tiles — not "not
+  // currently with a team", "other / unsure", or any Airtable-only spelling variant.
+  const overviewPathwayKpiValues = new Set([
+    "Grassroots Football",
+    "Academy Football",
+    "School Football",
+  ]);
   const pathwayCounts = footballPathwayOptions
-    .filter((option) => option.value !== "Not Currently With a Team")
+    .filter((option) => overviewPathwayKpiValues.has(option.value))
     .map((option) => ({
       value: option.value,
       label: option.label,
