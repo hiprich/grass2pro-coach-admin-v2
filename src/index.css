@@ -560,6 +560,28 @@
     min-width: min(18rem, 100%);
   }
 
+  /* Square preview — do not combine with .coach-pill (flex + min-width breaks img centre/cover). */
+  .coach-avatar-account-block__thumb {
+    display: grid;
+    place-items: center;
+    width: 7.5rem;
+    height: 7.5rem;
+    flex-shrink: 0;
+    overflow: hidden;
+    border-radius: var(--radius-lg);
+    border: 2px solid var(--border-strong);
+    background: var(--surface);
+    box-shadow: var(--shadow-md);
+  }
+
+  .coach-avatar-account-block__thumb-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center;
+    display: block;
+  }
+
   .coach-avatar-editor {
     padding: var(--space-4);
     border-radius: var(--radius-xl);
