@@ -1802,6 +1802,14 @@ type KpiTone =
   | "pathway-3"
   | "media";
 
+/** Seconds between each staggered coach-dashboard drop-in (KPIs, panels). */
+const COACH_DROP_IN_STEP_S = 0.12;
+
+function coachDropInDelays(): () => CSSProperties {
+  let seq = 0;
+  return () => ({ animationDelay: `${seq++ * COACH_DROP_IN_STEP_S}s` });
+}
+
 function KpiCard({
   label,
   value,
@@ -2315,10 +2323,7 @@ function Overview({
     (player) => !player.footballPathway || player.footballPathway.trim() === "",
   ).length;
 
-  let overviewDropSeq = 0;
-  const nextOverviewDrop = (): CSSProperties => ({
-    animationDelay: `${overviewDropSeq++ * 0.058}s`,
-  });
+  const nextOverviewDrop = coachDropInDelays();
 
   return (
     <>
@@ -4666,16 +4671,51 @@ function Sessions({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter, query, sessions, stateById]);
 
+  const nextDrop = coachDropInDelays();
+
   return (
     <>
       <section className="kpi-grid" aria-label="Session KPIs">
-        <KpiCard label="Upcoming" value={upcoming} foot="Sessions still to come" icon={CalendarDays} tone="media" />
-        <KpiCard label="Completed" value={completed} foot="Recent sessions delivered" icon={CheckCircle2} tone="success" />
-        <KpiCard label="Cancelled" value={cancelled} foot="Cancelled or rained off" icon={X} tone="attention" />
-        <KpiCard label="Total tracked" value={sessions.length} foot="All session records" icon={ClipboardCheck} tone="neutral" />
+        <KpiCard
+          label="Upcoming"
+          value={upcoming}
+          foot="Sessions still to come"
+          icon={CalendarDays}
+          tone="media"
+          className="overview-drop-in"
+          style={nextDrop()}
+        />
+        <KpiCard
+          label="Completed"
+          value={completed}
+          foot="Recent sessions delivered"
+          icon={CheckCircle2}
+          tone="success"
+          className="overview-drop-in"
+          style={nextDrop()}
+        />
+        <KpiCard
+          label="Cancelled"
+          value={cancelled}
+          foot="Cancelled or rained off"
+          icon={X}
+          tone="attention"
+          className="overview-drop-in"
+          style={nextDrop()}
+        />
+        <KpiCard
+          label="Total tracked"
+          value={sessions.length}
+          foot="All session records"
+          icon={ClipboardCheck}
+          tone="neutral"
+          className="overview-drop-in"
+          style={nextDrop()}
+        />
       </section>
       <section
-        className="panel player-table-card"
+        className="panel player-table-card overview-drop-in"
+        style={nextDrop()}
         aria-labelledby="sessions-title"
         data-active-filter={filter}
       >
@@ -5181,15 +5221,49 @@ function Attendance({ attendance, sessions }: { attendance: AttendanceRecord[]; 
     }));
   }, [liveRecords, sessionLookup]);
 
+  const nextDrop = coachDropInDelays();
+
   return (
     <>
       <section className="kpi-grid" aria-label="Attendance KPIs">
-        <KpiCard label="Attendance rate" value={`${attendanceRate}%`} foot="Present or late, across tracked sessions" icon={CheckCircle2} tone="neutral" />
-        <KpiCard label="Present" value={counts.present} foot="On time or early" icon={CheckCircle2} tone="success" />
-        <KpiCard label="Late" value={counts.late} foot="Arrived after session start" icon={Clock} tone="warning" />
-        <KpiCard label="Absent" value={counts.absent} foot="No show, follow up with parent" icon={AlertTriangle} tone="attention" />
+        <KpiCard
+          label="Attendance rate"
+          value={`${attendanceRate}%`}
+          foot="Present or late, across tracked sessions"
+          icon={CheckCircle2}
+          tone="neutral"
+          className="overview-drop-in"
+          style={nextDrop()}
+        />
+        <KpiCard
+          label="Present"
+          value={counts.present}
+          foot="On time or early"
+          icon={CheckCircle2}
+          tone="success"
+          className="overview-drop-in"
+          style={nextDrop()}
+        />
+        <KpiCard
+          label="Late"
+          value={counts.late}
+          foot="Arrived after session start"
+          icon={Clock}
+          tone="warning"
+          className="overview-drop-in"
+          style={nextDrop()}
+        />
+        <KpiCard
+          label="Absent"
+          value={counts.absent}
+          foot="No show, follow up with parent"
+          icon={AlertTriangle}
+          tone="attention"
+          className="overview-drop-in"
+          style={nextDrop()}
+        />
       </section>
-      <section className="panel player-table-card" aria-labelledby="attendance-title">
+      <section className="panel player-table-card overview-drop-in" style={nextDrop()} aria-labelledby="attendance-title">
         <div className="toolbar">
           <div>
             <div className="page-kicker">Attendance</div>
@@ -5350,9 +5424,11 @@ function Payments({ payments }: { payments: Payment[] }) {
     });
   }, [filter, payments, query]);
 
+  const nextDrop = coachDropInDelays();
+
   return (
     <>
-      <section className="payments-callout" role="note" aria-label="Payments safety note">
+      <section className="payments-callout overview-drop-in" role="note" aria-label="Payments safety note" style={nextDrop()}>
         <ShieldCheck size={20} aria-hidden="true" />
         <div>
           <strong>Tracking-only demo — no card or bank details should be stored in Airtable.</strong>
@@ -5362,12 +5438,44 @@ function Payments({ payments }: { payments: Payment[] }) {
         </div>
       </section>
       <section className="kpi-grid" aria-label="Payments KPIs">
-        <KpiCard label="Total due" value={formatCurrency(totals.totalDue)} foot="Sum of amounts due in demo data" icon={PoundSterling} tone="neutral" />
-        <KpiCard label="Total paid" value={formatCurrency(totals.totalPaid)} foot="Amounts marked as received" icon={Banknote} tone="success" />
-        <KpiCard label="Balance" value={formatCurrency(totals.balance)} foot="Outstanding across players" icon={ClipboardCheck} tone="warning" />
-        <KpiCard label="Overdue" value={totals.overdue} foot={`${totals.unpaid} unpaid / part-paid`} icon={AlertTriangle} tone="danger" />
+        <KpiCard
+          label="Total due"
+          value={formatCurrency(totals.totalDue)}
+          foot="Sum of amounts due in demo data"
+          icon={PoundSterling}
+          tone="neutral"
+          className="overview-drop-in"
+          style={nextDrop()}
+        />
+        <KpiCard
+          label="Total paid"
+          value={formatCurrency(totals.totalPaid)}
+          foot="Amounts marked as received"
+          icon={Banknote}
+          tone="success"
+          className="overview-drop-in"
+          style={nextDrop()}
+        />
+        <KpiCard
+          label="Balance"
+          value={formatCurrency(totals.balance)}
+          foot="Outstanding across players"
+          icon={ClipboardCheck}
+          tone="warning"
+          className="overview-drop-in"
+          style={nextDrop()}
+        />
+        <KpiCard
+          label="Overdue"
+          value={totals.overdue}
+          foot={`${totals.unpaid} unpaid / part-paid`}
+          icon={AlertTriangle}
+          tone="danger"
+          className="overview-drop-in"
+          style={nextDrop()}
+        />
       </section>
-      <section className="panel player-table-card" aria-labelledby="payments-title">
+      <section className="panel player-table-card overview-drop-in" style={nextDrop()} aria-labelledby="payments-title">
         <div className="toolbar">
           <div>
             <div className="page-kicker">Payments</div>

@@ -899,10 +899,10 @@
     }
   }
 
-  /* Coach Overview: staggered “drop in” below the page title. Delays come from inline styles. */
+  /* Coach dashboard: staggered drop-in (Overview, Sessions, Attendance, Payments). Delays from inline styles. */
   .overview-drop-in {
     opacity: 0;
-    animation: overview-drop-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: overview-drop-in 0.92s cubic-bezier(0.22, 1, 0.36, 1) both;
   }
 
   .hero-copy {
