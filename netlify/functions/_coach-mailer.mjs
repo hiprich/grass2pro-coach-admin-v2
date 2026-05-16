@@ -38,7 +38,7 @@ function textCoachMagicLink({ url, expiresInMinutes }) {
     "Use this link to sign in to your Grass2Pro coach dashboard:",
     url,
     "",
-    `The link expires in ${expiresInMinutes} minutes and can only be used once.`,
+    `The link expires in ${expiresInMinutes} minutes and works in any browser — tap it, or copy and paste it.`,
     "",
     "If you didn't request this, you can safely ignore the email.",
     "",
@@ -53,12 +53,12 @@ function htmlCoachMagicLink({ url, expiresInMinutes }) {
   <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color:#111827; background:#f9fafb; padding:24px;">
     <div style="max-width:520px; margin:0 auto; background:#ffffff; border-radius:12px; padding:32px; border:1px solid #e5e7eb;">
       <h1 style="font-size:20px; margin:0 0 16px;">Sign in to coach dashboard</h1>
-      <p style="margin:0 0 16px; line-height:1.5;">Tap the button below to open your coach workspace.</p>
+      <p style="margin:0 0 16px; line-height:1.5;">Tap the button below to open your coach workspace. The link works in any browser — Safari, Chrome, or wherever you prefer.</p>
       <p style="margin:24px 0;">
         <a href="${safeUrl}" style="display:inline-block; background:#0d6efd; color:#ffffff; text-decoration:none; padding:12px 20px; border-radius:8px; font-weight:600;">Sign in</a>
       </p>
-      <p style="margin:16px 0; color:#6b7280; font-size:14px; line-height:1.5;">Or paste this link into your browser:<br /><a href="${safeUrl}" style="color:#0d6efd; word-break:break-all;">${safeUrl}</a></p>
-      <p style="margin:24px 0 0; color:#6b7280; font-size:13px;">The link expires in ${expiresInMinutes} minutes and can only be used once. If you didn't request this, you can safely ignore the email.</p>
+      <p style="margin:16px 0; color:#6b7280; font-size:14px; line-height:1.5;">Or copy and paste this link into any browser:<br /><a href="${safeUrl}" style="color:#0d6efd; word-break:break-all;">${safeUrl}</a></p>
+      <p style="margin:24px 0 0; color:#6b7280; font-size:13px;">The link expires in ${expiresInMinutes} minutes. If you didn't request this, you can safely ignore the email.</p>
     </div>
   </body>
 </html>`;

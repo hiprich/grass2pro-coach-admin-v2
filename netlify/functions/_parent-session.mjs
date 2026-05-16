@@ -36,7 +36,7 @@ export const PARENT_SESSION_COOKIE = "g2p_parent_session";
 // this back to ~30 days and add an idle-timeout server-side; until then
 // minimum-friction wins.
 export const PARENT_SESSION_TTL_DAYS = 365;
-export const MAGIC_LINK_TTL_MINUTES = 15;
+export const MAGIC_LINK_TTL_MINUTES = 30;
 
 const TOKEN_BYTES = 32; // 256-bit token before hex-encoding
 const SESSION_VERSION = "v1";
@@ -101,19 +101,39 @@ export async function storeMagicLinkToken({ email, hash, expiresAtIso, audience 
   return airtableCreate(authTokensTable(), fields);
 }
 
-// Find an unused, unexpired auth-token row that matches the supplied raw
-// token. We scan the recent set rather than filterByFormula on the hash
-// column because Airtable's formula engine doesn't expose hashing — and
-// the table is small (one row per sign-in attempt, expiring every 15 mins).
+// Find a valid auth-token row that matches the supplied raw token.
+//
+// We filter by email on the server side (filterByFormula) so we only fetch
+// this user's tokens rather than scanning the whole Auth Tokens table. On a
+// busy deployment the table can accumulate many rows; a scoped query is both
+// faster and more reliable than a brute-force scan of the last 100 records.
+//
+// IMPORTANT — we intentionally do NOT check `fields.Used` as an access gate.
+// The problem with burning a token on first use is that email clients (Gmail
+// app, Outlook app, Apple Mail) open links in their own in-app browser. The
+// SPA loads and immediately POSTs verify-token — burning the token. If the
+// user then copies the URL and opens it in their preferred browser (Safari,
+// Chrome, etc.) they hit a "link expired" error even though the token was
+// legitimately theirs. Relying solely on the TTL as the replay-protection
+// window avoids this entirely while keeping security appropriate for a
+// consumer grassroots app. The `Used` flag is still written for audit and
+// for future token-cleanup jobs.
 export async function consumeMagicLinkToken({ email, rawToken, audience = "parent" }) {
   if (!hasAirtableConfig()) return null;
   const hash = hashToken(rawToken);
+  const targetEmail = normaliseEmail(email);
+
+  // Scope the Airtable query to this email's rows so the lookup stays fast
+  // regardless of table size. `pageSize: 10` is generous — a parent rarely
+  // has more than one or two outstanding tokens at a time.
+  const formula = `LOWER(TRIM({Email})) = '${targetEmail.replace(/'/g, "\\'")}'`;
   const records = await airtableList(authTokensTable(), {
-    pageSize: "100",
+    filterByFormula: formula,
+    pageSize: "10",
     "sort[0][field]": "Created",
     "sort[0][direction]": "desc",
   });
-  const targetEmail = normaliseEmail(email);
+
   const now = Date.now();
   const match = records.find((record) => {
     const fields = record?.fields || {};
@@ -125,13 +145,13 @@ export async function consumeMagicLinkToken({ email, rawToken, audience = "paren
     const recordHash = String(fields["Token Hash"] || "");
     if (recordHash !== hash) return false;
     if (normaliseEmail(fields.Email) !== targetEmail) return false;
-    if (fields.Used) return false;
+    // `Used` is NOT checked here — see the comment above.
     const expires = Date.parse(fields.Expires);
     if (!Number.isFinite(expires) || expires < now) return false;
     return true;
   });
   if (!match) return null;
-  // Burn the token immediately so it can't be replayed even within the TTL.
+  // Mark used for audit / cleanup purposes only. Not an access gate.
   await airtableUpdate(authTokensTable(), match.id, { Used: true });
   return match;
 }

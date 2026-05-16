@@ -6437,7 +6437,20 @@ function CoachPortal() {
     async function bootstrap() {
       if (token && email) {
         setView("verifying");
-        const result = await postCoachAuth("verify-token", { token, email });
+        let result: Awaited<ReturnType<typeof postCoachAuth>>;
+        try {
+          result = await postCoachAuth("verify-token", { token, email });
+        } catch {
+          // Network error or Airtable timeout — don't leave the user frozen
+          // on the "verifying" spinner. Show the error screen so they can
+          // request a fresh link.
+          if (!cancelled) {
+            clearCoachMagicLinkQuery();
+            setVerifyError("Network error. Please check your connection and try again.");
+            setView("verify-error");
+          }
+          return;
+        }
         if (cancelled) return;
         if (!result.ok) {
           clearCoachMagicLinkQuery();
@@ -8341,7 +8354,17 @@ function ParentPortal() {
     async function bootstrap() {
       if (token && email) {
         setView("verifying");
-        const result = await postParentAuth("verify-token", { token, email });
+        let result: Awaited<ReturnType<typeof postParentAuth>>;
+        try {
+          result = await postParentAuth("verify-token", { token, email });
+        } catch {
+          if (!cancelled) {
+            clearMagicLinkQuery();
+            setVerifyError("Network error. Please check your connection and try again.");
+            setView("verify-error");
+          }
+          return;
+        }
         if (cancelled) return;
         if (!result.ok) {
           clearMagicLinkQuery();
