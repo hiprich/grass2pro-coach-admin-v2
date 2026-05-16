@@ -10436,7 +10436,6 @@ function CoachDashboard() {
               <Menu size={18} />
             </button>
             <div>
-              <div className="page-kicker">Coach workspace</div>
               <div className="page-title" style={{ fontSize: "var(--text-lg)" }}>
                 {title}
               </div>
