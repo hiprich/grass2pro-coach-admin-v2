@@ -624,7 +624,7 @@ const demoData: AdminData = {
   attendance: demoAttendance,
   payments: demoPayments,
   sidebar: [
-    { id: "overview", label: "Overview", count: demoPlayers.length, icon: "home" },
+    { id: "overview", label: "Coach dashboard", count: demoPlayers.length, icon: "home" },
     { id: "players", label: "Players", count: demoPlayers.length, icon: "users" },
     { id: "registrations", label: "Enquiries", count: 0, icon: "mail" },
     { id: "sessions", label: "Sessions", count: demoSessions.length, icon: "calendar" },
@@ -790,7 +790,7 @@ const coachSessionFetchInit: RequestInit = { credentials: "include" };
 // missing or trimmed-down `sidebar` payloads from the backend never remove
 // operational pages (Sessions, Attendance, Payments) the coach needs to use.
 const navOrder: Array<{ id: string; label: string; icon: string }> = [
-  { id: "overview", label: "Overview", icon: "home" },
+  { id: "overview", label: "Coach dashboard", icon: "home" },
   { id: "players", label: "Players", icon: "users" },
   { id: "registrations", label: "Enquiries", icon: "mail" },
   { id: "sessions", label: "Sessions", icon: "calendar" },
@@ -2291,12 +2291,15 @@ function Overview({
   // Pathway history ("moved from grassroots to academy") will come in a later
   // phase when we start writing pathway changes to a separate audit table, so
   // anything claiming movement over time is deliberately absent here.
-  const pathwayCounts = footballPathwayOptions.map((option) => ({
-    value: option.value,
-    label: option.label,
-    help: option.help,
-    count: players.filter((player) => player.footballPathway === option.value).length,
-  }));
+  // "Not currently with a team" is omitted from this grid — not needed as a KPI tile.
+  const pathwayCounts = footballPathwayOptions
+    .filter((option) => option.value !== "Not Currently With a Team")
+    .map((option) => ({
+      value: option.value,
+      label: option.label,
+      help: option.help,
+      count: players.filter((player) => player.footballPathway === option.value).length,
+    }));
   const pathwayUnset = players.filter(
     (player) => !player.footballPathway || player.footballPathway.trim() === "",
   ).length;
@@ -10380,7 +10383,7 @@ function CoachDashboard() {
   if (!data) return <LoadingState />;
 
   const title = {
-    overview: "Overview",
+    overview: "Coach dashboard",
     players: "Players",
     registrations: "Enquiries",
     sessions: "Sessions",
@@ -10390,7 +10393,7 @@ function CoachDashboard() {
     profile: "My profile",
     announcements: "Announcements",
     consent: "Consent Form",
-  }[activeView] ?? "Overview";
+  }[activeView] ?? "Coach dashboard";
 
   function applyCoachUpdate(updated: Coach) {
     setData((prev) => {

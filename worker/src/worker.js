@@ -79,7 +79,7 @@ const demoData = {
     },
   ],
   sidebar: [
-    { id: "overview", label: "Overview", count: 4, icon: "home" },
+    { id: "overview", label: "Coach dashboard", count: 4, icon: "home" },
     { id: "players", label: "Players", count: 4, icon: "users" },
     { id: "sessions", label: "Sessions", count: 0, icon: "calendar" },
     { id: "attendance", label: "Attendance", count: 0, icon: "clipboard" },
@@ -329,7 +329,7 @@ function buildSidebar(players, counts = {}) {
   // Payments are populated from their dedicated endpoints by the dashboard
   // — counts default to 0 here and are overridden client-side from live data.
   return [
-    { id: "overview", label: "Overview", count: players.length, icon: "home" },
+    { id: "overview", label: "Coach dashboard", count: players.length, icon: "home" },
     { id: "players", label: "Players", count: players.length, icon: "users" },
     { id: "sessions", label: "Sessions", count: counts.sessions ?? 0, icon: "calendar" },
     { id: "attendance", label: "Attendance", count: counts.attendance ?? 0, icon: "clipboard" },
