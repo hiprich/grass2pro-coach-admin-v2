@@ -12,7 +12,6 @@ import {
   ClipboardCheck,
   ClipboardList,
   Clock,
-  FileText,
   FlipHorizontal2,
   Home,
   Lock,
@@ -632,7 +631,6 @@ const demoData: AdminData = {
     { id: "safeguarding", label: "Safeguarding", count: demoPlayers.filter((p) => p.consentStatus === "grey" || p.consentStatus === "red").length, icon: "shield" },
     { id: "payments", label: "Payments", count: demoPayments.length, icon: "pound" },
     { id: "announcements", label: "Announcements", count: 0, icon: "megaphone" },
-    { id: "consent", label: "Consent Form", count: 0, icon: "file" },
   ],
   updatedAt: new Date().toISOString(),
 };
@@ -706,7 +704,6 @@ const iconMap = {
   settings: Settings,
   megaphone: Megaphone,
   shield: ShieldCheck,
-  file: FileText,
   calendar: CalendarDays,
   clipboard: ClipboardList,
   pound: PoundSterling,
@@ -798,7 +795,6 @@ const navOrder: Array<{ id: string; label: string; icon: string }> = [
   { id: "safeguarding", label: "Safeguarding", icon: "shield" },
   { id: "payments", label: "Payments", icon: "pound" },
   { id: "announcements", label: "Announcements", icon: "megaphone" },
-  { id: "consent", label: "Consent Form", icon: "file" },
 ];
 
 function buildStableSidebar(data: {
@@ -839,7 +835,6 @@ function buildStableSidebar(data: {
     attendance: data.attendance.length,
     safeguarding: needsAction,
     payments: data.payments.length,
-    consent: 0,
   };
   return navOrder.map((item) => {
     const fromServer = serverById.get(item.id);
@@ -917,8 +912,8 @@ async function loadAdminData(): Promise<AdminData> {
     }
 
     // Always project the backend sidebar onto the canonical nav order so a
-    // trimmed admin-data payload (e.g. only Overview/Players/Safeguarding/
-    // Consent) cannot drop operational tabs from the UI.
+    // trimmed admin-data payload (e.g. only Overview/Players/Safeguarding)
+    // cannot drop operational tabs from the UI.
     base.sidebar = buildStableSidebar({
       players: base.players,
       sessions: base.sessions,
@@ -9289,7 +9284,7 @@ function shouldRenderScan(): boolean {
 }
 
 // `/register` is the public consent / sign-up form for parents. We render
-// the same <ConsentForm /> the coach view uses, just standalone, so a parent
+// <ConsentForm /> standalone so a parent who already has one child enrolled
 // who already has one child enrolled can deeplink here from their portal
 // ("Add another child") without us building a duplicate form. Accepts an
 // optional ?parentEmail= query param so the form pre-fills the verified
@@ -10398,7 +10393,6 @@ function CoachDashboard() {
     payments: "Payments",
     profile: "My profile",
     announcements: "Announcements",
-    consent: "Consent Form",
   }[activeView] ?? "Coach dashboard";
 
   function applyCoachUpdate(updated: Coach) {
@@ -10498,7 +10492,6 @@ function CoachDashboard() {
             <CoachAccountPanel coach={data.coach} onCoachUpdate={applyCoachUpdate} />
           )}
           {activeView === "announcements" && <CoachAnnouncementsPanel />}
-          {activeView === "consent" && <ConsentForm />}
         </div>
       </main>
     </div>

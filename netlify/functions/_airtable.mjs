@@ -121,7 +121,6 @@ export const demoData = {
     { id: "attendance", label: "Attendance", count: 0, icon: "clipboard" },
     { id: "safeguarding", label: "Safeguarding", count: 2, icon: "shield" },
     { id: "payments", label: "Payments", count: 0, icon: "pound" },
-    { id: "consent", label: "Consent Form", count: 0, icon: "file" },
   ],
   updatedAt: new Date().toISOString(),
 };
@@ -618,7 +617,6 @@ export function buildSidebar(players, counts = {}) {
     { id: "safeguarding", label: "Safeguarding", count: needsAction, icon: "shield" },
     { id: "payments", label: "Payments", count: counts.payments ?? 0, icon: "pound" },
     { id: "announcements", label: "Announcements", count: counts.announcements ?? 0, icon: "megaphone" },
-    { id: "consent", label: "Consent Form", count: 0, icon: "file" },
   ];
 }
 
