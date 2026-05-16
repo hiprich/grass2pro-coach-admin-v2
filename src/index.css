@@ -887,6 +887,24 @@
     flex-shrink: 0;
   }
 
+  @keyframes overview-drop-in {
+    from {
+      opacity: 0;
+      transform: translateY(-1.1rem);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  /* Coach Overview: staggered “drop in” below the page title. Delays come from inline styles. */
+  .overview-drop-in {
+    opacity: 0;
+    animation: overview-drop-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
   .hero-copy {
     display: grid;
     gap: var(--space-4);

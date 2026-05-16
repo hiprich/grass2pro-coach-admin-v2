@@ -44,7 +44,7 @@ import {
   ZoomOut,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { FormEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
+import type { CSSProperties, FormEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { PushCapability, PushSubscriptionRow } from "./lib/pushClient";
 import CoachDirectoryPage from "./CoachDirectoryPage";
 import CoachLandingPage, { CoachNotFoundPage } from "./CoachLandingPage";
@@ -1808,18 +1808,23 @@ function KpiCard({
   foot,
   icon: Icon,
   tone,
+  className,
+  style,
 }: {
   label: string;
   value: number | string;
   foot: string;
   icon: typeof Users;
   tone?: KpiTone;
+  className?: string;
+  style?: CSSProperties;
 }) {
   return (
     <article
-      className="kpi-card"
+      className={["kpi-card", className].filter(Boolean).join(" ")}
       data-tone={tone}
       data-testid={`card-kpi-${label.toLowerCase().replace(/\s+/g, "-")}`}
+      style={style}
     >
       <div className="kpi-label">
         <span>{label}</span>
@@ -1866,11 +1871,15 @@ function OnPitchCard({
   attendance,
   players,
   onAttendanceUpdate,
+  className,
+  style,
 }: {
   sessions: Session[];
   attendance: AttendanceRecord[];
   players: Player[];
   onAttendanceUpdate?: (records: AttendanceRecord[]) => void;
+  className?: string;
+  style?: CSSProperties;
 }) {
   // Tick once a minute so the active-session detection re-evaluates as time
   // crosses session boundaries (e.g. arrival window opens, departure window
@@ -2102,11 +2111,12 @@ function OnPitchCard({
 
   return (
     <article
-      className="kpi-card on-pitch-card"
+      className={["kpi-card", "on-pitch-card", className].filter(Boolean).join(" ")}
       data-tone={cardTone}
       data-overdue={isOverdue && displayNames.length > 0 ? "true" : undefined}
       data-testid="card-kpi-on-the-pitch"
       aria-live="polite"
+      style={style}
     >
       <div className="kpi-label">
         <span>On the Pitch</span>
@@ -2305,9 +2315,18 @@ function Overview({
     (player) => !player.footballPathway || player.footballPathway.trim() === "",
   ).length;
 
+  let overviewDropSeq = 0;
+  const nextOverviewDrop = (): CSSProperties => ({
+    animationDelay: `${overviewDropSeq++ * 0.058}s`,
+  });
+
   return (
     <>
-      <section className="overview-logo-studio card" aria-label="Logo Studio shortcut">
+      <section
+        className="overview-logo-studio card overview-drop-in"
+        style={nextOverviewDrop()}
+        aria-label="Logo Studio shortcut"
+      >
         <div className="overview-logo-studio__body">
           <div className="overview-logo-studio__icon" aria-hidden="true">
             <Palette size={22} strokeWidth={2.25} />
@@ -2325,7 +2344,15 @@ function Overview({
       </section>
 
       <section className="kpi-grid" aria-label="Player KPIs">
-        <KpiCard label="Players" value={players.length} foot="Squad total" icon={Users} tone="neutral" />
+        <KpiCard
+          label="Players"
+          value={players.length}
+          foot="Squad total"
+          icon={Users}
+          tone="neutral"
+          className="overview-drop-in"
+          style={nextOverviewDrop()}
+        />
         {/* Phase A3: live roster of children currently checked in to an
             active session. Sits next to "Players · Squad total" — same grid,
             same chrome, but renders names instead of a single number. The
@@ -2337,13 +2364,39 @@ function Overview({
           attendance={data.attendance}
           players={data.players}
           onAttendanceUpdate={onAttendanceUpdate}
+          className="overview-drop-in"
+          style={nextOverviewDrop()}
         />
-        <KpiCard label="Full consent" value={fullConsent} foot="Photo, video and review ready" icon={CheckCircle2} tone="success" />
-        <KpiCard label="Limited consent" value={limited} foot="Internal-only or channel limits" icon={AlertTriangle} tone="warning" />
-        <KpiCard label="Withdrawn" value={withdrawn} foot="Media usage blocked" icon={X} tone="danger" />
+        <KpiCard
+          label="Full consent"
+          value={fullConsent}
+          foot="Photo, video and review ready"
+          icon={CheckCircle2}
+          tone="success"
+          className="overview-drop-in"
+          style={nextOverviewDrop()}
+        />
+        <KpiCard
+          label="Limited consent"
+          value={limited}
+          foot="Internal-only or channel limits"
+          icon={AlertTriangle}
+          tone="warning"
+          className="overview-drop-in"
+          style={nextOverviewDrop()}
+        />
+        <KpiCard
+          label="Withdrawn"
+          value={withdrawn}
+          foot="Media usage blocked"
+          icon={X}
+          tone="danger"
+          className="overview-drop-in"
+          style={nextOverviewDrop()}
+        />
       </section>
 
-      <div className="section-heading">
+      <div className="section-heading overview-drop-in" style={nextOverviewDrop()}>
         <div className="page-kicker">Football pathway</div>
         <p>
           Where each player sits today. A useful conversation starter with new parents — it shows the
@@ -2359,6 +2412,8 @@ function Overview({
             foot={entry.help}
             icon={Users}
             tone={pathwayToneFor(entry.value)}
+            className="overview-drop-in"
+            style={nextOverviewDrop()}
           />
         ))}
         {pathwayUnset > 0 && (
@@ -2368,12 +2423,18 @@ function Overview({
             foot="Existing players awaiting a pathway choice"
             icon={ClipboardList}
             tone="neutral"
+            className="overview-drop-in"
+            style={nextOverviewDrop()}
           />
         )}
       </section>
 
       {(pendingLeave.length > 0 || pendingErasure.length > 0) && (
-        <section className="panel action-needed-card" aria-labelledby="action-needed-title">
+        <section
+          className="panel action-needed-card overview-drop-in"
+          style={nextOverviewDrop()}
+          aria-labelledby="action-needed-title"
+        >
           <div className="toolbar">
             <div>
               <div className="page-kicker">Heads up</div>
@@ -2488,7 +2549,7 @@ function Overview({
       )}
 
       <section className="cards-grid">
-        <article className="card mini-card" data-tone="media-lavender">
+        <article className="card mini-card overview-drop-in" data-tone="media-lavender" style={nextOverviewDrop()}>
           <Camera size={20} aria-hidden="true" />
           <h3>Session photos</h3>
           <p>{(() => {
@@ -2498,7 +2559,7 @@ function Overview({
               : `${n} players allow photos during sessions.`;
           })()}</p>
         </article>
-        <article className="card mini-card" data-tone="media-plum">
+        <article className="card mini-card overview-drop-in" data-tone="media-plum" style={nextOverviewDrop()}>
           <Camera size={20} aria-hidden="true" />
           <h3>Match photos</h3>
           <p>{(() => {
@@ -2508,7 +2569,7 @@ function Overview({
               : `${n} players allow photos during matches.`;
           })()}</p>
         </article>
-        <article className="card mini-card" data-tone="media-indigo">
+        <article className="card mini-card overview-drop-in" data-tone="media-indigo" style={nextOverviewDrop()}>
           <Video size={20} aria-hidden="true" />
           <h3>Coaching video review</h3>
           <p>{(() => {
@@ -2518,7 +2579,7 @@ function Overview({
               : `${n} players have permission for training analysis footage.`;
           })()}</p>
         </article>
-        <article className="card mini-card" data-tone="media-violet">
+        <article className="card mini-card overview-drop-in" data-tone="media-violet" style={nextOverviewDrop()}>
           <Video size={20} aria-hidden="true" />
           <h3>Match video</h3>
           <p>{(() => {
@@ -2528,7 +2589,7 @@ function Overview({
               : `${n} players allow match footage for coach analysis.`;
           })()}</p>
         </article>
-        <article className="card mini-card" data-tone={needsAction === 0 ? "media-rest" : "attention"}>
+        <article className="card mini-card overview-drop-in" data-tone={needsAction === 0 ? "media-rest" : "attention"} style={nextOverviewDrop()}>
           <ShieldCheck size={20} aria-hidden="true" />
           <h3>Needs follow-up</h3>
           <p>{needsAction === 1
