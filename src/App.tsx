@@ -9846,13 +9846,13 @@ function CoachAccountPanel({
         </h3>
         <div className="coach-avatar-account-block">
           <div className="coach-avatar-account-block__current">
-            <span className="coach-pill avatar" style={{ width: 120, height: 120, borderRadius: 16 }}>
+            <span className="avatar coach-avatar-account-block__thumb">
               {avatarRaw ? (
                 <img
                   key={avatarSrc}
                   src={avatarSrc}
                   alt=""
-                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                  className="coach-avatar-account-block__thumb-img"
                 />
               ) : (
                 <span style={{ fontSize: 32 }}>{initials(name || coach.name)}</span>
