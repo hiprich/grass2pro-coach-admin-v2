@@ -100,7 +100,88 @@ async function loadAttendanceForPlayers(playerIds) {
     .filter((row) => playerIdSet.has(row.playerId));
 }
 
-async function buildParentCoachAnnouncements(players) {
+/** When no session anchor exists, keep broadcasts visible for this many days. */
+const ANNOUNCEMENT_FALLBACK_VISIBLE_DAYS = 14;
+
+function startOfUtcDayFromDateStr(dateStr) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(dateStr || "").trim());
+  if (!m) return null;
+  return Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 0, 0, 0, 0);
+}
+
+function endOfUtcDayFromDateStr(dateStr) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(dateStr || "").trim());
+  if (!m) return null;
+  return Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 23, 59, 59, 999);
+}
+
+function startOfUtcDayFromPublishedAt(iso) {
+  const ms = Date.parse(iso || "");
+  if (!Number.isFinite(ms)) return null;
+  const d = new Date(ms);
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0);
+}
+
+function sessionMatchesPlayers(session, players) {
+  if (session.state === "cancelled") return false;
+  const pids = Array.isArray(session.playerIds) ? session.playerIds : [];
+  const playerIdSet = new Set(players.map((p) => p.id));
+  if (pids.some((id) => playerIdSet.has(id))) return true;
+  const teamNorm = String(session.team || "").trim().toLowerCase();
+  const ageNorm = String(session.ageGroup || "").trim().toLowerCase();
+  if (!teamNorm) return false;
+  return players.some(
+    (p) =>
+      String(p.team || "").trim().toLowerCase() === teamNorm &&
+      String(p.ageGroup || "").trim().toLowerCase() === ageNorm,
+  );
+}
+
+/**
+ * Latest instant (UTC ms) the announcement should still appear in the parent portal.
+ * Priority:
+ *  1. Linked Session field(s) on the announcement row → end of that session's calendar day
+ *     (latest end if multiple links). If IDs aren't in the loaded session list, fall through.
+ *  2. First non-cancelled session on or after publish day that matches the parent's players
+ *     (Players link on session, else Team + Age Group match) → end of that session's day.
+ *  3. Fallback: publishedAt + ANNOUNCEMENT_FALLBACK_VISIBLE_DAYS.
+ */
+function announcementVisibleThroughMs(ann, sessions, players) {
+  const sessionById = new Map(sessions.map((s) => [s.id, s]));
+  const linkedIds = ann.linkedSessionIds || [];
+  if (linkedIds.length > 0) {
+    const ends = linkedIds
+      .map((id) => sessionById.get(id))
+      .filter(Boolean)
+      .map((s) => endOfUtcDayFromDateStr(s.date))
+      .filter((x) => x != null);
+    if (ends.length > 0) return Math.max(...ends);
+  }
+
+  const publishStart = startOfUtcDayFromPublishedAt(ann.publishedAt) ?? 0;
+  const matching = sessions
+    .filter((s) => s.state !== "cancelled" && sessionMatchesPlayers(s, players))
+    .map((s) => {
+      const start = startOfUtcDayFromDateStr(s.date);
+      const end = endOfUtcDayFromDateStr(s.date);
+      return { start, end };
+    })
+    .filter((row) => row.start != null && row.end != null && row.start >= publishStart)
+    .sort((a, b) => a.start - b.start);
+
+  if (matching.length > 0) return matching[0].end;
+
+  const pub = Date.parse(ann.publishedAt || "");
+  return Number.isFinite(pub)
+    ? pub + ANNOUNCEMENT_FALLBACK_VISIBLE_DAYS * 24 * 60 * 60 * 1000
+    : Date.now() + 24 * 60 * 60 * 1000;
+}
+
+function filterAnnouncementsBySessionExpiry(announcements, sessions, players, nowMs = Date.now()) {
+  return announcements.filter((ann) => nowMs <= announcementVisibleThroughMs(ann, sessions, players));
+}
+
+async function buildParentCoachAnnouncements(players, sessions) {
   const coachIds = new Set();
   for (const p of players) {
     const ids = p.coachIds;
@@ -136,7 +217,36 @@ async function buildParentCoachAnnouncements(players) {
   }
 
   const active = rows.filter((r) => r.active);
-  console.log(`[parent-data] ${active.length} active announcement(s) after filtering.`);
+  console.log(`[parent-data] ${active.length} active announcement(s) after Active filter.`);
+
+  let sessionsForExpiry = sessions;
+  const missingSessionIds = new Set();
+  for (const ann of active) {
+    for (const sid of ann.linkedSessionIds || []) {
+      if (sid && !sessions.some((s) => s.id === sid)) missingSessionIds.add(sid);
+    }
+  }
+  if (missingSessionIds.size > 0) {
+    const sessionsTable = tableName("AIRTABLE_SESSIONS_TABLE", "Sessions", TABLE_IDS.SESSIONS);
+    const extras = await Promise.all(
+      [...missingSessionIds].map(async (sid) => {
+        try {
+          const rec = await airtableGet(sessionsTable, sid);
+          return normaliseSession(rec);
+        } catch {
+          return null;
+        }
+      }),
+    );
+    sessionsForExpiry = [...sessions, ...extras.filter(Boolean)];
+  }
+
+  const visible = filterAnnouncementsBySessionExpiry(active, sessionsForExpiry, players);
+  if (visible.length !== active.length) {
+    console.log(
+      `[parent-data] session-expiry: ${visible.length} visible broadcast(s) (${active.length - visible.length} past anchor session day).`,
+    );
+  }
 
   const coachesTable = tableName("AIRTABLE_COACHES_TABLE", "Coaches", TABLE_IDS.COACHES);
   const coachMini = new Map();
@@ -152,7 +262,7 @@ async function buildParentCoachAnnouncements(players) {
     }),
   );
 
-  return active.map((a) => {
+  return visible.map((a) => {
     const cid = a.coachId || "";
     // Fall back: if the announcement's Coach link is missing, scan all coaches
     // we loaded for this parent — use the first one as the attribution.
@@ -196,11 +306,11 @@ export const handler = async (event) => {
     }
 
     const playerIds = players.map((player) => player.id);
-    const [sessions, attendance, coachAnnouncements] = await Promise.all([
+    const [sessions, attendance] = await Promise.all([
       loadRecentSessions(),
       loadAttendanceForPlayers(playerIds),
-      buildParentCoachAnnouncements(players),
     ]);
+    const coachAnnouncements = await buildParentCoachAnnouncements(players, sessions);
 
     // Only return attendance/sessions that intersect this parent's children.
     const recentSessionIds = new Set(sessions.map((session) => session.id));

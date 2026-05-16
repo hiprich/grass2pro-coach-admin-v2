@@ -641,6 +641,9 @@ export function isAnnouncementsSetupError(error) {
   );
 }
 
+/** Announcements sheet: optional link to Sessions (drives parent-portal expiry). */
+const ANNOUNCEMENT_SESSION_LINK_FIELDS = ["Session", "Training Session", "Related Session"];
+
 export function normaliseAnnouncement(record) {
   const fields = record?.fields || {};
   const coachIds = uniqRecordIdsFromFields(fields, ANNOUNCEMENT_COACH_LINK_FIELDS);
@@ -651,6 +654,7 @@ export function normaliseAnnouncement(record) {
     active: fields.Active === undefined ? true : boolValue(fields.Active),
     publishedAt: stringValue(fields["Published At"] || fields["Created At"] || record?.createdTime, ""),
     coachId: coachIds[0] || null,
+    linkedSessionIds: uniqRecordIdsFromFields(fields, ANNOUNCEMENT_SESSION_LINK_FIELDS),
   };
 }
 

@@ -312,6 +312,9 @@ export const handler = async (event) => {
     const ext = contentType.includes("png") ? "png" : contentType.includes("webp") ? "webp" : "jpg";
 
     try {
+      // Airtable multiple-attachments fields *append* on upload — clear first so
+      // the new file replaces the previous avatar instead of stacking behind it.
+      await airtableUpdate(COACHES_TABLE(), coachRecord.id, { [avatarField]: [] });
       await uploadAvatarToAirtable(
         coachRecord.id,
         avatarField,
